@@ -21,12 +21,28 @@ export type Reviewer = {
   submittedAt: string | null
 }
 
+export type LinearStatus = {
+  id: string
+  name: string
+  type: string
+  color: string
+}
+
+export type LinearAssignee = {
+  id: string
+  name: string
+  avatarUrl: string | null
+}
+
 export type LinearIssue = {
   identifier: string
   title: string | null
   url: string | null
   projectId: string | null
   projectName: string | null
+  teamId?: string | null
+  status?: LinearStatus | null
+  assignee?: LinearAssignee | null
 }
 
 export type PullRequest = {

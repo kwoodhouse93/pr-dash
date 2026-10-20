@@ -219,7 +219,7 @@ export function App() {
         {data?.warning ? <div className="banner">{data.warning}</div> : null}
         {data && !data.linearConfigured && prs.some((pr) => pr.linearIssues.length > 0) ? (
           <div className="banner">
-            Set LINEAR_API_KEY to load Linear project names. Issue titles still come from GitHub, and initiatives do not need Linear.
+            Set LINEAR_API_KEY to load Linear status, assignee, and project. Issue titles still come from GitHub, and initiatives do not need Linear.
           </div>
         ) : null}
         <div className="scroll">
@@ -265,6 +265,8 @@ export function App() {
                   return api.assign(created.id, keys, 'add')
                 })
               }}
+              linearConfigured={Boolean(data?.linearConfigured)}
+              onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
               onRerun={async (keys, mode) => {
                 const result = await api.rerun(keys, mode)
                 const text = result.errors.length

@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { checkPhase, ciDetail, ciLabel, worstCi } from '../shared/ci.ts'
 import type { StackSummary } from '../shared/stacks.ts'
-import type { Check, Initiative, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
+import type { Check, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, StackBlock } from '../shared/view.ts'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
+import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
 import { ClickCard, HoverCard } from './menus.tsx'
+
+const COLUMNS = 12
 
 export function PrTable({
   outline,
@@ -20,6 +23,8 @@ export function PrTable({
   onAssign,
   onCreateAssigned,
   onRerun,
+  linearConfigured,
+  onUpdateIssue,
 }: {
   outline: Outline
   sort: Sort
@@ -33,6 +38,8 @@ export function PrTable({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  linearConfigured: boolean
+  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
   const tones = stackTones(outline)
@@ -48,12 +55,14 @@ export function PrTable({
     onAssign,
     onCreateAssigned,
     onRerun,
+    linearConfigured,
+    onUpdateIssue,
   }
   return (
     <table className="prs">
       <thead>
         <tr>
-          <th aria-label="Expand" />
+          <th className="grip" aria-label="Stack" />
           <th className="num">#</th>
           <SortHeader label="Title" sortKey="title" sort={sort} onSort={onSort} />
           <SortHeader label="Repo" sortKey="repo" sort={sort} onSort={onSort} />
@@ -61,6 +70,7 @@ export function PrTable({
           <SortHeader label="Created" sortKey="created" sort={sort} onSort={onSort} />
           <SortHeader label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
           <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
+          <th className="conflict">Conflict</th>
           <th>Review</th>
           <th>Feedback</th>
           <th aria-label="Actions" />
@@ -132,12 +142,14 @@ type RowShared = {
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  linearConfigured: boolean
+  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }
 
 function Band({ title }: { title: string }) {
   return (
     <tr className="band">
-      <td colSpan={11}>
+      <td colSpan={COLUMNS}>
         <span className="section-title">{title}</span>
       </td>
     </tr>
@@ -149,7 +161,7 @@ function ProjectRows({ title, issues, ...shared }: { title: string; issues: Buck
   return (
     <>
       <tr className="project depth-1">
-        <td colSpan={11}>
+        <td colSpan={COLUMNS}>
           <span className="section-title">{title}</span>
           <span className="section-meta">{count === 1 ? '1 pull request' : `${count} pull requests`}</span>
         </td>
@@ -166,15 +178,20 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
     <>
       {bucket.title && !untitled ? (
         <tr className={`section depth-${depth}`}>
-          <td colSpan={11}>
-            {bucket.href ? (
-              <a className="section-title" href={bucket.href} target="_blank" rel="noreferrer">
-                {bucket.title}
-              </a>
-            ) : (
-              <span className="section-title">{bucket.title}</span>
-            )}
-            {bucket.meta ? <span className="section-meta">{bucket.meta}</span> : null}
+          <td colSpan={COLUMNS}>
+            <span className="section-line">
+              {shared.linearConfigured ? (
+                <SectionIssue bucket={bucket} onUpdateIssue={shared.onUpdateIssue} />
+              ) : null}
+              {bucket.href ? (
+                <a className="section-title" href={bucket.href} target="_blank" rel="noreferrer">
+                  {bucket.title}
+                </a>
+              ) : (
+                <span className="section-title">{bucket.title}</span>
+              )}
+              {bucket.meta ? <span className="section-meta">{bucket.meta}</span> : null}
+            </span>
           </td>
         </tr>
       ) : null}
@@ -228,7 +245,7 @@ function BlockRows({
         <tr key={row.id} className={`ellipsis${spineClass(spine, stackTone)}`}>
           <td className="grip" />
           <td />
-          <td colSpan={9}>
+          <td colSpan={COLUMNS - 2}>
             … {row.count} pull request{row.count === 1 ? '' : 's'} {row.place} · {row.reason}
           </td>
         </tr>
@@ -246,10 +263,12 @@ function BlockRows({
           initiatives={shared.namesList}
           prByKey={shared.prByKey}
           repoColor={shared.repoColor}
+          linearConfigured={shared.linearConfigured}
           onFilterInitiative={shared.onFilterInitiative}
           onAssign={shared.onAssign}
           onCreateAssigned={shared.onCreateAssigned}
           onRerun={shared.onRerun}
+          onUpdateIssue={shared.onUpdateIssue}
         />
       )
     })
@@ -267,11 +286,13 @@ function BlockRows({
       initiatives={shared.namesList}
       prByKey={shared.prByKey}
       repoColor={shared.repoColor}
+      linearConfigured={shared.linearConfigured}
       onToggle={shared.onToggle}
       onFilterInitiative={shared.onFilterInitiative}
       onAssign={shared.onAssign}
       onCreateAssigned={shared.onCreateAssigned}
       onRerun={shared.onRerun}
+      onUpdateIssue={shared.onUpdateIssue}
     />
   )
 }
@@ -288,10 +309,12 @@ function DataRow({
   prByKey,
   repoColor,
   hideIssue,
+  linearConfigured,
   onFilterInitiative,
   onAssign,
   onCreateAssigned,
   onRerun,
+  onUpdateIssue,
 }: {
   pr: PullRequest
   block: StackBlock
@@ -304,10 +327,12 @@ function DataRow({
   prByKey: Map<string, PullRequest>
   repoColor: Map<string, string>
   hideIssue?: string
+  linearConfigured: boolean
   onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   return (
     <tr
@@ -318,7 +343,7 @@ function DataRow({
         toggle.onToggle(toggle.id)
       }}
     >
-      <Grip spine={spine} toggle={toggle} />
+      <Grip spine={spine} />
       <td className="num">
         <a href={pr.url} target="_blank" rel="noreferrer">
           {pr.number}
@@ -327,18 +352,17 @@ function DataRow({
       <td className="title-block">
         <div className="title-line">
           {pr.isDraft ? <span className="pill draft">Draft</span> : null}
-          {pr.conflict ? <span className="pill bad">Conflict</span> : null}
           {pr.behind ? <span className="pill">Behind</span> : null}
           <a href={pr.url} target="_blank" rel="noreferrer">
             {pr.title}
           </a>
+          <InitiativeTags ids={pr.initiativeIds} partialIds={[]} names={names} onFilterInitiative={onFilterInitiative} />
         </div>
         <Subline
+          menuScope={pr.id}
           issues={pr.linearIssues.filter((issue) => issue.identifier !== hideIssue)}
-          initiativeIds={pr.initiativeIds}
-          partialIds={[]}
-          names={names}
-          onFilterInitiative={onFilterInitiative}
+          linearConfigured={linearConfigured}
+          onUpdateIssue={onUpdateIssue}
         />
       </td>
       <td className="repo" title={pr.repo}>
@@ -351,6 +375,7 @@ function DataRow({
       <td>
         <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
       </td>
+      <Conflict conflict={pr.conflict} />
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
       </td>
@@ -387,11 +412,13 @@ function SummaryRow({
   prByKey,
   repoColor,
   hideIssue,
+  linearConfigured,
   onToggle,
   onFilterInitiative,
   onAssign,
   onCreateAssigned,
   onRerun,
+  onUpdateIssue,
 }: {
   block: StackBlock
   visible: PullRequest[]
@@ -403,11 +430,13 @@ function SummaryRow({
   prByKey: Map<string, PullRequest>
   repoColor: Map<string, string>
   hideIssue?: string
+  linearConfigured: boolean
   onToggle: (id: string) => void
   onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   const summary = block.summary
   const issues = sharedIssues(visible, hideIssue)
@@ -420,7 +449,7 @@ function SummaryRow({
         onToggle(openId)
       }}
     >
-      <Grip spine={spine} toggle={{ id: openId, open: false, onToggle }} />
+      <Grip spine={spine} />
       <td className="num">
         <a href={summary.url} target="_blank" rel="noreferrer">
           {summary.number}
@@ -431,20 +460,19 @@ function SummaryRow({
           {summary.draftCount > 0 ? (
             <span className="pill draft">{summary.draftCount === visible.length ? 'Draft' : `${summary.draftCount} draft`}</span>
           ) : null}
-          {summary.conflict ? <span className="pill bad">Conflict</span> : null}
           {summary.behind ? <span className="pill">Behind</span> : null}
           <a href={summary.url} target="_blank" rel="noreferrer">
             {summary.title}
           </a>
+          <InitiativeTags ids={summary.initiativeIds} partialIds={partialIds} names={names} onFilterInitiative={onFilterInitiative} />
           {summary.extra > 0 ? <span className="pill">+{summary.extra}</span> : null}
           {summary.partial ? <span className="pill">partial</span> : null}
         </div>
         <Subline
+          menuScope={block.id}
           issues={issues}
-          initiativeIds={summary.initiativeIds}
-          partialIds={partialIds}
-          names={names}
-          onFilterInitiative={onFilterInitiative}
+          linearConfigured={linearConfigured}
+          onUpdateIssue={onUpdateIssue}
         />
       </td>
       <td className="repo" title={summary.repo}>
@@ -457,6 +485,7 @@ function SummaryRow({
       <td>
         <CiControl id={`ci:${block.id}`} prs={visible} onRerun={onRerun} />
       </td>
+      <Conflict conflict={summary.conflict} />
       <td>
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
@@ -477,80 +506,122 @@ function SummaryRow({
   )
 }
 
-function Grip({
-  spine,
-  toggle,
-}: {
-  spine: Spine | null
-  toggle: { id: string; open: boolean; onToggle: (id: string) => void } | null
-}) {
+function Grip({ spine }: { spine: Spine | null }) {
   return (
     <td className="grip">
       {spine === 'only' ? <span className="stack-mark" aria-hidden="true" /> : null}
-      {toggle ? (
-        <button
-          type="button"
-          className="chevron"
-          aria-expanded={toggle.open}
-          aria-label={`${toggle.open ? 'Collapse' : 'Expand'} stack`}
-          onClick={() => toggle.onToggle(toggle.id)}
-        >
-          {toggle.open ? '▾' : '▸'}
-        </button>
-      ) : null}
     </td>
   )
 }
 
-function sharedIssues(prs: PullRequest[], hideIssue?: string) {
+function SectionIssue({
+  bucket,
+  onUpdateIssue,
+}: {
+  bucket: Bucket
+  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+}) {
+  const issue = bucketIssue(bucket)
+  if (!issue || !isLinearIdentifier(issue.identifier)) return null
+  return <IssueControls menuKey={`section:${bucket.id}`} issue={issue} onUpdate={onUpdateIssue} />
+}
+
+function bucketIssue(bucket: Bucket): LinearIssue | null {
+  if (!bucket.issueId) return null
+  for (const block of [...bucket.stacks, ...bucket.singles]) {
+    for (const row of block.rows) {
+      if (row.type !== 'pr') continue
+      const issue = row.pr.linearIssues.find((item) => item.identifier === bucket.issueId)
+      if (issue) return issue
+    }
+  }
+  return null
+}
+
+function sharedIssues(prs: PullRequest[], hideIssue?: string): LinearIssue[] {
   const issues = prs.flatMap((pr) => pr.linearIssues).filter((issue) => issue.identifier !== hideIssue)
   const ids = [...new Set(issues.map((issue) => issue.identifier))]
   if (ids.length === 1) return issues.filter((issue) => issue.identifier === ids[0]).slice(0, 1)
-  if (ids.length > 1) return [{ identifier: `${ids.length} issues`, title: null, url: null }]
+  if (ids.length > 1) {
+    return [{ identifier: `${ids.length} issues`, title: null, url: null, projectId: null, projectName: null }]
+  }
   return []
 }
 
-function Subline({
-  issues,
-  initiativeIds,
+function InitiativeTags({
+  ids,
   partialIds,
   names,
   onFilterInitiative,
 }: {
-  issues: { identifier: string; title: string | null; url: string | null }[]
-  initiativeIds: string[]
+  ids: string[]
   partialIds: string[]
   names: Map<string, string>
   onFilterInitiative: (id: string) => void
 }) {
-  if (issues.length === 0 && initiativeIds.length === 0) return null
+  return ids.map((id) => (
+    <button
+      key={id}
+      type="button"
+      className={partialIds.includes(id) ? 'chip partial' : 'chip'}
+      onClick={() => onFilterInitiative(id)}
+      title={partialIds.includes(id) ? 'Not every pull request in this row is tagged' : 'Filter to this initiative'}
+    >
+      {names.get(id) ?? 'Initiative'}
+    </button>
+  ))
+}
+
+function Subline({
+  menuScope,
+  issues,
+  linearConfigured,
+  onUpdateIssue,
+}: {
+  menuScope: string
+  issues: LinearIssue[]
+  linearConfigured: boolean
+  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+}) {
+  if (issues.length === 0) return null
   return (
     <div className="subline">
-      {issues.map((issue) =>
-        issue.url ? (
-          <a key={issue.identifier} href={issue.url} target="_blank" rel="noreferrer">
-            {issue.identifier}
-            {issue.title ? ` · ${issue.title}` : ''}
-          </a>
-        ) : (
-          <span key={issue.identifier}>
-            {issue.identifier}
-            {issue.title ? ` · ${issue.title}` : ''}
-          </span>
-        ),
-      )}
-      {initiativeIds.map((id) => (
-        <button
-          key={id}
-          type="button"
-          className={partialIds.includes(id) ? 'chip partial' : 'chip'}
-          onClick={() => onFilterInitiative(id)}
-          title={partialIds.includes(id) ? 'Not every pull request in this row is tagged' : 'Filter to this initiative'}
-        >
-          {names.get(id) ?? 'Initiative'}
-        </button>
+      {issues.map((issue) => (
+        <span key={issue.identifier} className="issue-ref">
+          {linearConfigured && isLinearIdentifier(issue.identifier) ? (
+            <IssueControls menuKey={`${menuScope}:${issue.identifier}`} issue={issue} onUpdate={onUpdateIssue} />
+          ) : null}
+          {issue.url ? (
+            <a href={issue.url} target="_blank" rel="noreferrer">
+              {issue.identifier}
+              {issue.title ? ` · ${issue.title}` : ''}
+            </a>
+          ) : (
+            <span>
+              {issue.identifier}
+              {issue.title ? ` · ${issue.title}` : ''}
+            </span>
+          )}
+        </span>
       ))}
     </div>
+  )
+}
+
+function Conflict({ conflict }: { conflict: boolean }) {
+  return (
+    <td className="conflict">
+      {conflict ? (
+        <span className="conflict-x" title="Merge conflict">
+          <span className="sr">Merge conflict</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </span>
+      ) : (
+        <span className="sr">No conflict</span>
+      )}
+    </td>
   )
 }
 
@@ -626,7 +697,7 @@ function Feedback({
   awaiting: number
   truncated: boolean
 }) {
-  if (threads === 0) return <span className="faint">—</span>
+  if (threads === 0) return <span className="feedback">0 threads</span>
   return (
     <span className="feedback" title="Awaiting you means an unresolved thread whose latest human comment is not yours.">
       {awaiting > 0 ? <em className="await">{awaiting} awaiting</em> : null}

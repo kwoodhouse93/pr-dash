@@ -1,4 +1,4 @@
-import type { Snapshot } from '../shared/types.ts'
+import type { LinearAssignee, LinearStatus, Snapshot } from '../shared/types.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -35,4 +35,30 @@ export const api = {
   assign: (initiativeId: string, prKeys: string[], action: 'add' | 'remove') =>
     post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
   rerun: (keys: string[], mode: 'failed' | 'all') => post<{ reran: number; errors: string[] }>('/api/rerun', { keys, mode }),
+  linearStatuses: (query: { teamId?: string | null; issue: string }) => {
+    const key = query.teamId || query.issue
+    return cached(statusRequests, key, () => {
+      const params = query.teamId
+        ? `teamId=${encodeURIComponent(query.teamId)}`
+        : `issue=${encodeURIComponent(query.issue)}`
+      return request<{ statuses: LinearStatus[] }>(`/api/linear/statuses?${params}`).then((body) => body.statuses)
+    })
+  },
+  linearUsers: () => cached(userRequest, 'users', () => request<{ users: LinearAssignee[] }>('/api/linear/users').then((body) => body.users)),
+  updateLinearIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) =>
+    post<Snapshot>(`/api/linear/issues/${encodeURIComponent(identifier)}`, patch),
+}
+
+const statusRequests = new Map<string, Promise<LinearStatus[]>>()
+const userRequest = new Map<string, Promise<LinearAssignee[]>>()
+
+function cached<T>(slot: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
+  const existing = slot.get(key)
+  if (existing) return existing
+  const pending = load().catch((error) => {
+    slot.delete(key)
+    throw error
+  })
+  slot.set(key, pending)
+  return pending
 }

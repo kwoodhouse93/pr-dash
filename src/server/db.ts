@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { Initiative, PullRequest, Snapshot } from '../shared/types.ts'
+import type { Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
 
 export type DashboardDb = {
   snapshot(): Snapshot
@@ -16,6 +16,7 @@ export type DashboardDb = {
   renameInitiative(id: string, name: string): Initiative
   deleteInitiative(id: string): void
   setAssignments(initiativeId: string, prKeys: string[], action: 'add' | 'remove'): void
+  updateLinearIssue(identifier: string, patch: LinearIssue): Snapshot
 }
 
 type SnapshotRow = {
@@ -166,6 +167,30 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.exec('ROLLBACK')
         throw error
       }
+    },
+    updateLinearIssue(identifier, patch) {
+      const row = readSnapshotRow.get() as SnapshotRow | undefined
+      if (!row) throw new Error('Refresh pull requests before updating a Linear issue.')
+      const pullRequests = JSON.parse(row.pull_requests) as PullRequest[]
+      const id = identifier.toUpperCase()
+      let found = false
+      for (const pr of pullRequests) {
+        for (const issue of pr.linearIssues) {
+          if (issue.identifier.toUpperCase() !== id) continue
+          found = true
+          if (patch.title) issue.title = patch.title
+          if (patch.url) issue.url = patch.url
+          issue.projectId = patch.projectId
+          issue.projectName = patch.projectName
+          issue.teamId = patch.teamId
+          issue.status = patch.status
+          issue.assignee = patch.assignee
+        }
+      }
+      if (!found) throw new Error(`Issue ${identifier} is not on an open pull request.`)
+      const stored = pullRequests.map((pr) => ({ ...pr, initiativeIds: [] }))
+      db.prepare('UPDATE snapshot SET pull_requests = ? WHERE id = 1').run(JSON.stringify(stored))
+      return snapshot()
     },
   }
 }

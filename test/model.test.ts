@@ -190,6 +190,9 @@ describe('linear', () => {
         url: 'https://linear.app/acme/issue/ENG-101/fe-summary',
         projectId: null,
         projectName: null,
+        teamId: null,
+        status: null,
+        assignee: null,
       },
     ])
   })

@@ -141,11 +141,13 @@ export function ClickCard({
   id,
   className,
   label,
+  panelClassName,
   children,
 }: {
   id: string
   className?: string
   label: ReactNode
+  panelClassName?: string
   children: ReactNode
 }) {
   const menu = useMenu()
@@ -168,7 +170,7 @@ export function ClickCard({
       {open && menu.active
         ? createPortal(
             <div
-              className="popover"
+              className={panelClassName ? `popover ${panelClassName}` : 'popover'}
               style={{ top: menu.active.top, left: menu.active.left }}
               onClick={(event) => event.stopPropagation()}
             >
@@ -179,4 +181,8 @@ export function ClickCard({
         : null}
     </>
   )
+}
+
+export function useMenuClose(): () => void {
+  return useMenu().close
 }

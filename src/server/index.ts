@@ -6,6 +6,7 @@ import { Hono } from 'hono'
 import { loadEnv } from './env.ts'
 import { openDatabase } from './db.ts'
 import { loadGithubToken, rerunWorkflows } from './github.ts'
+import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
 import { refreshSnapshot, syncStatus } from './sync.ts'
 import type { PullRequest } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
@@ -66,6 +67,50 @@ app.post('/api/assignments', async (c) => {
   }
 })
 
+app.get('/api/linear/statuses', async (c) => {
+  const token = linearToken()
+  if (!token) return c.json({ error: 'Set LINEAR_API_KEY to update Linear.' }, 400)
+  const teamId = c.req.query('teamId') || undefined
+  const issue = c.req.query('issue') || undefined
+  if (!teamId && !issue) return c.json({ error: 'A Linear team or issue is required.' }, 400)
+  try {
+    return c.json({ statuses: await listStatuses(token, { teamId, issue }) })
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.get('/api/linear/users', async (c) => {
+  const token = linearToken()
+  if (!token) return c.json({ error: 'Set LINEAR_API_KEY to update Linear.' }, 400)
+  try {
+    return c.json({ users: await listUsers(token) })
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.post('/api/linear/issues/:identifier', async (c) => {
+  const token = linearToken()
+  if (!token) return c.json({ error: 'Set LINEAR_API_KEY to update Linear.' }, 400)
+  try {
+    const body = await c.req.json<{ statusId?: string; assigneeId?: string | null }>()
+    const hasStatus = typeof body.statusId === 'string' && body.statusId.length > 0
+    const hasAssignee = Object.prototype.hasOwnProperty.call(body, 'assigneeId')
+    if (!hasStatus && !hasAssignee) return c.json({ error: 'statusId or assigneeId is required.' }, 400)
+    if (hasAssignee && body.assigneeId !== null && typeof body.assigneeId !== 'string') {
+      return c.json({ error: 'assigneeId must be a user id or null.' }, 400)
+    }
+    const updated = await updateLinearIssue(token, c.req.param('identifier'), {
+      ...(hasStatus ? { statusId: body.statusId } : {}),
+      ...(hasAssignee ? { assigneeId: body.assigneeId ?? null } : {}),
+    })
+    return c.json(db.updateLinearIssue(updated.identifier, updated))
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
 app.post('/api/rerun', async (c) => {
   try {
     const body = await c.req.json<{ keys?: string[]; mode?: 'failed' | 'all' }>()
@@ -109,6 +154,11 @@ function collectRuns(prs: PullRequest[], mode: 'failed' | 'all'): { repo: string
     }
   }
   return runs
+}
+
+function linearToken(): string | null {
+  const token = process.env.LINEAR_API_KEY
+  return token && token.length > 0 ? token : null
 }
 
 function messageOf(error: unknown): string {

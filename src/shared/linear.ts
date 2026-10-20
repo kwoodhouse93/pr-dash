@@ -13,6 +13,9 @@ function add(issues: Map<string, LinearIssue>, identifier: string, patch: Partia
     url: null,
     projectId: null,
     projectName: null,
+    teamId: null,
+    status: null,
+    assignee: null,
   }
   if (patch.title && !existing.title) existing.title = patch.title
   if (patch.url && !existing.url) existing.url = patch.url
