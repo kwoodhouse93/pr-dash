@@ -1,0 +1,51 @@
+import type { LinearIssue } from './types.ts'
+
+const SUMMARY_ANCHOR =
+  /<summary>\s*<a href="(https:\/\/linear\.app\/[^"]+\/issue\/([A-Z][A-Z0-9]+-\d+)[^"]*)">([^<]+)<\/a>/gi
+const TITLE_RE = /\(([A-Z][A-Z0-9]+-\d+)\)/g
+const BRANCH_RE = /(?:^|\/)([a-z]{2,}-\d+)(?!\d)/gi
+
+function add(issues: Map<string, LinearIssue>, identifier: string, patch: Partial<LinearIssue>) {
+  const id = identifier.toUpperCase()
+  const existing = issues.get(id) ?? {
+    identifier: id,
+    title: null,
+    url: null,
+    projectId: null,
+    projectName: null,
+  }
+  if (patch.title && !existing.title) existing.title = patch.title
+  if (patch.url && !existing.url) existing.url = patch.url
+  issues.set(id, existing)
+}
+
+function titleFromLinkText(identifier: string, text: string): string | null {
+  const trimmed = text.trim()
+  if (trimmed.toUpperCase().startsWith(identifier.toUpperCase())) {
+    const rest = trimmed.slice(identifier.length).trim()
+    return rest || null
+  }
+  return trimmed || null
+}
+
+export function parseLinear(input: {
+  title: string
+  headRef: string
+  comments: { body: string }[]
+}): LinearIssue[] {
+  const issues = new Map<string, LinearIssue>()
+  for (const comment of input.comments) {
+    const body = comment.body ?? ''
+    if (!body.includes('linear-linkback')) continue
+    for (const match of body.matchAll(SUMMARY_ANCHOR)) {
+      const identifier = match[2]!.toUpperCase()
+      add(issues, identifier, {
+        url: match[1],
+        title: titleFromLinkText(identifier, match[3] ?? ''),
+      })
+    }
+  }
+  for (const match of input.title.matchAll(TITLE_RE)) add(issues, match[1]!, {})
+  for (const match of input.headRef.matchAll(BRANCH_RE)) add(issues, match[1]!, {})
+  return [...issues.values()]
+}

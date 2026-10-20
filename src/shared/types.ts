@@ -1,0 +1,109 @@
+export type CiLevel = 'red' | 'yellow' | 'green' | 'pending' | 'none'
+
+export type Check = {
+  name: string
+  status: string | null
+  conclusion: string | null
+  required: boolean
+  url: string | null
+  workflowName: string | null
+  workflowRunId: number | null
+  startedAt: string | null
+  completedAt: string | null
+}
+
+export type MergeMark = 'met' | 'unmet' | 'draft' | 'none'
+
+export type Reviewer = {
+  login: string
+  human: boolean
+  state: 'APPROVED' | 'CHANGES_REQUESTED'
+  submittedAt: string | null
+}
+
+export type LinearIssue = {
+  identifier: string
+  title: string | null
+  url: string | null
+  projectId: string | null
+  projectName: string | null
+}
+
+export type PullRequest = {
+  id: string
+  key: string
+  repo: string
+  repoName: string
+  number: number
+  title: string
+  url: string
+  author: string
+  isDraft: boolean
+  createdAt: string
+  updatedAt: string
+  committedAt: string | null
+  additions: number
+  deletions: number
+  changedFiles: number
+  baseRef: string
+  headRef: string
+  reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+  mergeMark: MergeMark
+  mergeDetail: string
+  anyApproval: boolean
+  humanApproval: boolean
+  changesRequested: boolean
+  reviewers: Reviewer[]
+  conflict: boolean
+  behind: boolean
+  checks: Check[]
+  ci: CiLevel
+  threadCount: number
+  unresolvedCount: number
+  awaitingYouCount: number
+  threadsTruncated: boolean
+  linearIssues: LinearIssue[]
+  initiativeIds: string[]
+}
+
+export type Initiative = {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type Snapshot = {
+  viewer: string | null
+  syncedAt: string | null
+  pullRequests: PullRequest[]
+  initiatives: Initiative[]
+  linearConfigured: boolean
+  warning: string | null
+}
+
+export type SortKey = 'updated' | 'created' | 'size' | 'title' | 'repo' | 'ci'
+export type SortDir = 'asc' | 'desc'
+export type Sort = { key: SortKey; dir: SortDir }
+
+export type Filters = {
+  query: string
+  repo: string | null
+  hideDrafts: boolean
+  ci: CiLevel | 'all'
+  review: 'all' | 'unmet' | 'met' | 'human' | 'changes' | 'none'
+  awaitingOnly: boolean
+  initiativeId: string | null
+}
+
+export const DEFAULT_SORT: Sort = { key: 'updated', dir: 'desc' }
+
+export const DEFAULT_FILTERS: Filters = {
+  query: '',
+  repo: null,
+  hideDrafts: false,
+  ci: 'all',
+  review: 'all',
+  awaitingOnly: false,
+  initiativeId: null,
+}
