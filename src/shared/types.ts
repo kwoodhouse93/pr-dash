@@ -14,6 +14,8 @@ export type Check = {
 
 export type MergeMark = 'met' | 'unmet' | 'draft' | 'none'
 
+export type Mergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+
 export type Reviewer = {
   login: string
   human: boolean
@@ -63,6 +65,10 @@ export type PullRequest = {
   changedFiles: number
   baseRef: string
   headRef: string
+  defaultBranch: string
+  squashMergeAllowed: boolean
+  mergeable: Mergeable | null
+  mergeStateStatus: string | null
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
   mergeMark: MergeMark
   mergeDetail: string

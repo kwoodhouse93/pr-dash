@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { checkPhase, ciDetail, ciLabel, worstCi } from '../shared/ci.ts'
+import { canSquashMerge } from '../shared/merge.ts'
 import type { StackSummary } from '../shared/stacks.ts'
 import type { Check, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, StackBlock } from '../shared/view.ts'
@@ -8,7 +9,7 @@ import { formatCount, formatExact, formatWhen } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
 import { ClickCard, HoverCard } from './menus.tsx'
 
-const COLUMNS = 12
+const COLUMNS = 13
 
 export function PrTable({
   outline,
@@ -22,6 +23,7 @@ export function PrTable({
   onFilterInitiative,
   onAssign,
   onCreateAssigned,
+  onMerge,
   onRerun,
   linearConfigured,
   onUpdateIssue,
@@ -37,6 +39,7 @@ export function PrTable({
   onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
+  onMerge: (key: string) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
@@ -54,6 +57,7 @@ export function PrTable({
     onFilterInitiative,
     onAssign,
     onCreateAssigned,
+    onMerge,
     onRerun,
     linearConfigured,
     onUpdateIssue,
@@ -73,6 +77,7 @@ export function PrTable({
           <th className="conflict">Conflict</th>
           <th>Review</th>
           <th>Feedback</th>
+          <th className="merge">Merge</th>
           <th aria-label="Actions" />
         </tr>
       </thead>
@@ -141,6 +146,7 @@ type RowShared = {
   onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
+  onMerge: (key: string) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
@@ -267,6 +273,7 @@ function BlockRows({
           onFilterInitiative={shared.onFilterInitiative}
           onAssign={shared.onAssign}
           onCreateAssigned={shared.onCreateAssigned}
+          onMerge={shared.onMerge}
           onRerun={shared.onRerun}
           onUpdateIssue={shared.onUpdateIssue}
         />
@@ -313,6 +320,7 @@ function DataRow({
   onFilterInitiative,
   onAssign,
   onCreateAssigned,
+  onMerge,
   onRerun,
   onUpdateIssue,
 }: {
@@ -331,6 +339,7 @@ function DataRow({
   onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
+  onMerge: (key: string) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
@@ -386,6 +395,9 @@ function DataRow({
           awaiting={pr.awaitingYouCount}
           truncated={pr.threadsTruncated}
         />
+      </td>
+      <td className="merge">
+        <MergeButton pr={pr} onMerge={onMerge} />
       </td>
       <RowMenu
         id={`menu:${pr.id}`}
@@ -492,6 +504,7 @@ function SummaryRow({
       <td>
         <Feedback threads={summary.threadCount} unresolved={summary.unresolvedCount} awaiting={summary.awaitingYouCount} truncated={false} />
       </td>
+      <td className="merge" />
       <RowMenu
         id={`menu:${block.id}`}
         primaryKey={summary.topKey}
@@ -683,6 +696,38 @@ function When({ iso }: { iso: string }) {
     <td className="when" title={formatExact(iso)}>
       {formatWhen(iso)}
     </td>
+  )
+}
+
+function MergeButton({ pr, onMerge }: { pr: PullRequest; onMerge: (key: string) => Promise<void> }) {
+  const pendingRef = useRef(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (!canSquashMerge(pr)) return null
+  return (
+    <div className="merge-action">
+      <button
+        type="button"
+        className="primary merge"
+        disabled={pending}
+        aria-busy={pending}
+        aria-label={pending ? `Merging #${pr.number}` : `Squash and merge #${pr.number}`}
+        onClick={() => {
+          if (pendingRef.current) return
+          pendingRef.current = true
+          setPending(true)
+          setError(null)
+          void onMerge(pr.key).catch((caught: unknown) => {
+            pendingRef.current = false
+            setPending(false)
+            setError(caught instanceof Error ? caught.message : 'Merge failed')
+          })
+        }}
+      >
+        {pending ? 'Merging' : 'Merge'}
+      </button>
+      {error ? <p className="merge-error">{error}</p> : null}
+    </div>
   )
 }
 

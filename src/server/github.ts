@@ -34,7 +34,7 @@ async function graphql<T>(token: string, query: string, variables?: Record<strin
   return body.data
 }
 
-async function rest(token: string, path: string, method = 'GET'): Promise<Response> {
+async function rest(token: string, path: string, method = 'GET', body?: unknown): Promise<Response> {
   return fetch(`https://api.github.com${path}`, {
     method,
     headers: {
@@ -42,7 +42,9 @@ async function rest(token: string, path: string, method = 'GET'): Promise<Respon
       Accept: 'application/vnd.github+json',
       'User-Agent': 'pr-dash',
       'X-GitHub-Api-Version': '2022-11-28',
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
+    body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
   })
 }
@@ -57,7 +59,7 @@ const LIST_QUERY = `
           id number title url isDraft createdAt updatedAt additions deletions changedFiles
           baseRefName headRefName reviewDecision mergeStateStatus mergeable
           author { login }
-          repository { nameWithOwner name }
+          repository { nameWithOwner name squashMergeAllowed defaultBranchRef { name } }
           reviews(last: 40) { nodes { state submittedAt author { __typename login } } }
           reviewThreads(first: 60) {
             pageInfo { hasNextPage }
@@ -201,6 +203,22 @@ export async function fetchAuthoredPullRequests(
     viewer,
     pullRequests,
     warning: warnings.length ? warnings.slice(0, 3).join('; ') : null,
+  }
+}
+
+export async function squashMergePullRequest(token: string, repo: string, number: number): Promise<void> {
+  const response = await rest(token, `/repos/${repo}/pulls/${number}/merge`, 'PUT', { merge_method: 'squash' })
+  const text = await response.text()
+  let payload: { message?: string; merged?: boolean } = {}
+  if (text) {
+    try {
+      payload = JSON.parse(text) as { message?: string; merged?: boolean }
+    } catch {
+      payload = {}
+    }
+  }
+  if (!response.ok || payload.merged === false) {
+    throw new Error(payload.message || text.slice(0, 280) || `GitHub ${response.status}`)
   }
 }
 

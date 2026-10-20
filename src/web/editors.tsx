@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Initiative, PullRequest } from '../shared/types.ts'
+import { useMenuClose } from './menus.tsx'
 
 export function TagEditor({
   primaryKey,
@@ -18,6 +19,7 @@ export function TagEditor({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreate: (name: string, keys: string[]) => Promise<void>
 }) {
+  const close = useMenuClose()
   const [whole, setWhole] = useState(defaultWholeStack && stackKeys.length > 1)
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -27,6 +29,7 @@ export function TagEditor({
     setError(null)
     try {
       await onAssign(initiativeId, keys, on ? 'remove' : 'add')
+      close()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not update the tag')
     }
@@ -59,7 +62,7 @@ export function TagEditor({
           setError(null)
           try {
             await onCreate(name, keys)
-            setName('')
+            close()
           } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'Could not create the initiative')
           }

@@ -5,9 +5,10 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { loadEnv } from './env.ts'
 import { openDatabase } from './db.ts'
-import { loadGithubToken, rerunWorkflows } from './github.ts'
+import { loadGithubToken, rerunWorkflows, squashMergePullRequest } from './github.ts'
 import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
-import { refreshSnapshot, syncStatus } from './sync.ts'
+import { canSquashMerge } from '../shared/merge.ts'
+import { markMerged, refreshSnapshot, syncStatus } from './sync.ts'
 import type { PullRequest } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
 
@@ -106,6 +107,32 @@ app.post('/api/linear/issues/:identifier', async (c) => {
       ...(hasAssignee ? { assigneeId: body.assigneeId ?? null } : {}),
     })
     return c.json(db.updateLinearIssue(updated.identifier, updated))
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.post('/api/merge', async (c) => {
+  try {
+    const body = await c.req.json<{ key?: string }>()
+    const key = body.key ?? ''
+    const snap = db.snapshot()
+    const pr = snap.pullRequests.find((item) => item.key === key)
+    if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
+    if (!canSquashMerge(pr)) {
+      return c.json({ error: 'This pull request is not ready to squash into the default branch.' }, 409)
+    }
+    await squashMergePullRequest(loadGithubToken(), pr.repo, pr.number)
+    markMerged(pr.key)
+    return c.json(
+      db.saveSnapshot({
+        viewer: snap.viewer ?? '',
+        syncedAt: snap.syncedAt ?? new Date().toISOString(),
+        pullRequests: snap.pullRequests.filter((item) => item.key !== pr.key),
+        linearConfigured: snap.linearConfigured,
+        warning: snap.warning,
+      }),
+    )
   } catch (error) {
     return c.json({ error: messageOf(error) }, 502)
   }

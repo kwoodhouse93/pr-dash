@@ -17,6 +17,12 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const applyId = useRef(0)
+  const mergedKeys = useRef(new Set<string>())
+
+  function adopt(snap: Snapshot): Snapshot {
+    if (mergedKeys.current.size === 0) return snap
+    return { ...snap, pullRequests: snap.pullRequests.filter((pr) => !mergedKeys.current.has(pr.key)) }
+  }
 
   useEffect(() => savePreferences(prefs), [prefs])
 
@@ -26,7 +32,7 @@ export function App() {
     setError(null)
     try {
       const snap = await api.refresh()
-      if (id === applyId.current) setData(snap)
+      if (id === applyId.current) setData(adopt(snap))
     } catch (caught) {
       if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Refresh failed')
     } finally {
@@ -39,7 +45,7 @@ export function App() {
     setError(null)
     try {
       const snap = await work()
-      if (id === applyId.current) setData(snap)
+      if (id === applyId.current) setData(adopt(snap))
     } catch (caught) {
       if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Could not save that change')
       throw caught
@@ -53,7 +59,7 @@ export function App() {
     ;(async () => {
       try {
         const snap = await api.snapshot()
-        if (!cancel) setData(snap)
+        if (!cancel) setData(adopt(snap))
       } catch (caught) {
         if (!cancel) setError(caught instanceof Error ? caught.message : 'Could not load the saved snapshot')
       } finally {
@@ -267,6 +273,11 @@ export function App() {
               }}
               linearConfigured={Boolean(data?.linearConfigured)}
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
+              onMerge={async (key) => {
+                await api.merge(key)
+                mergedKeys.current.add(key)
+                setData((current) => (current ? adopt(current) : current))
+              }}
               onRerun={async (keys, mode) => {
                 const result = await api.rerun(keys, mode)
                 const text = result.errors.length

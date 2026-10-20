@@ -1,9 +1,23 @@
 import type { DashboardDb } from './db.ts'
 import { fetchAuthoredPullRequests, loadGithubToken } from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
-import type { Snapshot } from '../shared/types.ts'
+import type { PullRequest, Snapshot } from '../shared/types.ts'
 
 export const syncStatus = { running: false, message: 'Idle' }
+
+const mergedKeys = new Set<string>()
+
+export function markMerged(key: string) {
+  mergedKeys.add(key)
+}
+
+export function omitMerged(pullRequests: PullRequest[]): PullRequest[] {
+  for (const key of mergedKeys) {
+    if (!pullRequests.some((pr) => pr.key === key)) mergedKeys.delete(key)
+  }
+  if (mergedKeys.size === 0) return pullRequests
+  return pullRequests.filter((pr) => !mergedKeys.has(pr.key))
+}
 
 let inflight: Promise<Snapshot> | null = null
 
@@ -39,7 +53,7 @@ async function run(db: DashboardDb): Promise<Snapshot> {
   return db.saveSnapshot({
     viewer: fetched.viewer,
     syncedAt: new Date().toISOString(),
-    pullRequests: fetched.pullRequests,
+    pullRequests: omitMerged(fetched.pullRequests),
     linearConfigured: Boolean(linearKey),
     warning,
   })

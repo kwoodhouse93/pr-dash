@@ -35,6 +35,7 @@ export const api = {
   assign: (initiativeId: string, prKeys: string[], action: 'add' | 'remove') =>
     post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
   rerun: (keys: string[], mode: 'failed' | 'all') => post<{ reran: number; errors: string[] }>('/api/rerun', { keys, mode }),
+  merge: (key: string) => post<Snapshot>('/api/merge', { key }),
   linearStatuses: (query: { teamId?: string | null; issue: string }) => {
     const key = query.teamId || query.issue
     return cached(statusRequests, key, () => {

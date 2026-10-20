@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mergeReview, summarizeReviews } from '../src/shared/approval.ts'
+import { canSquashMerge } from '../src/shared/merge.ts'
 import { applyRequired, ciLevel, selectChecks } from '../src/shared/ci.ts'
 import { summarizeThreads } from '../src/shared/feedback.ts'
 import { parseLinear } from '../src/shared/linear.ts'
@@ -213,6 +214,10 @@ function pr(over: Partial<PullRequest> & Pick<PullRequest, 'id' | 'number' | 'ba
     additions: 10,
     deletions: 1,
     changedFiles: 1,
+    defaultBranch: 'main',
+    squashMergeAllowed: true,
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
     reviewDecision: null,
     mergeMark: 'none',
     mergeDetail: '',
@@ -375,5 +380,34 @@ describe('stacks and grouping', () => {
     expect(view.initiatives).toEqual([])
     expect(view.looseIssues.map((issue) => issue.issueId)).toEqual(['ENG-8'])
     expect(view.unassigned).toBeNull()
+  })
+})
+
+describe('squash merge', () => {
+  const ready = pr({
+    id: 'm',
+    number: 8,
+    baseRef: 'main',
+    headRef: 'ship-it',
+    defaultBranch: 'main',
+  })
+
+  it('allows a clean pull request that targets the default branch', () => {
+    expect(canSquashMerge(ready)).toBe(true)
+    expect(canSquashMerge({ ...ready, mergeStateStatus: 'UNSTABLE' })).toBe(true)
+    expect(canSquashMerge({ ...ready, mergeStateStatus: 'HAS_HOOKS' })).toBe(true)
+  })
+
+  it('refuses a pull request that would squash into another branch', () => {
+    expect(canSquashMerge({ ...ready, baseRef: 'feature' })).toBe(false)
+  })
+
+  it('refuses drafts, conflicts, a behind branch, a blocked review, and an unknown merge', () => {
+    expect(canSquashMerge({ ...ready, isDraft: true })).toBe(false)
+    expect(canSquashMerge({ ...ready, mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' })).toBe(false)
+    expect(canSquashMerge({ ...ready, mergeStateStatus: 'BEHIND' })).toBe(false)
+    expect(canSquashMerge({ ...ready, mergeStateStatus: 'BLOCKED' })).toBe(false)
+    expect(canSquashMerge({ ...ready, mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' })).toBe(false)
+    expect(canSquashMerge({ ...ready, squashMergeAllowed: false })).toBe(false)
   })
 })

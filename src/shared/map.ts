@@ -2,7 +2,7 @@ import { mergeReview, summarizeReviews, type ReviewDecision } from './approval.t
 import { applyRequired, ciLevel, selectChecks } from './ci.ts'
 import { summarizeThreads } from './feedback.ts'
 import { parseLinear } from './linear.ts'
-import type { Check, PullRequest } from './types.ts'
+import type { Check, Mergeable, PullRequest } from './types.ts'
 
 export type GitHubComment = {
   author: { __typename: string; login: string } | null
@@ -27,7 +27,12 @@ export type GitHubPull = {
   mergeStateStatus: string | null
   mergeable: string | null
   author: { login: string } | null
-  repository: { nameWithOwner: string; name: string }
+  repository: {
+    nameWithOwner: string
+    name: string
+    squashMergeAllowed: boolean
+    defaultBranchRef: { name: string } | null
+  }
   reviews: { nodes: Array<{ state: string; submittedAt: string | null; author: { __typename: string; login: string } | null } | null> | null }
   reviewThreads: {
     pageInfo?: { hasNextPage: boolean }
@@ -127,6 +132,10 @@ export function mapPullRequest(
     changedFiles: node.changedFiles,
     baseRef: node.baseRefName,
     headRef: node.headRefName,
+    defaultBranch: node.repository.defaultBranchRef?.name ?? '',
+    squashMergeAllowed: node.repository.squashMergeAllowed,
+    mergeable: mergeableOf(node.mergeable),
+    mergeStateStatus: node.mergeStateStatus,
     reviewDecision: node.reviewDecision,
     mergeMark: merge.mark,
     mergeDetail: merge.detail,
@@ -149,4 +158,9 @@ export function mapPullRequest(
     }),
     initiativeIds: [],
   }
+}
+
+function mergeableOf(value: string | null): Mergeable | null {
+  if (value === 'MERGEABLE' || value === 'CONFLICTING' || value === 'UNKNOWN') return value
+  return null
 }

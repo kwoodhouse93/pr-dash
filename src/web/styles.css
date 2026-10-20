@@ -111,7 +111,7 @@ a:hover { text-decoration: underline; }
 .scroll { flex: 1; overflow: auto; }
 table.prs {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1280px;
   border-collapse: collapse;
 }
 thead th {
@@ -258,6 +258,11 @@ tr.tone-a > td { background: #18160f; --row-bg: #18160f; }
 tr.tone-b > td { background: #12161a; --row-bg: #12161a; }
 tbody tr.tone-a:hover > td,
 tbody tr.tone-b:hover > td { background: var(--bg-hover); --row-bg: var(--bg-hover); }
+
+td.merge { white-space: normal; width: 108px; vertical-align: middle; }
+.merge-action { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.primary.merge { padding: 4px 12px; font-size: 14px; }
+.merge-error { margin: 0; max-width: 220px; color: var(--red); font-size: 12px; line-height: 1.35; }
 
 .row-actions { width: 36px; text-align: right; }
 .row-menu {

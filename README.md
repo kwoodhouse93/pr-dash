@@ -20,6 +20,7 @@ The server uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise `gh auth to
 - **CI.** Red means a required check failed. Yellow means required checks are fine and an optional check failed. Blue means something is still running. Hover a status for each check. Rerun failed, or rerun all, applies to GitHub Actions workflows on that row. Vercel and other external checks are listed and cannot be rerun from here.
 - **Review.** Three marks, in order: any approval, a human approval, and GitHub’s merge requirement (including code owners when that rule applies). Grey means no review is required, which is common on drafts and on stacked pull requests whose base is not the default branch. White is still waiting. Green means that mark is satisfied.
 - **Feedback.** Threads, unresolved threads, and threads awaiting you. Awaiting you means the thread is unresolved and the latest human comment is not yours.
+- **Merge.** A Merge button shows when the pull request targets the repository’s default branch and looks ready to squash: not a draft, not conflicting, not behind, and not blocked by required reviews or checks. One click squash-merges it. The button stays pending until GitHub confirms. The row leaves the list after a success, and stays, with GitHub’s error, if the merge is refused.
 
 Required check names come from each repository’s rulesets, so a check that is required to land on the default branch still counts as required on a stacked pull request.
 
@@ -38,4 +39,4 @@ HOST=0.0.0.0 PORT=4317 DATABASE_PATH=/data/pr-dash.sqlite GITHUB_TOKEN=... npm s
 
 Or build the Docker image. Mount a volume at `/data` so initiatives and the snapshot survive restarts.
 
-The server holds a token that can read your pull requests and rerun workflows. Keep it on a private network.
+The server holds a token that can read your pull requests, rerun workflows, and squash-merge into the default branch. Keep it on a private network.
