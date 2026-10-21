@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { canMergeSlice, upstackBlock } from '../src/shared/merge.ts'
-import { bootAction, cancelGrace, interpretWait, rebasesAfter, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
+import { bootAction, cancelGrace, interpretWait, landedMergeVisible, rebasesAfter, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
 import { reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
@@ -260,6 +260,15 @@ describe('wait decisions', () => {
   })
 })
 
+describe('landed merge holds', () => {
+  it('brings a pull request back only when GitHub still has it open', () => {
+    expect(landedMergeVisible('OPEN')).toBe(true)
+    expect(landedMergeVisible('MERGED')).toBe(false)
+    expect(landedMergeVisible('CLOSED')).toBe(false)
+    expect(landedMergeVisible('unknown')).toBe(false)
+  })
+})
+
 describe('restart', () => {
   it('resumes a wait and pauses a rebase or an in-flight merge', () => {
     expect(bootAction('waiting', 'OPEN').type).toBe('resume')
@@ -299,6 +308,71 @@ describe('queue store', () => {
     expect(db.queue.isPaused()).toBe(false)
     expect(db.queue.snapshot().entries).toEqual([])
     expect(db.queue.snapshot().history.map((entry) => entry.status).sort()).toEqual(['cancelled', 'cancelled'])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('holds a landed pull request off the dashboard unless that merge failed', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-hold-'))
+    const db = openDatabase(path.join(dir, 'dash.sqlite'))
+    const landed = pr({ id: 'landed', number: 4, baseRef: 'main', headRef: 'landed' })
+    const kept = pr({ id: 'kept', number: 5, baseRef: 'main', headRef: 'kept' })
+    const queued = db.queue.enqueue({
+      kind: 'stack',
+      repo: 'acme/app',
+      trunk: 'main',
+      title: 'Land',
+      steps: [
+        {
+          prKey: landed.key,
+          number: landed.number,
+          title: landed.title,
+          url: landed.url,
+          headRef: landed.headRef,
+          headOid: 'a'.repeat(40),
+          baseRef: 'main',
+          role: 'merge',
+        },
+        {
+          prKey: kept.key,
+          number: kept.number,
+          title: kept.title,
+          url: kept.url,
+          headRef: kept.headRef,
+          headOid: 'b'.repeat(40),
+          baseRef: 'main',
+          role: 'merge',
+        },
+      ],
+    })
+    const save = () =>
+      db.saveSnapshot({
+        viewer: 'ada',
+        syncedAt: '2026-10-21T00:00:00Z',
+        pullRequests: [landed, kept],
+        reviewPullRequests: [landed],
+        linearConfigured: false,
+        warning: null,
+      })
+    save()
+    expect(db.snapshot().pullRequests.map((item) => item.number)).toEqual([4, 5])
+
+    const [landedStep, keptStep] = queued.steps
+    db.queue.setStep(landedStep!.id, 'merged', null)
+    save()
+    expect(db.snapshot().pullRequests.map((item) => item.number)).toEqual([5])
+    expect(db.snapshot().reviewPullRequests).toEqual([])
+
+    db.queue.releaseHold(landed.key)
+    expect(db.snapshot().pullRequests.map((item) => item.number)).toEqual([4, 5])
+    db.queue.setStep(landedStep!.id, 'merged', null)
+    expect(db.snapshot().pullRequests.map((item) => item.number)).toEqual([5])
+
+    db.queue.setStep(landedStep!.id, 'failed', 'GitHub refused the merge.')
+    expect(db.snapshot().pullRequests.map((item) => item.number)).toEqual([4, 5])
+    db.queue.setStep(landedStep!.id, 'merged', null)
+    db.queue.setStep(keptStep!.id, 'failed', 'The next pull request failed.')
+    save()
+    expect(db.snapshot().pullRequests.map((item) => item.number)).toEqual([5])
     rmSync(dir, { recursive: true, force: true })
   })
 

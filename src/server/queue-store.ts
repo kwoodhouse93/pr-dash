@@ -108,6 +108,9 @@ export function attachQueue(db: DatabaseSync) {
       entry_id TEXT NOT NULL,
       pull_request TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS merge_hold_releases (
+      pr_key TEXT PRIMARY KEY
+    );
   `)
   db.prepare('INSERT INTO merge_worker (id, paused) VALUES (1, 0) ON CONFLICT(id) DO NOTHING').run()
 
@@ -191,6 +194,31 @@ export function attachQueue(db: DatabaseSync) {
 
   function touch(id: string) {
     db.prepare('UPDATE merge_entries SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+  }
+
+  // Latest merge step for a pull request, when that step landed.
+  const LANDED = `
+    SELECT s.pr_key AS pr_key
+    FROM merge_steps s
+    WHERE s.role = 'merge' AND s.status = 'merged'
+      AND NOT EXISTS (
+        SELECT 1 FROM merge_steps later
+        WHERE later.role = 'merge'
+          AND later.pr_key = s.pr_key
+          AND (
+            later.updated_at > s.updated_at
+            OR (later.updated_at = s.updated_at AND later.rowid > s.rowid)
+          )
+      )
+  `
+
+  function keySet(sql: string): Set<string> {
+    const rows = db.prepare(sql).all() as { pr_key: string }[]
+    return new Set(rows.map((row) => row.pr_key))
+  }
+
+  function clearHoldRelease(prKey: string) {
+    db.prepare('DELETE FROM merge_hold_releases WHERE pr_key = ?').run(prKey)
   }
 
   const store = {
@@ -307,6 +335,10 @@ export function attachQueue(db: DatabaseSync) {
     },
 
     setStep(id: string, status: StepStatus, detail: string | null) {
+      if (status === 'merged') {
+        const row = db.prepare('SELECT pr_key FROM merge_steps WHERE id = ?').get(id) as { pr_key: string } | undefined
+        if (row) clearHoldRelease(row.pr_key)
+      }
       db.prepare('UPDATE merge_steps SET status = ?, detail = ?, updated_at = ? WHERE id = ?').run(
         status,
         detail,
@@ -428,6 +460,30 @@ export function attachQueue(db: DatabaseSync) {
     release(keys: string[]) {
       const remove = db.prepare('DELETE FROM merge_retained WHERE pr_key = ?')
       for (const key of keys) remove.run(key)
+    },
+
+    /** Pull requests whose latest merge-queue attempt landed. */
+    landedKeys(): Set<string> {
+      return keySet(LANDED)
+    },
+
+    /**
+     * Landed merges to keep off the dashboard. A release means a later read
+     * found the pull request still open, so the merge did not stick.
+     */
+    heldKeys(): Set<string> {
+      return keySet(
+        `SELECT landed.pr_key AS pr_key FROM (${LANDED}) landed
+         WHERE NOT EXISTS (SELECT 1 FROM merge_hold_releases r WHERE r.pr_key = landed.pr_key)`,
+      )
+    },
+
+    releaseHold(prKey: string) {
+      db.prepare('INSERT INTO merge_hold_releases (pr_key) VALUES (?) ON CONFLICT(pr_key) DO NOTHING').run(prKey)
+    },
+
+    clearHoldRelease(prKey: string) {
+      clearHoldRelease(prKey)
     },
 
     takeRetained(entryId: string): string[] {

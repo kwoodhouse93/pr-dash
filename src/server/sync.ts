@@ -1,6 +1,7 @@
 import { carryThreadFeedback } from '../shared/feedback.ts'
 import { applyThreadDetails, mapPullRequest } from '../shared/map.ts'
 import { refreshSteps, stepIndex, type RefreshStep } from '../shared/progress.ts'
+import { landedMergeVisible, type RemotePullState } from '../shared/queue.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
 import { rulesFresh } from '../shared/rules.ts'
@@ -11,6 +12,7 @@ import {
   assertGraphql,
   fetchAuthoredPullRequests,
   fetchOnePull,
+  fetchPullState,
   fetchRepoRules,
   fetchReviewPullRequests,
   fetchThreadDetails,
@@ -221,6 +223,7 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
     note(message)
   }))
   const warning = await withLinear(fetched.pullRequests, fetched.warning)
+  await confirmLandedMerges(db, token, fetched.pullRequests)
   const current = db.snapshot()
   db.saveSnapshot({
     viewer: fetched.viewer,
@@ -253,6 +256,22 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
     warning,
   })
   return warning
+}
+
+async function confirmLandedMerges(db: DashboardDb, token: string, pullRequests: PullRequest[]): Promise<void> {
+  const landed = db.queue.landedKeys()
+  if (landed.size === 0) return
+  for (const pr of pullRequests) {
+    if (!landed.has(pr.key)) continue
+    let state: RemotePullState = 'unknown'
+    try {
+      state = await fetchPullState(token, pr.repo, pr.number)
+    } catch {
+      state = 'unknown'
+    }
+    if (landedMergeVisible(state)) db.queue.releaseHold(pr.key)
+    else if (state === 'MERGED' || state === 'CLOSED') db.queue.clearHoldRelease(pr.key)
+  }
 }
 
 async function withLinear(pullRequests: PullRequest[], warning: string | null): Promise<string | null> {

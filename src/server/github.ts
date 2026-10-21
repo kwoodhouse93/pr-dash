@@ -13,7 +13,7 @@ import {
 import { summarizeReviews } from '../shared/approval.ts'
 import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
 import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
-import type { LivePull } from '../shared/queue.ts'
+import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
 import type { PullRequest } from '../shared/types.ts'
 
@@ -570,6 +570,27 @@ export async function rerunWorkflows(
     errors.push(`${run.repo} run ${run.runId}: ${text.slice(0, 180) || response.status}`)
   }
   return { reran, errors, runs: restarted }
+}
+
+const PULL_STATE_QUERY = `
+  query PullState($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) { state }
+    }
+  }
+`
+
+export async function fetchPullState(token: string, repo: string, number: number): Promise<RemotePullState> {
+  const [owner, name] = repo.split('/')
+  if (!owner || !name) return 'unknown'
+  const data = await graphql<{ repository: { pullRequest: { state: 'OPEN' | 'CLOSED' | 'MERGED' } | null } | null }>(
+    token,
+    PULL_STATE_QUERY,
+    { owner, name, number },
+  )
+  const state = data.repository?.pullRequest?.state
+  if (state === 'OPEN' || state === 'CLOSED' || state === 'MERGED') return state
+  return 'unknown'
 }
 
 const LIVE_QUERY = `

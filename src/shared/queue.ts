@@ -94,6 +94,13 @@ export type WaitDecision =
   | { action: 'merged' }
   | { action: 'fail'; reason: string }
 
+export type RemotePullState = 'OPEN' | 'CLOSED' | 'MERGED' | 'unknown'
+
+/** GitHub's pull request record says the queued merge did not stick. A stale open-list row does not. */
+export function landedMergeVisible(state: RemotePullState): boolean {
+  return state === 'OPEN'
+}
+
 export type RebaseInstruction = {
   stepId: string
   branch: string

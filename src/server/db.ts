@@ -184,13 +184,15 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     const row = readSnapshotRow.get() as SnapshotRow | undefined
     const tags = assignments()
     const sessions = new Map(cursorSessions().map((item) => [item.prKey, item.session]))
+    const held = queue.heldKeys()
+    const visible = (list: PullRequest[]) => (held.size === 0 ? list : list.filter((pr) => !held.has(pr.key)))
     return {
       viewer: row?.viewer ?? null,
       syncedAt: row?.synced_at ?? null,
       mineSyncedAt: row?.mine_synced_at ?? null,
       reviewSyncedAt: row?.review_synced_at ?? null,
-      pullRequests: row ? decorate(parseList(row.pull_requests), tags, sessions) : [],
-      reviewPullRequests: row ? decorate(parseList(row.review_pull_requests), tags, sessions) : [],
+      pullRequests: row ? visible(decorate(parseList(row.pull_requests), tags, sessions)) : [],
+      reviewPullRequests: row ? visible(decorate(parseList(row.review_pull_requests), tags, sessions)) : [],
       initiatives: initiatives(),
       linearConfigured: row ? row.linear_configured === 1 : Boolean(process.env.LINEAR_API_KEY),
       warning: row?.warning ?? null,
