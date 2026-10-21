@@ -277,7 +277,29 @@ td.merge { white-space: normal; width: 148px; vertical-align: middle; }
 .split-merge .primary.merge.caret { border-radius: 0 8px 8px 0; border-left: 1px solid #9a6d3b; padding: 4px 8px; }
 .merge-error { margin: 0; max-width: 280px; color: var(--red); font-size: 12px; line-height: 1.35; }
 .popover.merge-menu { width: 160px; padding: 6px; }
-tr.held > td { box-shadow: inset 3px 0 0 var(--accent); }
+tbody tr.held > td,
+tbody tr.held.child > td,
+tbody tr.held.tone-a > td,
+tbody tr.held.tone-b > td {
+  background: var(--bg);
+  --row-bg: var(--bg);
+  color: var(--faint);
+}
+tbody tr.held:hover > td,
+tbody tr.held.child:hover > td,
+tbody tr.held.tone-a:hover > td,
+tbody tr.held.tone-b:hover > td {
+  background: var(--bg-hover);
+  --row-bg: var(--bg-hover);
+}
+tr.held > td :is(a, .repo, .add, .del, .files, .mark, .feedback, .await, .ci, .pill:not(.queue), .conflict-x) {
+  color: var(--faint);
+}
+tr.held > td .ci { background: transparent; }
+tr.held td.grip::before,
+tr.held td.grip::after,
+tr.held .stack-mark,
+tr.held .stack-mark::after { opacity: 0.35; }
 .pill.queue { font-size: 13px; }
 .pill.queue.queued, .pill.queue.waiting { color: var(--blue); }
 .pill.queue.rebasing, .pill.queue.merging, .pill.queue.active { color: var(--accent); }
