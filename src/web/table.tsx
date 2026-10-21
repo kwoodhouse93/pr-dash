@@ -1,12 +1,13 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
-import { cursorLinks, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
+import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
 import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { StackSummary } from '../shared/stacks.ts'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
+import { paintCursorLoading } from './cursor-loading.ts'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
@@ -864,6 +865,14 @@ function Conflict({
 }) {
   const conflicts = prs.filter((pr) => pr.conflict)
   const sessions = prs.flatMap((pr) => (pr.cursorSession ? [{ pr, session: pr.cursorSession }] : []))
+  const started = conflicts.flatMap((pr) =>
+    pr.cursorSession && cursorSessionActive(pr.cursorSession.status) ? [{ pr, session: pr.cursorSession }] : [],
+  )
+  const [handoff, setHandoff] = useState<ReadonlySet<string>>(() => new Set())
+  const startedKeys = new Set(started.map((item) => item.pr.key))
+  const handoffOnly = conflicts.filter((pr) => handoff.has(pr.key) && !pr.cursorSession)
+  const covered = new Set([...startedKeys, ...handoffOnly.map((pr) => pr.key)])
+  const waiting = conflicts.filter((pr) => !covered.has(pr.key))
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { locked } = useStackLock()
@@ -871,12 +880,26 @@ function Conflict({
   async function resolve(pr: PullRequest) {
     setError(null)
     setPending(pr.key)
-    // Open during the click so the browser allows the tab. Leave opener set until
-    // the session URL is assigned; clearing it first keeps this about:blank tab
-    // and opens the session in a second one.
+    // Open during the click so the browser allows the tab. Paint the loading
+    // page before any await, while this document can still write to it. Leave
+    // opener set until the session URL is assigned; clearing it first keeps
+    // this tab and opens the session in a second one.
     const agent = window.open('', '_blank')
+    if (agent) {
+      try {
+        paintCursorLoading(agent)
+      } catch {
+        // The tab still redirects when the session URL is ready.
+      }
+    }
     try {
       const result = await onResolveWithCursor(pr.key)
+      setHandoff((current) => {
+        if (current.has(pr.key)) return current
+        const next = new Set(current)
+        next.add(pr.key)
+        return next
+      })
       if (!agent) {
         setError('Cursor started, but the new tab was blocked. Allow pop-ups and try again.')
         return
@@ -912,22 +935,33 @@ function Conflict({
               </>
             }
           >
-            <h3>Resolve with Cursor</h3>
-            <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
-            {conflicts.map((pr) => (
-              <div key={pr.key} className="resolve-action">
-                {conflicts.length > 1 ? <p>#{pr.number}</p> : null}
-                <button
-                  type="button"
-                  className="primary resolve-cta"
-                  disabled={locked || pending !== null}
-                  aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with Cursor` : undefined}
-                  onClick={() => void resolve(pr)}
-                >
-                  {pending === pr.key ? 'Starting Cursor…' : 'Resolve with Cursor >'}
-                </button>
+            {started.length ? <CursorSessions sessions={started} /> : null}
+            {handoffOnly.map((pr) => (
+              <div key={pr.key} className="cursor-session">
+                <h3>{conflicts.length > 1 ? `#${pr.number} · ` : ''}Creating</h3>
+                <p>Cursor is starting a cloud agent for this conflict.</p>
               </div>
             ))}
+            {waiting.length ? (
+              <>
+                <h3>Resolve with Cursor</h3>
+                <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
+                {waiting.map((pr) => (
+                  <div key={pr.key} className="resolve-action">
+                    {conflicts.length > 1 ? <p>#{pr.number}</p> : null}
+                    <button
+                      type="button"
+                      className="primary resolve-cta"
+                      disabled={locked || pending !== null}
+                      aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with Cursor` : undefined}
+                      onClick={() => void resolve(pr)}
+                    >
+                      {pending === pr.key ? 'Starting Cursor…' : 'Resolve with Cursor'}
+                    </button>
+                  </div>
+                ))}
+              </>
+            ) : null}
             {error ? <p className="launch-error">{error}</p> : null}
           </ClickCard>
         ) : null}
@@ -1047,6 +1081,33 @@ function rebaseCopy(target: PullRequest, above: PullRequest[]): string {
   return `Rebase #${target.number} onto ${onto}. ${list} ${above.length === 1 ? 'is' : 'are'} restacked with it.`
 }
 
+function CursorSessions({ sessions }: { sessions: { pr: PullRequest; session: CursorSession }[] }) {
+  return (
+    <>
+      {sessions.map(({ pr, session }) => {
+        const links = cursorLinks(session.agentId)
+        return (
+          <div key={pr.key} className="cursor-session">
+            <h3>
+              {sessions.length > 1 ? `#${pr.number} · ` : ''}
+              {cursorStatusLabel(session.status)}
+            </h3>
+            <p>{cursorStatusDetail(session)}</p>
+            {session.branch ? <p>Pushed to {session.branch}.</p> : null}
+            {session.result ? <Markdown className="cursor-result" text={session.result} /> : null}
+            <div className="cursor-links">
+              <a className="external" href={links.desktopUrl}>Open in Cursor</a>
+              <a href={links.webUrl} target="_blank" rel="noreferrer">
+                Open on the web
+              </a>
+            </div>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 function CursorChip({
   id,
   sessions,
@@ -1068,26 +1129,7 @@ function CursorChip({
         </>
       }
     >
-      {sessions.map(({ pr, session }) => {
-        const links = cursorLinks(session.agentId)
-        return (
-          <div key={pr.key} className="cursor-session">
-            <h3>
-              {sessions.length > 1 ? `#${pr.number} · ` : ''}
-              {cursorStatusLabel(session.status)}
-            </h3>
-            <p>{cursorStatusDetail(session)}</p>
-            {session.branch ? <p>Pushed to {session.branch}.</p> : null}
-            {session.result ? <Markdown className="cursor-result" text={session.result} /> : null}
-            <div className="cursor-links">
-              <a className="external" href={links.desktopUrl}>Open in Cursor</a>
-              <a href={links.webUrl} target="_blank" rel="noreferrer">
-                Open on the web
-              </a>
-            </div>
-          </div>
-        )
-      })}
+      <CursorSessions sessions={sessions} />
     </ClickCard>
   )
 }
