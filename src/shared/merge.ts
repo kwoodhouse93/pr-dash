@@ -10,6 +10,7 @@ export function canSquashMerge(pr: PullRequest): boolean {
     pr.baseRef === pr.defaultBranch &&
     !pr.isDraft &&
     pr.mergeable === 'MERGEABLE' &&
-    READY.has(pr.mergeStateStatus ?? '')
+    READY.has(pr.mergeStateStatus ?? '') &&
+    pr.unresolvedCount === 0
   )
 }

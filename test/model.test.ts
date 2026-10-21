@@ -410,4 +410,9 @@ describe('squash merge', () => {
     expect(canSquashMerge({ ...ready, mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' })).toBe(false)
     expect(canSquashMerge({ ...ready, squashMergeAllowed: false })).toBe(false)
   })
+
+  it('refuses a pull request with unresolved threads and still allows resolved ones', () => {
+    expect(canSquashMerge({ ...ready, threadCount: 2, unresolvedCount: 1 })).toBe(false)
+    expect(canSquashMerge({ ...ready, threadCount: 3, unresolvedCount: 0 })).toBe(true)
+  })
 })
