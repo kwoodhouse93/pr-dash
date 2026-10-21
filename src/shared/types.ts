@@ -10,6 +10,8 @@ export type Check = {
   workflowRunId: number | null
   startedAt: string | null
   completedAt: string | null
+  /** Required by the ruleset, but absent from the commit's check rollup. */
+  unreported?: boolean
 }
 
 export type MergeMark = 'met' | 'unmet' | 'draft' | 'none'

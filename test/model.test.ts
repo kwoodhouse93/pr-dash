@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mergeReview, summarizeReviews } from '../src/shared/approval.ts'
-import { canSquashMerge } from '../src/shared/merge.ts'
+import { canSquashMerge, requiredCheckGate } from '../src/shared/merge.ts'
 import {
   activeHoldNames,
   applyRequired,
+  checkPhase,
   ciLabel,
   ciLevel,
   compareChecks,
@@ -15,6 +16,7 @@ import {
   withoutHolds,
 } from '../src/shared/ci.ts'
 import { feedbackCounts, quoteReply, summarizeNotes, summarizeThreads, threadKinds, threadPermalink } from '../src/shared/feedback.ts'
+import { checksFromRaw, type RawCheckSuite } from '../src/shared/map.ts'
 import { reviewSearchQueries } from '../src/server/github.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
@@ -187,7 +189,105 @@ describe('ci', () => {
     expect(checks[0]?.required).toBe(true)
     expect(ciLevel(checks)).toBe('red')
   })
+
+  it('shows a workflow that failed before creating jobs, and the required checks it never reported', () => {
+    const checks = checksFromRaw(
+      [{ __typename: 'CheckRun', name: 'prisma-migration-check', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      ['prisma-migration-check', 'build', 'lint'],
+      { mergeStateStatus: 'BLOCKED', suites: [startupSuite('Test')] },
+    )
+    expect(checks.find((item) => item.name === 'Test — workflow startup')).toMatchObject({
+      conclusion: 'STARTUP_FAILURE',
+      required: true,
+      workflowName: 'Test',
+      workflowRunId: 1234567890,
+      url: 'https://github.com/initech/backend/actions/runs/1234567890',
+    })
+    const missing = checks.find((item) => item.name === 'build')
+    expect(missing?.unreported).toBe(true)
+    expect(checkPhase(missing!)).toBe('missing')
+    expect(ciLevel(checks)).toBe('red')
+    expect(requiredCheckGate(checks, ['prisma-migration-check', 'build', 'lint'], 'MERGEABLE', 'BLOCKED')?.action).toBe('fail')
+  })
+
+  it('keeps a green rollup green when a ruleset name is absent and GitHub is not blocked', () => {
+    const checks = checksFromRaw(
+      [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      ['build', 'lint'],
+      { mergeStateStatus: 'CLEAN' },
+    )
+    expect(checks.map((item) => item.name)).toEqual(['build'])
+    expect(ciLevel(checks)).toBe('green')
+  })
+
+  it('lists required checks that never reported while GitHub still blocks the pull request', () => {
+    const checks = checksFromRaw(
+      [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      ['build', 'lint'],
+      { mergeStateStatus: 'BLOCKED' },
+    )
+    expect(checkPhase(checks.find((item) => item.name === 'lint')!)).toBe('missing')
+    expect(ciLevel(checks)).toBe('pending')
+    expect(requiredCheckGate(checks, ['build', 'lint'], 'MERGEABLE', 'BLOCKED')).toEqual({ action: 'wait', names: ['lint'] })
+  })
+
+  it('does not turn a skipped required check into a missing one', () => {
+    const checks = checksFromRaw(
+      [
+        { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SKIPPED' },
+      ],
+      ['build', 'lint'],
+      { mergeStateStatus: 'BLOCKED' },
+    )
+    expect(checks.map((item) => item.name)).toEqual(['build'])
+    expect(ciLevel(checks)).toBe('green')
+  })
+
+  it('ignores a workflow suite that created jobs, a skip, and an older startup failure', () => {
+    const checks = checksFromRaw([], ['build'], {
+      mergeStateStatus: 'CLEAN',
+      suites: [
+        startupSuite('Test', { updatedAt: '2026-10-19T15:00:00Z', databaseId: 1 }),
+        {
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          updatedAt: '2026-10-19T16:00:00Z',
+          workflowRun: { databaseId: 2, url: null, workflow: { name: 'Test' } },
+          checkRuns: { totalCount: 3 },
+        },
+        {
+          status: 'COMPLETED',
+          conclusion: 'SKIPPED',
+          workflowRun: { databaseId: 3, url: null, workflow: { name: 'Preview' } },
+          checkRuns: { totalCount: 0 },
+        },
+        {
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          workflowRun: { databaseId: 4, url: null, workflow: { name: 'Lint' } },
+          checkRuns: { totalCount: 1 },
+        },
+      ],
+    })
+    expect(checks).toEqual([])
+  })
 })
+
+function startupSuite(workflow: string, over: { updatedAt?: string; databaseId?: number } = {}): RawCheckSuite {
+  return {
+    status: 'COMPLETED',
+    conclusion: 'STARTUP_FAILURE',
+    createdAt: '2026-10-19T15:39:26Z',
+    updatedAt: over.updatedAt ?? '2026-10-20T16:08:02Z',
+    workflowRun: {
+      databaseId: over.databaseId ?? 1234567890,
+      url: 'https://github.com/initech/backend/actions/runs/1234567890',
+      workflow: { name: workflow },
+    },
+    checkRuns: { totalCount: 0 },
+  }
+}
 
 describe('rules', () => {
   it('reads active required status check contexts', () => {
@@ -785,5 +885,10 @@ describe('squash merge', () => {
   it('refuses a pull request with unresolved threads and still allows resolved ones', () => {
     expect(canSquashMerge({ ...ready, threadCount: 2, unresolvedCount: 1 })).toBe(false)
     expect(canSquashMerge({ ...ready, threadCount: 3, unresolvedCount: 0 })).toBe(true)
+  })
+
+  it('refuses a pull request whose workflow failed before creating jobs', () => {
+    const checks = checksFromRaw([], [], { mergeStateStatus: 'CLEAN', suites: [startupSuite('Test')] })
+    expect(canSquashMerge({ ...ready, checks })).toBe(false)
   })
 })
