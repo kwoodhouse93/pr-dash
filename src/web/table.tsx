@@ -1338,15 +1338,19 @@ function SplitMerge({
   onQueue: (key: string) => Promise<void>
 }) {
   const pendingRef = useRef(false)
-  const [pending, setPending] = useState(false)
+  const [action, setAction] = useState<'merge' | 'queue' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLButtonElement>(null)
   const { locked } = useStackLock()
+  const pending = action !== null
   const busy = pending || locked
   useEffect(() => {
     if (locked) setOpen(false)
   }, [locked])
+  const label = action === 'queue' ? 'Queuing' : action === 'merge' ? 'Merging' : 'Merge'
+  const described =
+    action === 'queue' ? `Queuing #${pr.number}` : action === 'merge' ? `Merging #${pr.number}` : `Squash and merge #${pr.number}`
   return (
     <div className="merge-action">
       <div className="split-merge">
@@ -1355,20 +1359,20 @@ function SplitMerge({
           className="primary merge"
           disabled={busy}
           aria-busy={busy}
-          aria-label={pending ? `Merging #${pr.number}` : `Squash and merge #${pr.number}`}
+          aria-label={described}
           onClick={() => {
             if (pendingRef.current || locked) return
             pendingRef.current = true
-            setPending(true)
+            setAction('merge')
             setError(null)
             void onMerge(pr.key).catch((caught: unknown) => {
               pendingRef.current = false
-              setPending(false)
+              setAction(null)
               setError(caught instanceof Error ? caught.message : 'Merge failed')
             })
           }}
         >
-          {pending ? 'Merging' : 'Merge'}
+          {label}
         </button>
         <button
           ref={anchor}
@@ -1387,9 +1391,14 @@ function SplitMerge({
           anchor={anchor.current}
           onClose={() => setOpen(false)}
           onQueue={() => {
+            if (pendingRef.current || locked) return
+            pendingRef.current = true
+            setAction('queue')
             setOpen(false)
             setError(null)
             void onQueue(pr.key).catch((caught: unknown) => {
+              pendingRef.current = false
+              setAction(null)
               setError(caught instanceof Error ? caught.message : 'Could not queue that pull request')
             })
           }}
@@ -1401,6 +1410,7 @@ function SplitMerge({
 }
 
 function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue: () => void; onClose: () => void }) {
+  const panel = useRef<HTMLDivElement>(null)
   const rect = anchor.getBoundingClientRect()
   const menuHeight = 44
   const below = rect.bottom + 6
@@ -1408,7 +1418,9 @@ function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue:
   useEffect(() => {
     const onDoc = (event: MouseEvent) => {
       const target = event.target
-      if (target instanceof Node && anchor.contains(target)) return
+      // The menu is portaled onto document.body, so a press on Queue is outside the caret.
+      // Closing on that press unmounts the item before its click can queue the pull request.
+      if (target instanceof Node && (anchor.contains(target) || panel.current?.contains(target))) return
       onClose()
     }
     const onKey = (event: KeyboardEvent) => {
@@ -1422,7 +1434,7 @@ function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue:
     }
   }, [anchor, onClose])
   return createPortal(
-    <div className="popover merge-menu" style={{ top, left: Math.max(12, rect.right - 168) }} role="menu">
+    <div ref={panel} className="popover merge-menu" style={{ top, left: Math.max(12, rect.right - 168) }} role="menu">
       <button type="button" className="menu-item" role="menuitem" onClick={onQueue}>
         Queue
       </button>
