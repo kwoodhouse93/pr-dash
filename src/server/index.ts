@@ -217,7 +217,9 @@ app.post('/api/conflicts/:key/cursor', async (c) => {
   if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
   if (!pr.conflict) return c.json({ error: 'That pull request no longer has a merge conflict.' }, 409)
   try {
-    return c.json(await startCursorConflictResolver(pr))
+    const session = await startCursorConflictResolver(pr)
+    db.saveCursorSession(pr.key, session)
+    return c.json(db.snapshot())
   } catch (error) {
     return c.json({ error: messageOf(error) }, 502)
   }

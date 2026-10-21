@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
+import type { CursorSession, Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
 export type DashboardDb = {
@@ -18,6 +18,8 @@ export type DashboardDb = {
   deleteInitiative(id: string): void
   setAssignments(initiativeId: string, prKeys: string[], action: 'add' | 'remove'): void
   updateLinearIssue(identifier: string, patch: LinearIssue): Snapshot
+  saveCursorSession(prKey: string, session: CursorSession): void
+  cursorSessions(): { prKey: string; session: CursorSession }[]
   queue: QueueStore
 }
 
@@ -55,12 +57,35 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       created_at TEXT NOT NULL,
       PRIMARY KEY (initiative_id, pr_key)
     );
+    CREATE TABLE IF NOT EXISTS cursor_sessions (
+      pr_key TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      result TEXT,
+      branch TEXT,
+      updated_at TEXT NOT NULL
+    );
   `)
 
   const queue = attachQueue(db)
   const readSnapshotRow = db.prepare('SELECT viewer, synced_at, linear_configured, warning, pull_requests FROM snapshot WHERE id = 1')
   const readInitiatives = db.prepare('SELECT id, name, created_at, updated_at FROM initiatives ORDER BY created_at ASC')
   const readAssignments = db.prepare('SELECT initiative_id, pr_key FROM initiative_pull_requests')
+  const readCursorSessions = db.prepare(
+    'SELECT pr_key, agent_id, run_id, status, result, branch, updated_at FROM cursor_sessions',
+  )
+  const writeCursorSession = db.prepare(
+    `INSERT INTO cursor_sessions (pr_key, agent_id, run_id, status, result, branch, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(pr_key) DO UPDATE SET
+       agent_id = excluded.agent_id,
+       run_id = excluded.run_id,
+       status = excluded.status,
+       result = excluded.result,
+       branch = excluded.branch,
+       updated_at = excluded.updated_at`,
+  )
 
   function initiatives(): Initiative[] {
     return (readInitiatives.all() as { id: string; name: string; created_at: string; updated_at: string }[]).map((row) => ({
@@ -81,13 +106,37 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     return map
   }
 
+  function cursorSessions(): { prKey: string; session: CursorSession }[] {
+    return (readCursorSessions.all() as {
+      pr_key: string
+      agent_id: string
+      run_id: string
+      status: CursorSession['status']
+      result: string | null
+      branch: string | null
+      updated_at: string
+    }[]).map((row) => ({
+      prKey: row.pr_key,
+      session: {
+        agentId: row.agent_id,
+        runId: row.run_id,
+        status: row.status,
+        result: row.result,
+        branch: row.branch,
+        updatedAt: row.updated_at,
+      },
+    }))
+  }
+
   function snapshot(): Snapshot {
     const row = readSnapshotRow.get() as SnapshotRow | undefined
     const tags = assignments()
+    const sessions = new Map(cursorSessions().map((item) => [item.prKey, item.session]))
     const pullRequests = row
       ? (JSON.parse(row.pull_requests) as PullRequest[]).map((pr) => ({
           ...pr,
           initiativeIds: tags.get(pr.key) ?? [],
+          cursorSession: sessions.get(pr.key) ?? null,
         }))
       : []
     return {
@@ -112,7 +161,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   return {
     snapshot,
     saveSnapshot(input) {
-      const stripped = input.pullRequests.map((pr) => ({ ...pr, initiativeIds: [] }))
+      const stripped = input.pullRequests.map(({ cursorSession: _session, ...pr }) => ({ ...pr, initiativeIds: [] }))
       db.prepare(
         `INSERT INTO snapshot (id, viewer, synced_at, linear_configured, warning, pull_requests)
          VALUES (1, ?, ?, ?, ?, ?)
@@ -170,6 +219,10 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.exec('ROLLBACK')
         throw error
       }
+    },
+    cursorSessions,
+    saveCursorSession(prKey, session) {
+      writeCursorSession.run(prKey, session.agentId, session.runId, session.status, session.result, session.branch, session.updatedAt)
     },
     queue,
     updateLinearIssue(identifier, patch) {

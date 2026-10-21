@@ -36,7 +36,7 @@ export const api = {
   assign: (initiativeId: string, prKeys: string[], action: 'add' | 'remove') =>
     post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
   rerun: (keys: string[], mode: 'failed' | 'all') => post<{ reran: number; errors: string[] }>('/api/rerun', { keys, mode }),
-  resolveConflictWithCursor: (key: string) => post<{ url: string }>(`/api/conflicts/${encodeURIComponent(key)}/cursor`, {}),
+  resolveConflictWithCursor: (key: string) => post<Snapshot>(`/api/conflicts/${encodeURIComponent(key)}/cursor`, {}),
   merge: (key: string) => post<Snapshot>('/api/merge', { key }),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),
   enqueue: (key: string, scope: 'pr' | 'downstack') => post<QueueSnapshot>('/api/merge-queue', { key, scope }),

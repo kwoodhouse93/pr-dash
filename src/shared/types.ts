@@ -89,6 +89,18 @@ export type PullRequest = {
   threadsTruncated: boolean
   linearIssues: LinearIssue[]
   initiativeIds: string[]
+  cursorSession?: CursorSession | null
+}
+
+export type CursorSessionStatus = 'creating' | 'running' | 'finished' | 'failed' | 'cancelled' | 'expired'
+
+export type CursorSession = {
+  agentId: string
+  runId: string
+  status: CursorSessionStatus
+  result: string | null
+  branch: string | null
+  updatedAt: string
 }
 
 export type Initiative = {

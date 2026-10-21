@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
+import { cursorLinks } from '../shared/cursor.ts'
 import { buildOutline, outlineEmpty } from '../shared/view.ts'
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
@@ -348,7 +349,14 @@ export function App() {
                 void refresh()
                 return text
               }}
-              onResolveConflictWithCursor={(key) => api.resolveConflictWithCursor(key)}
+              onResolveConflictWithCursor={async (key) => {
+                const snap = await api.resolveConflictWithCursor(key)
+                ++applyId.current
+                setData(adopt(snap))
+                const session = snap.pullRequests.find((item) => item.key === key)?.cursorSession
+                if (!session) throw new Error('Cursor started without a session link.')
+                return { url: cursorLinks(session.agentId).webUrl }
+              }}
             />
           ) : null}
         </div>

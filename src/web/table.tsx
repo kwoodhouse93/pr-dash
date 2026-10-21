@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { checkPhase, ciDetail, ciLabel, worstCi } from '../shared/ci.ts'
+import { cursorLinks, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
 import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { StackSummary } from '../shared/stacks.ts'
-import type { Check, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
+import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, StackBlock } from '../shared/view.ts'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
@@ -655,6 +656,7 @@ function Conflict({
   onResolveWithCursor: (key: string) => Promise<{ url: string }>
 }) {
   const conflicts = prs.filter((pr) => pr.conflict)
+  const sessions = prs.flatMap((pr) => (pr.cursorSession ? [{ pr, session: pr.cursorSession }] : []))
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -677,33 +679,95 @@ function Conflict({
 
   return (
     <td className="conflict">
-      {conflicts.length ? (
-        <ClickCard
-          id={id}
-          className="conflict-x"
-          label={
-            <>
-              <span className="sr">Resolve merge conflict with Cursor</span>
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </>
-          }
-        >
-          <h3>Resolve with Cursor</h3>
-          <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
-          {conflicts.map((pr) => (
-            <button key={pr.key} type="button" className="menu-item" disabled={pending !== null} onClick={() => void resolve(pr)}>
-              {pending === pr.key ? 'Starting Cursor…' : `#${pr.number} · ${pr.title}`}
-            </button>
-          ))}
-          {error ? <p className="launch-error">{error}</p> : null}
-        </ClickCard>
-      ) : (
-        <span className="sr">No conflict</span>
-      )}
+      <span className="conflict-cell">
+        {conflicts.length ? (
+          <ClickCard
+            id={id}
+            className="conflict-x"
+            label={
+              <>
+                <span className="sr">Resolve merge conflict with Cursor</span>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </>
+            }
+          >
+            <h3>Resolve with Cursor</h3>
+            <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
+            {conflicts.map((pr) => (
+              <button key={pr.key} type="button" className="menu-item" disabled={pending !== null} onClick={() => void resolve(pr)}>
+                {pending === pr.key ? 'Starting Cursor…' : `#${pr.number} · ${pr.title}`}
+              </button>
+            ))}
+            {error ? <p className="launch-error">{error}</p> : null}
+          </ClickCard>
+        ) : null}
+        {sessions.length ? <CursorChip id={`${id}:cursor`} sessions={sessions} /> : null}
+        {conflicts.length === 0 && sessions.length === 0 ? <span className="sr">No conflict</span> : null}
+      </span>
     </td>
   )
+}
+
+function CursorChip({
+  id,
+  sessions,
+}: {
+  id: string
+  sessions: { pr: PullRequest; session: CursorSession }[]
+}) {
+  const lead = leadingCursorStatus(sessions.map((item) => item.session.status)) ?? 'running'
+  return (
+    <ClickCard
+      id={id}
+      className={`cursor-chip ${lead}`}
+      label={
+        <>
+          <span className="sr">Cursor session {cursorStatusLabel(lead)}</span>
+          {cursorStatusLabel(lead)}
+        </>
+      }
+    >
+      {sessions.map(({ pr, session }) => {
+        const links = cursorLinks(session.agentId)
+        return (
+          <div key={pr.key} className="cursor-session">
+            <h3>
+              {sessions.length > 1 ? `#${pr.number} · ` : ''}
+              {cursorStatusLabel(session.status)}
+            </h3>
+            <p>{cursorStatusDetail(session)}</p>
+            {session.branch ? <p>Pushed to {session.branch}.</p> : null}
+            {session.result ? <p className="cursor-result">{session.result}</p> : null}
+            <div className="cursor-links">
+              <a href={links.desktopUrl}>Open in Cursor</a>
+              <a href={links.webUrl} target="_blank" rel="noreferrer">
+                Open on the web
+              </a>
+            </div>
+          </div>
+        )
+      })}
+    </ClickCard>
+  )
+}
+
+function cursorStatusDetail(session: CursorSession): string {
+  switch (session.status) {
+    case 'creating':
+      return 'Cursor is starting a cloud agent for this conflict.'
+    case 'running':
+      return 'Cursor is resolving the conflict on this pull request.'
+    case 'finished':
+      return 'Cursor finished this run.'
+    case 'failed':
+      return 'Cursor reported a failed run.'
+    case 'cancelled':
+      return 'This Cursor run was cancelled.'
+    case 'expired':
+      return 'This Cursor run expired.'
+  }
 }
 
 function RowMenu(props: {

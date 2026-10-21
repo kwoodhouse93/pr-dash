@@ -15,7 +15,7 @@ The server uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise `gh auth to
 
 `LINEAR_API_KEY` is optional. Without it, issue titles still come from the Linear link on the pull request. Project names need the key.
 
-Set `CURSOR_API_KEY` to enable the Cursor action on a merge-conflict mark. It launches a Cursor Cloud Agent for that pull request, which works on and pushes to its existing head branch. Create a user or service-account key in the Cursor dashboard. The key remains on this server; the browser only receives the resulting Cursor agent URL.
+Set `CURSOR_API_KEY` to enable the Cursor action on a merge-conflict mark. It launches a Cursor Cloud Agent for that pull request, which works on and pushes to its existing head branch. The dashboard remembers that session and refreshes its status with the pull requests. Create a user or service-account key in the Cursor dashboard. The key remains on this server.
 
 ## What a row means
 
@@ -23,7 +23,7 @@ Set `CURSOR_API_KEY` to enable the Cursor action on a merge-conflict mark. It la
 - **Review.** Three marks, in order: any approval, a human approval, and GitHub’s merge requirement (including code owners when that rule applies). Grey means no review is required, which is common on drafts and on stacked pull requests whose base is not the default branch. White is still waiting. Green means that mark is satisfied.
 - **Feedback.** Threads, unresolved threads, and threads awaiting you. Awaiting you means the thread is unresolved and the latest human comment is not yours.
 - **Merge.** A Merge button shows when the pull request targets the repository’s default branch and looks ready to squash: not a draft, not conflicting, not behind, and not blocked by required reviews or checks. One click squash-merges it. The button stays pending until GitHub confirms. The row leaves the list after a success, and stays, with GitHub’s error, if the merge is refused.
-- **Conflict.** Click a red conflict mark and choose the affected pull request to start a Cursor Cloud Agent. It resolves the conflict on the pull request’s existing branch and opens the agent in Cursor.
+- **Conflict.** Click a red conflict mark and choose the affected pull request to start a Cursor Cloud Agent. It resolves the conflict on the pull request’s existing branch. The row keeps a status chip for that session — Creating, Running, Finished, or Failed — and opens the final reply, the pushed branch, and links back to Cursor and the web. The chip updates when the dashboard refreshes.
 
 Required check names come from each repository’s rulesets, so a check that is required to land on the default branch still counts as required on a stacked pull request.
 

@@ -1,4 +1,5 @@
 import type { DashboardDb } from './db.ts'
+import { refreshCursorSessions } from './cursor.ts'
 import { fetchAuthoredPullRequests, loadGithubToken } from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
@@ -50,11 +51,14 @@ async function run(db: DashboardDb): Promise<Snapshot> {
     }
   }
   syncStatus.message = 'Saving'
-  return db.saveSnapshot({
+  db.saveSnapshot({
     viewer: fetched.viewer,
     syncedAt: new Date().toISOString(),
     pullRequests: db.queue.overlay(omitMerged(fetched.pullRequests)),
     linearConfigured: Boolean(linearKey),
     warning,
   })
+  syncStatus.message = 'Checking Cursor'
+  await refreshCursorSessions(db.cursorSessions(), (prKey, session) => db.saveCursorSession(prKey, session))
+  return db.snapshot()
 }
