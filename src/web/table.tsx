@@ -172,7 +172,7 @@ export function PrTable({
           </SectionBand>
         ) : null}
         {outline.unassigned ? (
-          byIssue ? (
+          byIssue || outline.projects.length > 0 || outline.initiatives.length > 0 ? (
             <SectionBand id="band:unassigned" title="No issue" collapsed={collapsed} onToggle={onToggleSection}>
               <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
             </SectionBand>

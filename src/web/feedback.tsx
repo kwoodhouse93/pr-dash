@@ -349,6 +349,7 @@ function ThreadCard({
   onReply: (threadId: string, body: string) => Promise<void>
   onResolve: (threadId: string, resolved: boolean) => Promise<void>
 }) {
+  const [open, setOpen] = useState(true)
   const [pending, setPending] = useState<'reply' | 'resolve' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const lock = useRef(false)
@@ -369,14 +370,38 @@ function ThreadCard({
     }
   }
   return (
-    <article className="thread-card">
-      <div className="thread-file">
+    <article className={open ? 'thread-card' : 'thread-card collapsed'}>
+      <div
+        className="thread-file"
+        onClick={(event) => {
+          const target = event.target
+          if (target instanceof HTMLElement && target.closest('a, button')) return
+          setOpen((value) => !value)
+        }}
+      >
+        <button
+          type="button"
+          className="thread-toggle"
+          aria-expanded={open}
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
         <a className="file-link" href={href} target="_blank" rel="noreferrer" title="Open this diff on GitHub">
           {label}
         </a>
         {thread.isOutdated ? <span className="pill">Outdated</span> : null}
         {thread.isResolved ? <span className="pill">Resolved{thread.resolvedBy ? ` by ${thread.resolvedBy}` : ''}</span> : null}
+        {open ? null : (
+          <span className="thread-count">
+            {thread.comments.length} comment{thread.comments.length === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
+      <div hidden={!open}>
       {thread.diffHunk ? <DiffHunk hunk={thread.diffHunk} /> : null}
       {thread.commentsTruncated ? <p className="faint">Earlier replies are hidden.</p> : null}
       <div className="thread-comments">
@@ -410,6 +435,7 @@ function ThreadCard({
           </button>
         }
       />
+      </div>
     </article>
   )
 }
@@ -592,7 +618,7 @@ function hunkKind(line: string): string {
   return 'ctx'
 }
 
-const HTML_TAG = /<\/?(?:details|summary|sub|sup|div|span|br|p|img|a|b|i|em|strong|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6]|code|pre|blockquote|hr|kbd|mark|small|center)(?:\s[^>\n]*)?>/gi
+const HTML_TAG = /<\/?(?:sub|sup|div|span|br|p|img|a|b|i|em|strong|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6]|code|pre|blockquote|hr|kbd|mark|small|center)(?:\s[^>\n]*)?>/gi
 
 function displayBody(body: string): string {
   return body

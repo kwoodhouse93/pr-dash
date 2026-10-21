@@ -717,7 +717,7 @@ describe('stacks and grouping', () => {
     ])
   })
 
-  it('shows a stack once, intact, when not grouped by issue', () => {
+  it('keeps project sections and drops only the issue layer when not grouped by issue', () => {
     const prs = [
       pr({
         id: 'a',
@@ -750,11 +750,79 @@ describe('stacks and grouping', () => {
       'author',
       false,
     )
-    expect(view.projects).toEqual([])
+    expect(view.projects.map((project) => project.title)).toEqual(['Updates'])
+    expect(view.projects[0]?.issues).toHaveLength(1)
+    expect(view.projects[0]?.issues[0]?.title).toBeNull()
+    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
+      3,
+      'between',
+      1,
+    ])
     expect(view.initiatives).toEqual([])
     expect(view.looseIssues).toEqual([])
-    expect(view.unassigned?.stacks).toHaveLength(1)
-    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([3, 2, 1])
+    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
+      'above',
+      2,
+      'below',
+    ])
+  })
+
+  it('keeps a stack intact under its project when not grouped by issue', () => {
+    const prs = [
+      pr({
+        id: 'a',
+        number: 1,
+        baseRef: 'dev',
+        headRef: 'branch-a',
+        linearIssues: [{ identifier: 'ENG-1', title: 'Bottom', url: null, projectId: 'p1', projectName: 'Updates' }],
+      }),
+      pr({
+        id: 'b',
+        number: 2,
+        baseRef: 'branch-a',
+        headRef: 'branch-b',
+        linearIssues: [{ identifier: 'ENG-2', title: 'Top', url: null, projectId: 'p1', projectName: 'Updates' }],
+      }),
+    ]
+    const grouped = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT)
+    expect(grouped.projects[0]?.issues.map((issue) => issue.issueId).sort()).toEqual(['ENG-1', 'ENG-2'])
+    const view = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT, 'author', false)
+    expect(view.projects[0]?.issues).toHaveLength(1)
+    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
+      2,
+      1,
+    ])
+    expect(view.looseIssues).toEqual([])
+    expect(view.unassigned).toBeNull()
+  })
+
+  it('keeps an initiative when not grouped by issue and folds loose issues into the remainder', () => {
+    const tagged = pr({
+      id: 'i',
+      number: 4,
+      baseRef: 'dev',
+      headRef: 'init',
+      initiativeIds: ['cleanup'],
+    })
+    const loose = pr({
+      id: 'l',
+      number: 5,
+      baseRef: 'dev',
+      headRef: 'loose',
+      linearIssues: [{ identifier: 'ENG-8', title: 'Loose', url: null, projectId: null, projectName: null }],
+    })
+    const view = buildOutline(
+      [tagged, loose],
+      [{ id: 'cleanup', name: 'Auth cleanup', createdAt: '', updatedAt: '' }],
+      DEFAULT_FILTERS,
+      DEFAULT_SORT,
+      'author',
+      false,
+    )
+    expect(view.initiatives.map((bucket) => bucket.title)).toEqual(['Auth cleanup'])
+    expect(view.projects).toEqual([])
+    expect(view.looseIssues).toEqual([])
+    expect(view.unassigned?.singles.map((block) => block.summary.number)).toEqual([5])
   })
 
   it('groups a tagged slice of a stack under an initiative', () => {

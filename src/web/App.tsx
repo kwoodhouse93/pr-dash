@@ -468,7 +468,7 @@ export function App() {
               type="button"
               className="ghost"
               aria-pressed={prefs.byIssue}
-              title="Show Linear issues, with pull requests under each one"
+              title="Group pull requests under each Linear issue. Projects and initiatives stay either way."
               onClick={() => setPrefs((current) => ({ ...current, byIssue: !current.byIssue }))}
             >
               By issue
@@ -685,6 +685,31 @@ function RefreshControl({
   const known = progress != null && progress.total > 0
   return (
     <div className="refresh-cluster">
+      {refreshing ? (
+        <div className="refresh-activity" aria-live="polite">
+          <span className="refresh-text" title={text}>
+            {text}
+          </span>
+          {known ? (
+            <span
+              className="refresh-bar"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={progress.total}
+              aria-valuenow={progress.completed}
+              aria-label="Refresh progress"
+            >
+              <span style={{ width: `${Math.min(100, (progress.completed / progress.total) * 100)}%` }} />
+            </span>
+          ) : (
+            <SyncArrows />
+          )}
+        </div>
+      ) : (
+        <button type="button" className="ghost refresh-btn" onClick={onRefresh}>
+          Refresh
+        </button>
+      )}
       <div className="freshness" ref={ref}>
         <button
           type="button"
@@ -701,31 +726,6 @@ function RefreshControl({
           </div>
         ) : null}
       </div>
-      {refreshing ? (
-        <div className="refresh-activity" aria-live="polite">
-          {known ? (
-            <span
-              className="refresh-bar"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={progress.total}
-              aria-valuenow={progress.completed}
-              aria-label="Refresh progress"
-            >
-              <span style={{ width: `${Math.min(100, (progress.completed / progress.total) * 100)}%` }} />
-            </span>
-          ) : (
-            <SyncArrows />
-          )}
-          <span className="refresh-text" title={text}>
-            {text}
-          </span>
-        </div>
-      ) : (
-        <button type="button" className="ghost refresh-btn" onClick={onRefresh}>
-          Refresh
-        </button>
-      )}
     </div>
   )
 }
