@@ -510,7 +510,7 @@ function DataRow({
         </div>
         <Subline
           menuScope={pr.id}
-          issues={pr.linearIssues.filter((issue) => issue.identifier !== hideIssue)}
+          issues={hideIssue ? [] : pr.linearIssues}
           linearConfigured={linearConfigured}
           onUpdateIssue={onUpdateIssue}
         />
@@ -624,7 +624,7 @@ function SummaryRow({
   const holds = useHolds()
   const summary = block.summary
   const ci = shownLevel(visible, holds)
-  const issues = sharedIssues(visible, hideIssue)
+  const issues = hideIssue ? [] : sharedIssues(visible)
   const ordered = orderedStack(block, prByKey)
   const mark = foremost(block.stackKeys, queueByKey)
   const top = ordered[0] ?? null
@@ -763,8 +763,8 @@ function bucketIssue(bucket: Bucket): LinearIssue | null {
   return null
 }
 
-function sharedIssues(prs: PullRequest[], hideIssue?: string): LinearIssue[] {
-  const issues = prs.flatMap((pr) => pr.linearIssues).filter((issue) => issue.identifier !== hideIssue)
+function sharedIssues(prs: PullRequest[]): LinearIssue[] {
+  const issues = prs.flatMap((pr) => pr.linearIssues)
   const ids = [...new Set(issues.map((issue) => issue.identifier))]
   if (ids.length === 1) return issues.filter((issue) => issue.identifier === ids[0]).slice(0, 1)
   if (ids.length > 1) {

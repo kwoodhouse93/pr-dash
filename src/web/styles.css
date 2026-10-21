@@ -305,7 +305,7 @@ tbody tr.tone-b:hover > td { background: var(--bg-hover); --row-bg: var(--bg-hov
 
 td.merge { white-space: normal; width: 148px; vertical-align: middle; }
 td.author, th.author { width: 1%; white-space: nowrap; }
-.author { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+span.author { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .avatars { display: inline-flex; align-items: center; }
 .author img, .avatar.fallback {
   width: 22px;

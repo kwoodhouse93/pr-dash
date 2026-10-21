@@ -545,6 +545,27 @@ describe('stacks and grouping', () => {
     expect(view.unassigned?.singles.map((block) => block.summary.title)).toEqual(['newer', 'older'])
   })
 
+  it('lists a pull request under every issue it is linked to', () => {
+    const linked = pr({
+      id: 'multi',
+      number: 7,
+      baseRef: 'dev',
+      headRef: 'multi',
+      linearIssues: [
+        { identifier: 'ENG-1', title: 'Parent', url: null, projectId: 'p', projectName: 'Billing' },
+        { identifier: 'ENG-2', title: 'Child', url: null, projectId: 'p', projectName: 'Billing' },
+      ],
+    })
+    const view = buildOutline([linked], [], DEFAULT_FILTERS, DEFAULT_SORT)
+    const issues = view.projects[0]?.issues ?? []
+    expect(issues.map((issue) => issue.issueId).sort()).toEqual(['ENG-1', 'ENG-2'])
+    for (const issue of issues) {
+      expect(issue.singles.flatMap((block) => block.rows.flatMap((row) => (row.type === 'pr' ? [row.pr.number] : [])))).toEqual([
+        7,
+      ])
+    }
+  })
+
   it('keeps a tagged pull request under its Linear project', () => {
     const tagged = pr({
       id: 'p',
