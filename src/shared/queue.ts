@@ -89,7 +89,7 @@ export type LivePull = {
 
 export type WaitDecision =
   | { action: 'ready' }
-  | { action: 'wait'; reason: string; unexplained?: boolean }
+  | { action: 'wait'; reason: string; unexplained?: boolean; restarting?: string[] }
   | { action: 'behind'; headOid: string }
   | { action: 'merged' }
   | { action: 'fail'; reason: string }
@@ -192,6 +192,15 @@ export function rebasesAfter(steps: MergeStep[], mergedId: string, trunk: string
   return plan
 }
 
+export const CANCEL_GRACE_MS = 60_000
+
+/** A cancelled required check keeps waiting until a replacement appears, then stops if it never does. */
+export function cancelGrace(since: number | null, now: number, restarting: boolean): { since: number | null; expired: boolean } {
+  if (!restarting) return { since: null, expired: false }
+  const started = since ?? now
+  return { since: started, expired: now - started >= CANCEL_GRACE_MS }
+}
+
 export function interpretWait(live: LivePull, trunk: string, requiredNames: string[]): WaitDecision {
   if (live.state === 'MERGED') return { action: 'merged' }
   if (live.state === 'CLOSED') return { action: 'fail', reason: `#${live.number} is closed.` }
@@ -221,7 +230,13 @@ export function interpretWait(live: LivePull, trunk: string, requiredNames: stri
     return { action: 'fail', reason: `#${live.number} required check failed: ${gate.names.join(', ')}.` }
   }
   if (gate?.action === 'wait') {
-    return { action: 'wait', reason: `Waiting on ${gate.names.join(', ')} for #${live.number}.` }
+    return {
+      action: 'wait',
+      reason: gate.restarting
+        ? `Waiting for ${gate.names.join(', ')} to restart on #${live.number}.`
+        : `Waiting on ${gate.names.join(', ')} for #${live.number}.`,
+      restarting: gate.restarting ? gate.names : undefined,
+    }
   }
   if (live.mergeable === 'UNKNOWN' || live.mergeStateStatus === 'UNKNOWN' || live.mergeStateStatus == null) {
     return { action: 'wait', reason: `Waiting for GitHub to finish checking #${live.number}.` }

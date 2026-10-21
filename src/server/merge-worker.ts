@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { ciLevel } from '../shared/ci.ts'
 import { canSquashMerge, sliceParts, stackReviewBar, upstackBlock } from '../shared/merge.ts'
-import { bootAction, interpretWait, rebasesAfter, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
+import { bootAction, cancelGrace, interpretWait, rebasesAfter, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
 import { buildStacks } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
@@ -308,6 +308,7 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merg
   let unexplained = 0
   let updatedFor = ''
   let lastReason = ''
+  let cancelledSince: number | null = null
   for (;;) {
     if (stopped(entry.id)) return 'stop'
     const names = namesFor(step)
@@ -335,6 +336,7 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merg
       return 'stop'
     }
     if (decision.action === 'behind') {
+      cancelledSince = null
       if (updatedFor === decision.headOid) {
         store.fail(entry.id, step.id, `#${step.number} is still behind ${entry.trunk} after updating it.`)
         return 'stop'
@@ -362,6 +364,12 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merg
       }
     } else {
       unexplained = 0
+    }
+    const grace = cancelGrace(cancelledSince, Date.now(), decision.action === 'wait' && decision.restarting != null)
+    cancelledSince = grace.since
+    if (grace.expired && decision.action === 'wait' && decision.restarting) {
+      store.fail(entry.id, step.id, `#${step.number} required check was cancelled and did not restart: ${decision.restarting.join(', ')}.`)
+      return 'stop'
     }
     lastReason = note(entry.id, decision.reason, lastReason)
     if (!(await pause(entry.id))) {

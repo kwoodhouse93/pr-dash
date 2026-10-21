@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { canMergeSlice, upstackBlock } from '../src/shared/merge.ts'
-import { bootAction, interpretWait, rebasesAfter, type LivePull, type MergeStep } from '../src/shared/queue.ts'
+import { bootAction, cancelGrace, interpretWait, rebasesAfter, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
 import { reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
@@ -229,6 +229,20 @@ describe('wait decisions', () => {
       ).action,
     ).toBe('wait')
     expect(interpretWait(live({ mergeStateStatus: 'BEHIND' }), 'main', ['Check'])).toMatchObject({ action: 'behind' })
+  })
+
+  it('waits when a required check was cancelled so a replacement run can start', () => {
+    const decision = interpretWait(
+      live({ checks: [check({ name: 'Run', conclusion: 'CANCELLED', required: true })] }),
+      'main',
+      ['Run'],
+    )
+    expect(decision).toMatchObject({ action: 'wait', restarting: ['Run'] })
+    expect(interpretWait(live({ checks: [check({ name: 'Run', conclusion: 'FAILURE', required: true })] }), 'main', ['Run']).action).toBe('fail')
+    expect(cancelGrace(null, 1_000, true)).toEqual({ since: 1_000, expired: false })
+    expect(cancelGrace(1_000, 1_000 + CANCEL_GRACE_MS - 1, true).expired).toBe(false)
+    expect(cancelGrace(1_000, 1_000 + CANCEL_GRACE_MS, true).expired).toBe(true)
+    expect(cancelGrace(1_000, 1_000 + CANCEL_GRACE_MS, false)).toEqual({ since: null, expired: false })
   })
 
   it('stops on conflicts, missing reviews, and failed required checks', () => {

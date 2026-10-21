@@ -79,6 +79,16 @@ describe('ci', () => {
     expect(ciLevel([check({ name: 'claude-write', conclusion: 'SKIPPED' })])).toBe('none')
   })
 
+  it('follows a newer run when an earlier one was cancelled', () => {
+    const selected = selectChecks([
+      check({ name: 'Run', conclusion: 'CANCELLED', completedAt: '2026-10-21T09:25:36Z', required: true }),
+      check({ name: 'Run', conclusion: null, status: 'IN_PROGRESS', startedAt: '2026-10-21T09:25:50Z', completedAt: null, required: true }),
+    ])
+    expect(selected).toHaveLength(1)
+    expect(selected[0]?.status).toBe('IN_PROGRESS')
+    expect(ciLevel(selected)).toBe('pending')
+  })
+
   it('keeps the latest run of a check name', () => {
     const selected = selectChecks([
       check({ name: 'Check', conclusion: 'FAILURE', completedAt: '2026-10-20T10:00:00Z' }),

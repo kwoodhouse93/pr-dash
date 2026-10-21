@@ -3,6 +3,10 @@ import type { PullRequest } from './types.ts'
 
 const READY: ReadonlySet<string> = new Set(['CLEAN', 'UNSTABLE', 'HAS_HOOKS'])
 
+function cancelledCheck(check: { conclusion: string | null }): boolean {
+  return (check.conclusion ?? '').toUpperCase() === 'CANCELLED'
+}
+
 export function mergeStateReady(mergeable: string | null, mergeStateStatus: string | null): boolean {
   return mergeable === 'MERGEABLE' && READY.has(mergeStateStatus ?? '')
 }
@@ -17,22 +21,27 @@ export function requiredCheckGate(
   requiredNames: string[],
   mergeable: string | null,
   mergeStateStatus: string | null,
-): { action: 'fail' | 'wait'; names: string[] } | null {
+): { action: 'fail' | 'wait'; names: string[]; restarting?: boolean } | null {
   const failing: string[] = []
   const waiting: string[] = []
+  const cancelled: string[] = []
   const missing: string[] = []
   for (const name of requiredNames) {
     const check = checks.find((item) => item.name === name)
     if (!check) missing.push(name)
+    else if (cancelledCheck(check)) cancelled.push(name)
     else if (checkPhase(check) === 'fail') failing.push(name)
     else if (checkPhase(check) !== 'success') waiting.push(name)
   }
+  const extras = checks.filter((check) => check.required && !requiredNames.includes(check.name))
+  for (const check of extras) {
+    if (cancelledCheck(check)) cancelled.push(check.name)
+    else if (checkPhase(check) === 'fail') failing.push(check.name)
+    else if (checkPhase(check) !== 'success') waiting.push(check.name)
+  }
   if (failing.length > 0) return { action: 'fail', names: failing }
   if (waiting.length > 0) return { action: 'wait', names: waiting }
-  const extraFailing = checks.filter((check) => check.required && !requiredNames.includes(check.name) && checkPhase(check) === 'fail')
-  if (extraFailing.length > 0) return { action: 'fail', names: extraFailing.map((check) => check.name) }
-  const extraWaiting = checks.filter((check) => check.required && !requiredNames.includes(check.name) && checkPhase(check) !== 'success')
-  if (extraWaiting.length > 0) return { action: 'wait', names: extraWaiting.map((check) => check.name) }
+  if (cancelled.length > 0) return { action: 'wait', names: cancelled, restarting: true }
   if (missing.length > 0 && (checks.length === 0 || !mergeStateReady(mergeable, mergeStateStatus))) {
     return { action: 'wait', names: missing }
   }
