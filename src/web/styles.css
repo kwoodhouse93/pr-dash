@@ -153,9 +153,13 @@ th button.sort[aria-pressed="true"] { color: var(--text); }
 tbody td {
   padding: 11px 12px;
   border-bottom: 1px solid var(--line);
-  vertical-align: top;
+  vertical-align: middle;
   white-space: nowrap;
   --row-bg: var(--bg);
+}
+tbody td button,
+tbody td .conflict-cell {
+  vertical-align: middle;
 }
 tbody tr:hover td { background: var(--bg-hover); --row-bg: var(--bg-hover); }
 tbody tr.child td { background: var(--bg-child); --row-bg: var(--bg-child); }
