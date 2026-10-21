@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import type { FeedbackCounts } from '../shared/feedback.ts'
 import type { CursorSession, Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
@@ -31,6 +32,7 @@ export type DashboardDb = {
   deleteInitiative(id: string): void
   setAssignments(initiativeId: string, prKeys: string[], action: 'add' | 'remove'): void
   updateLinearIssue(identifier: string, patch: LinearIssue): Snapshot
+  patchFeedback(key: string, counts: FeedbackCounts & { feedbackAt?: string | null }): void
   saveCursorSession(prKey: string, session: CursorSession): void
   cursorSessions(): { prKey: string; session: CursorSession }[]
   queue: QueueStore
@@ -315,6 +317,16 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       writeCursorSession.run(prKey, session.agentId, session.runId, session.status, session.result, session.branch, session.updatedAt)
     },
     queue,
+    patchFeedback(key, counts) {
+      const row = readSnapshotRow.get() as SnapshotRow | undefined
+      if (!row) return
+      const apply = (list: PullRequest[]) => list.map((pr) => (pr.key === key ? { ...pr, ...counts } : pr))
+      const strip = (list: PullRequest[]) => list.map((pr) => ({ ...pr, initiativeIds: [] }))
+      db.prepare('UPDATE snapshot SET pull_requests = ?, review_pull_requests = ? WHERE id = 1').run(
+        JSON.stringify(strip(apply(parseList(row.pull_requests)))),
+        JSON.stringify(strip(apply(parseList(row.review_pull_requests)))),
+      )
+    },
     updateLinearIssue(identifier, patch) {
       const row = readSnapshotRow.get() as SnapshotRow | undefined
       if (!row) throw new Error('Refresh pull requests before updating a Linear issue.')

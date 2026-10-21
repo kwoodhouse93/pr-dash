@@ -2,10 +2,20 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { loadEnv } from './env.ts'
 import { openDatabase } from './db.ts'
-import { graphqlStatus, loadGithubToken, rerunWorkflows, squashMergePullRequest } from './github.ts'
+import {
+  fetchPullFeedback,
+  graphqlStatus,
+  loadGithubToken,
+  payloadFor,
+  replyToPullNote,
+  replyToReviewThread,
+  rerunWorkflows,
+  setReviewThreadResolved,
+  squashMergePullRequest,
+} from './github.ts'
 import {
   cancelEntry,
   enqueueDownstack,
@@ -15,6 +25,7 @@ import {
   startMergeWorker,
 } from './merge-worker.ts'
 import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
+import type { FeedbackDetail } from '../shared/feedback.ts'
 import { canSquashMerge } from '../shared/merge.ts'
 import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
 import { markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, syncStatus } from './sync.ts'
@@ -256,6 +267,29 @@ app.post('/api/rebase', async (c) => {
   }
 })
 
+app.get('/api/feedback', async (c) => {
+  const key = c.req.query('key') ?? ''
+  return publishFeedback(c, key, (token, pr) => fetchPullFeedback(token, pr.repo, pr.number))
+})
+
+app.post('/api/feedback/reply', async (c) => {
+  const body = await c.req.json<{ key?: string; threadId?: string; body?: string }>().catch(() => ({ key: '', threadId: '', body: '' }))
+  if (!body.threadId) return c.json({ error: 'A review thread is required.' }, 400)
+  return publishFeedback(c, body.key ?? '', (token, pr) => replyToReviewThread(token, pr.repo, pr.number, body.threadId ?? '', body.body ?? ''))
+})
+
+app.post('/api/feedback/note', async (c) => {
+  const body = await c.req.json<{ key?: string; noteId?: string; body?: string }>().catch(() => ({ key: '', noteId: '', body: '' }))
+  if (!body.noteId) return c.json({ error: 'A comment is required.' }, 400)
+  return publishFeedback(c, body.key ?? '', (token, pr) => replyToPullNote(token, pr.repo, pr.number, body.noteId ?? '', body.body ?? ''))
+})
+
+app.post('/api/feedback/resolve', async (c) => {
+  const body = await c.req.json<{ key?: string; threadId?: string; resolved?: boolean }>().catch(() => ({ key: '', threadId: '', resolved: false }))
+  if (!body.threadId || typeof body.resolved !== 'boolean') return c.json({ error: 'A review thread and resolved flag are required.' }, 400)
+  return publishFeedback(c, body.key ?? '', (token, pr) => setReviewThreadResolved(token, pr.repo, pr.number, body.threadId ?? '', body.resolved === true))
+})
+
 app.post('/api/conflicts/:key/cursor', async (c) => {
   const pr = listedPulls(db.snapshot()).find((item) => item.key === c.req.param('key'))
   if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
@@ -282,6 +316,20 @@ const hostname = process.env.HOST ?? '127.0.0.1'
 serve({ fetch: app.fetch, port, hostname }, () => {
   console.log(`pr-dash API on http://${hostname}:${port}`)
 })
+
+async function publishFeedback(c: Context, key: string, load: (token: string, pr: PullRequest) => Promise<FeedbackDetail>) {
+  const pr = listedPulls(db.snapshot()).find((item) => item.key === key)
+  if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
+  try {
+    const detail = await load(loadGithubToken(), pr)
+    const payload = payloadFor(detail, db.snapshot().viewer ?? '')
+    db.patchFeedback(pr.key, { ...payload.counts, feedbackAt: pr.updatedAt })
+    return c.json(payload)
+  } catch (error) {
+    const status = error instanceof Error && error.name === 'FeedbackRejected' ? 400 : error instanceof Error && error.name === 'GraphqlPaused' ? 503 : 502
+    return c.json({ error: messageOf(error) }, status)
+  }
+}
 
 function listedPulls(snap: Snapshot): PullRequest[] {
   return [...snap.pullRequests, ...snap.reviewPullRequests]

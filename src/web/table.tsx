@@ -11,6 +11,8 @@ import { paintCursorLoading } from './cursor-loading.ts'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
+import type { FeedbackCounts } from '../shared/feedback.ts'
+import { Feedback, FeedbackProvider, feedbackTarget } from './feedback.tsx'
 import { Markdown } from './markdown.tsx'
 import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
 
@@ -69,6 +71,8 @@ export function PrTable({
   onRefreshPr,
   linearConfigured,
   onUpdateIssue,
+  viewer,
+  onFeedback,
 }: {
   mode: 'mine' | 'review'
   outline: Outline
@@ -95,6 +99,8 @@ export function PrTable({
   onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+  viewer: string | null
+  onFeedback: (key: string, counts: FeedbackCounts) => void
 }) {
   const tones = stackTones(outline)
   const shared = {
@@ -121,6 +127,7 @@ export function PrTable({
     onUpdateIssue,
   }
   return (
+    <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
     <HoldContext.Provider value={holds}>
     <table className="prs">
       <thead>
@@ -176,6 +183,7 @@ export function PrTable({
       </tbody>
     </table>
     </HoldContext.Provider>
+    </FeedbackProvider>
   )
 }
 
@@ -578,23 +586,7 @@ function DataRow({
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
       </td>
       <td>
-        <Feedback
-          mode={mode}
-          prUrl={pr.url}
-          threads={pr.threadCount}
-          unresolved={pr.unresolvedCount}
-          awaiting={pr.awaitingYouCount ?? 0}
-          unread={pr.unreadCount ?? 0}
-          resolvedUnread={pr.resolvedUnreadCount ?? 0}
-          comments={pr.commentAwaitingCount ?? 0}
-          reviewComments={pr.reviewCommentAwaitingCount ?? 0}
-          truncated={pr.threadsTruncated}
-          detailsPending={pr.threadCount > 0 && pr.feedbackAt !== pr.updatedAt}
-          awaitingUrl={pr.awaitingThreadUrl}
-          unresolvedUrl={pr.unresolvedThreadUrl}
-          unreadUrl={pr.unreadThreadUrl}
-          resolvedUnreadUrl={pr.resolvedUnreadThreadUrl}
-        />
+        <Feedback mode={mode} targets={[feedbackTarget(pr)]} />
       </td>
       {mode === 'mine' ? (
         <td className="merge">
@@ -739,23 +731,7 @@ function SummaryRow({
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
       <td>
-        <Feedback
-          mode={mode}
-          prUrl={summary.url}
-          threads={summary.threadCount}
-          unresolved={summary.unresolvedCount}
-          awaiting={summary.awaitingYouCount ?? 0}
-          unread={summary.unreadCount ?? 0}
-          resolvedUnread={summary.resolvedUnreadCount ?? 0}
-          comments={summary.commentAwaitingCount ?? 0}
-          reviewComments={summary.reviewCommentAwaitingCount ?? 0}
-          truncated={false}
-          detailsPending={visible.some((item) => item.threadCount > 0 && item.feedbackAt !== item.updatedAt)}
-          awaitingUrl={summary.awaitingThreadUrl}
-          unresolvedUrl={summary.unresolvedThreadUrl}
-          unreadUrl={summary.unreadThreadUrl}
-          resolvedUnreadUrl={summary.resolvedUnreadThreadUrl}
-        />
+        <Feedback mode={mode} targets={visible.map(feedbackTarget)} />
       </td>
       {mode === 'mine' ? (
       <td className="merge">
@@ -1452,100 +1428,6 @@ function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue:
       </button>
     </div>,
     document.body,
-  )
-}
-
-function Feedback({
-  mode,
-  prUrl,
-  threads,
-  unresolved,
-  awaiting,
-  unread,
-  resolvedUnread,
-  comments,
-  reviewComments,
-  truncated,
-  detailsPending = false,
-  awaitingUrl,
-  unresolvedUrl,
-  unreadUrl,
-  resolvedUnreadUrl,
-}: {
-  mode: 'mine' | 'review'
-  prUrl: string
-  threads: number
-  unresolved: number
-  awaiting: number
-  unread: number
-  resolvedUnread: number
-  comments: number
-  reviewComments: number
-  truncated: boolean
-  detailsPending?: boolean
-  awaitingUrl?: string | null
-  unresolvedUrl?: string | null
-  unreadUrl?: string | null
-  resolvedUnreadUrl?: string | null
-}) {
-  const parts: { key: string; text: string; hot: boolean; href: string | null; title: string }[] = []
-  const commentText = (count: number) => `${count} comment${count === 1 ? '' : 's'}`
-  const threadLink = (url: string | null | undefined, deepTitle: string) =>
-    url ? { href: url, title: deepTitle } : { href: prUrl, title: 'Open the pull request' }
-  if (mode === 'review') {
-    if (unread > 0) {
-      parts.push({ key: 'unread', text: `${unread} unread`, hot: true, ...threadLink(unreadUrl, 'Open the first unread thread') })
-    }
-    if (reviewComments > 0) parts.push({ key: 'review-comments', text: commentText(reviewComments), hot: true, href: null, title: '' })
-    const otherComments = comments - reviewComments
-    if (reviewComments === 0 && comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: false, href: null, title: '' })
-    else if (otherComments > 0) parts.push({ key: 'comments', text: `${otherComments} other`, hot: false, href: null, title: '' })
-    if (resolvedUnread > 0) {
-      parts.push({
-        key: 'resolved',
-        text: `${resolvedUnread} resolved unread`,
-        hot: false,
-        ...threadLink(resolvedUnreadUrl, 'Open the first resolved thread you have not caught up on'),
-      })
-    }
-  } else {
-    if (awaiting > 0) {
-      parts.push({ key: 'awaiting', text: `${awaiting} awaiting`, hot: true, ...threadLink(awaitingUrl, 'Open the first thread awaiting you') })
-    }
-    if (comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: true, href: null, title: '' })
-  }
-  if (unresolved > 0) {
-    parts.push({ key: 'unresolved', text: `${unresolved} unresolved`, hot: false, ...threadLink(unresolvedUrl, 'Open the first unresolved thread') })
-  }
-  if (threads > 0 || parts.length === 0) {
-    parts.push({
-      key: 'threads',
-      text: `${threads}${truncated ? '+' : ''} thread${threads === 1 ? '' : 's'}`,
-      hot: false,
-      href: prUrl,
-      title: 'Open the pull request',
-    })
-  }
-  const title = `${mode === 'review'
-    ? 'Unread is an open thread you joined that has a newer reply. A highlighted comment is a review message, or a conversation you joined, that you have not answered. Other comments are conversation notes you have not joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
-    : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'}${detailsPending ? ' Reply details are still loading.' : ''}`
-  return (
-    <span className="feedback" title={title}>
-      {parts.map((part, index) => (
-        <span key={part.key}>
-          {index > 0 ? <span className="dot">·</span> : null}
-          {part.href ? (
-            <a href={part.href} target="_blank" rel="noreferrer" title={part.title}>
-              {part.hot ? <em className="await">{part.text}</em> : part.text}
-            </a>
-          ) : part.hot ? (
-            <em className="await">{part.text}</em>
-          ) : (
-            <span>{part.text}</span>
-          )}
-        </span>
-      ))}
-    </span>
   )
 }
 

@@ -14,7 +14,7 @@ import {
   selectChecks,
   withoutHolds,
 } from '../src/shared/ci.ts'
-import { summarizeNotes, summarizeThreads, threadPermalink } from '../src/shared/feedback.ts'
+import { feedbackCounts, quoteReply, summarizeNotes, summarizeThreads, threadKinds, threadPermalink } from '../src/shared/feedback.ts'
 import { reviewSearchQueries } from '../src/server/github.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
@@ -369,6 +369,49 @@ describe('feedback', () => {
       { ...chatter, author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T11:00:00Z', body: 'Looking' },
       chatter,
     ], 'grace')).toEqual({ author: 1, reviewer: 1 })
+  })
+
+  it('classifies a thread into the same buckets the counts use', () => {
+    const thread = {
+      isResolved: false,
+      url: 'https://github.com/acme/app/pull/1#discussion_r3',
+      comments: [
+        { author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T11:00:00Z' },
+        { author: { __typename: 'User', login: 'ada' }, createdAt: '2026-10-20T12:00:00Z' },
+      ],
+    }
+    expect(threadKinds(thread, 'grace')).toEqual(['unresolved', 'awaiting', 'unread'])
+    expect(feedbackCounts([thread], [], 'grace', false)).toMatchObject({
+      threadCount: 1,
+      unresolvedCount: 1,
+      awaitingYouCount: 1,
+      unreadCount: 1,
+      resolvedUnreadCount: 0,
+      awaitingThreadUrl: thread.url,
+      commentAwaitingCount: 0,
+      threadsTruncated: false,
+    })
+  })
+
+  it('quotes a conversation comment, mentions the author, and links to that comment', () => {
+    expect(quoteReply({
+      authorLogin: 'ada',
+      body: 'Please rename this.\n\nThanks',
+      url: 'https://github.com/acme/app/pull/1#issuecomment-9',
+    }, '  Done in the latest commit.  ')).toBe(
+      [
+        '@ada',
+        'https://github.com/acme/app/pull/1#issuecomment-9',
+        '',
+        '> Please rename this.',
+        '> ',
+        '> Thanks',
+        '',
+        'Done in the latest commit.',
+      ].join('\n'),
+    )
+    expect(quoteReply({ authorLogin: null, body: 'Hello', url: null }, 'OK')).toBe('> Hello\n\nOK')
+    expect(() => quoteReply({ authorLogin: 'ada', body: 'Hi', url: null }, '  ')).toThrow(/Write a reply/)
   })
 })
 

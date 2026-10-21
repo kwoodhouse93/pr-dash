@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { collectHolds, mergeHolds, reconcileHolds, withoutHolds, type CheckHold } from '../shared/ci.ts'
+import type { FeedbackCounts } from '../shared/feedback.ts'
 import { rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
@@ -237,6 +238,19 @@ export function App() {
   const listPage = page === 'mine' || page === 'review'
   const listSyncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt) : (data?.mineSyncedAt ?? data?.syncedAt)
   const filtersOn = JSON.stringify(prefs.filters) !== JSON.stringify(DEFAULT_FILTERS)
+
+  const applyFeedback = useCallback((key: string, counts: FeedbackCounts) => {
+    setData((current) => {
+      if (!current) return current
+      const patch = (pr: Snapshot['pullRequests'][number]) =>
+        pr.key === key ? { ...pr, ...counts, feedbackAt: pr.updatedAt } : pr
+      return {
+        ...current,
+        pullRequests: current.pullRequests.map(patch),
+        reviewPullRequests: current.reviewPullRequests.map(patch),
+      }
+    })
+  }, [])
 
   function patchFilters(patch: Partial<Filters>) {
     setPrefs((current) => ({ ...current, filters: { ...current.filters, ...patch } }))
@@ -497,6 +511,8 @@ export function App() {
               }}
               byIssue={prefs.byIssue}
               linearConfigured={Boolean(data?.linearConfigured)}
+              viewer={data?.viewer ?? null}
+              onFeedback={applyFeedback}
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
               onMerge={async (key) => {
                 await api.merge(key)

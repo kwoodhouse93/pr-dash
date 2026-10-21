@@ -654,6 +654,14 @@ td.uptodate { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
 .mark.met { color: var(--green); }
 .feedback { color: var(--muted); font-size: 14px; }
 .feedback .await { color: var(--accent); font-style: normal; font-weight: 400; }
+.feedback-hit {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+.feedback-hit:hover { text-decoration: underline; }
 .dot { color: var(--faint); margin: 0 4px; }
 
 .popover {
@@ -785,3 +793,159 @@ td.uptodate { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
 .empty h2 { font-family: "Source Serif 4", Georgia, serif; color: var(--text); font-weight: 500; font-size: 22px; }
 .reviewer { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 13px; }
 .reviewer span { color: var(--faint); }
+
+.drawer-back {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.45);
+}
+.drawer {
+  position: relative;
+  width: min(680px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+  border-left: 1px solid var(--line-strong);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.35);
+}
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 44px 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer-head .eyebrow {
+  margin: 0 0 2px;
+  color: var(--faint);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.drawer-pr {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.35;
+}
+.drawer-body {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px 18px 40px;
+}
+.feedback-section + .feedback-section { margin-top: 22px; }
+.feedback-section h3 { margin: 0 0 10px; font-size: 15px; font-weight: 650; }
+.thread-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 12px;
+  margin: 0 0 12px;
+}
+.thread-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.file-link {
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.note-kind {
+  color: var(--faint);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.hunk {
+  margin: 0 0 10px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 6px 0;
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.hunk div { padding: 0 10px; white-space: pre; }
+.hunk .add { background: var(--green-dim); color: var(--green); }
+.hunk .del { background: var(--red-dim); color: var(--red); }
+.hunk .meta { color: var(--faint); }
+.thread-comment + .thread-comment { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.thread-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.thread-meta time { color: var(--faint); }
+.drawer .avatar { width: 20px; height: 20px; box-shadow: none; }
+.drawer .md { font-size: 14px; }
+.drawer .md :is(p, ul, ol, pre, blockquote, table) { margin: 0 0 8px; }
+.drawer .md :is(h1, h2, h3) { margin: 10px 0 4px; font-size: 14px; font-weight: 650; }
+.drawer .md :is(ul, ol) { padding-left: 1.2em; }
+.drawer .md a { color: var(--blue); }
+.drawer .md code {
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.drawer .md pre {
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.drawer .md pre code { background: none; padding: 0; }
+.drawer .md blockquote {
+  margin-left: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--muted);
+}
+.drawer .md table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.drawer .md :is(th, td) {
+  position: static;
+  border: 1px solid var(--line);
+  padding: 4px 6px;
+  text-align: left;
+  white-space: normal;
+  background: transparent;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+  color: var(--text);
+}
+.reply-form { margin-top: 12px; }
+.reply-form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 88px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+}
+.reply-hint { margin: 6px 0 8px; font-size: 12px; }
+.thread-actions { display: flex; gap: 8px; align-items: center; }
+.thread-actions .primary,
+.thread-actions .ghost { padding: 6px 12px; font-size: 14px; border-radius: 8px; }
+.reply-toggle { margin-top: 8px; padding: 4px 10px; font-size: 13px; border-radius: 8px; }

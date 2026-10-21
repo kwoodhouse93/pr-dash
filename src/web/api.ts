@@ -1,3 +1,4 @@
+import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import type { LinearAssignee, LinearStatus, Snapshot } from '../shared/types.ts'
 
@@ -77,6 +78,11 @@ export const api = {
   linearUsers: () => cached(userRequest, 'users', () => request<{ users: LinearAssignee[] }>('/api/linear/users').then((body) => body.users)),
   updateLinearIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) =>
     post<Snapshot>(`/api/linear/issues/${encodeURIComponent(identifier)}`, patch),
+  pullFeedback: (key: string) => request<FeedbackPayload>(`/api/feedback?key=${encodeURIComponent(key)}`),
+  replyToThread: (key: string, threadId: string, body: string) => post<FeedbackPayload>('/api/feedback/reply', { key, threadId, body }),
+  replyToNote: (key: string, noteId: string, body: string) => post<FeedbackPayload>('/api/feedback/note', { key, noteId, body }),
+  setThreadResolved: (key: string, threadId: string, resolved: boolean) =>
+    post<FeedbackPayload>('/api/feedback/resolve', { key, threadId, resolved }),
 }
 
 const statusRequests = new Map<string, Promise<LinearStatus[]>>()
