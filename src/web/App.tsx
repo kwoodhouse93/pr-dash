@@ -286,6 +286,7 @@ export function App() {
                 void refresh()
                 return text
               }}
+              onResolveConflictWithCursor={(key) => api.resolveConflictWithCursor(key)}
             />
           ) : null}
         </div>

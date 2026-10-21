@@ -24,6 +24,7 @@ export function PrTable({
   onCreateAssigned,
   onMerge,
   onRerun,
+  onResolveConflictWithCursor,
   linearConfigured,
   onUpdateIssue,
 }: {
@@ -39,6 +40,7 @@ export function PrTable({
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
@@ -54,6 +56,7 @@ export function PrTable({
     onCreateAssigned,
     onMerge,
     onRerun,
+    onResolveConflictWithCursor,
     linearConfigured,
     onUpdateIssue,
   }
@@ -141,6 +144,7 @@ type RowShared = {
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }
@@ -266,6 +270,7 @@ function BlockRows({
           onCreateAssigned={shared.onCreateAssigned}
           onMerge={shared.onMerge}
           onRerun={shared.onRerun}
+          onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
           onUpdateIssue={shared.onUpdateIssue}
         />
       )
@@ -288,6 +293,7 @@ function BlockRows({
       onAssign={shared.onAssign}
       onCreateAssigned={shared.onCreateAssigned}
       onRerun={shared.onRerun}
+      onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
       onUpdateIssue={shared.onUpdateIssue}
     />
   )
@@ -309,6 +315,7 @@ function DataRow({
   onCreateAssigned,
   onMerge,
   onRerun,
+  onResolveConflictWithCursor,
   onUpdateIssue,
 }: {
   pr: PullRequest
@@ -326,6 +333,7 @@ function DataRow({
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   return (
@@ -368,7 +376,7 @@ function DataRow({
       <td>
         <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
       </td>
-      <Conflict conflict={pr.conflict} />
+      <Conflict id={`conflict:${pr.id}`} prs={[pr]} onResolveWithCursor={onResolveConflictWithCursor} />
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
       </td>
@@ -412,6 +420,7 @@ function SummaryRow({
   onAssign,
   onCreateAssigned,
   onRerun,
+  onResolveConflictWithCursor,
   onUpdateIssue,
 }: {
   block: StackBlock
@@ -428,6 +437,7 @@ function SummaryRow({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   const summary = block.summary
@@ -475,7 +485,7 @@ function SummaryRow({
       <td>
         <CiControl id={`ci:${block.id}`} prs={visible} onRerun={onRerun} />
       </td>
-      <Conflict conflict={summary.conflict} />
+      <Conflict id={`conflict:${block.id}`} prs={visible} onResolveWithCursor={onResolveConflictWithCursor} />
       <td>
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
@@ -575,16 +585,60 @@ function Subline({
   )
 }
 
-function Conflict({ conflict }: { conflict: boolean }) {
+function Conflict({
+  id,
+  prs,
+  onResolveWithCursor,
+}: {
+  id: string
+  prs: PullRequest[]
+  onResolveWithCursor: (key: string) => Promise<{ url: string }>
+}) {
+  const conflicts = prs.filter((pr) => pr.conflict)
+  const [pending, setPending] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function resolve(pr: PullRequest) {
+    setError(null)
+    setPending(pr.key)
+    const agent = window.open('', '_blank')
+    if (agent) agent.opener = null
+    try {
+      const result = await onResolveWithCursor(pr.key)
+      if (agent) agent.location.href = result.url
+      else setError('Cursor started, but the new tab was blocked. Allow pop-ups and try again.')
+    } catch (caught) {
+      agent?.close()
+      setError(caught instanceof Error ? caught.message : 'Could not start Cursor.')
+    } finally {
+      setPending(null)
+    }
+  }
+
   return (
     <td className="conflict">
-      {conflict ? (
-        <span className="conflict-x" title="Merge conflict">
-          <span className="sr">Merge conflict</span>
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </span>
+      {conflicts.length ? (
+        <ClickCard
+          id={id}
+          className="conflict-x"
+          label={
+            <>
+              <span className="sr">Resolve merge conflict with Cursor</span>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </>
+          }
+        >
+          <h3>Resolve with Cursor</h3>
+          <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
+          {conflicts.map((pr) => (
+            <button key={pr.key} type="button" className="menu-item" disabled={pending !== null} onClick={() => void resolve(pr)}>
+              {pending === pr.key ? 'Starting Cursor…' : `#${pr.number} · ${pr.title}`}
+            </button>
+          ))}
+          {error ? <p className="launch-error">{error}</p> : null}
+        </ClickCard>
       ) : (
         <span className="sr">No conflict</span>
       )}
