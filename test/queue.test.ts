@@ -8,7 +8,7 @@ import { bootAction, cancelGrace, interpretWait, rebasesAfter, CANCEL_GRACE_MS, 
 import { reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
-import { rebaseOnto } from '../src/server/git.ts'
+import { rebaseOnto, rebaseOntoTip } from '../src/server/git.ts'
 
 function check(over: Partial<Check> & Pick<Check, 'name' | 'conclusion'>): Check {
   return {
@@ -404,6 +404,74 @@ describe('git rebase', () => {
     git(['fetch', 'origin'], work)
     expect(git(['rev-parse', 'origin/child'], work)).toBe(conflicted)
     rmSync(root, { recursive: true, force: true })
+  })
+
+  it('rebases onto the latest base and restacks the branch above it', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'pr-dash-tip-'))
+    const origin = path.join(root, 'origin.git')
+    const work = path.join(root, 'work')
+    const mirror = path.join(root, 'mirror.git')
+    try {
+      git(['init', '--bare', '-b', 'main', origin])
+      git(['clone', origin, work])
+      git(['config', 'user.email', 'test@example.com'], work)
+      git(['config', 'user.name', 'Test'], work)
+      write(work, 'file.txt', 'one\n')
+      git(['add', 'file.txt'], work)
+      git(['commit', '-m', 'trunk'], work)
+      git(['push', 'origin', 'HEAD:main'], work)
+      git(['checkout', '-b', 'parent'], work)
+      write(work, 'parent.txt', 'parent\n')
+      git(['add', 'parent.txt'], work)
+      git(['commit', '-m', 'parent'], work)
+      const parent = git(['rev-parse', 'HEAD'], work)
+      git(['push', 'origin', 'HEAD:parent'], work)
+      git(['checkout', '-b', 'child'], work)
+      write(work, 'child.txt', 'child\n')
+      git(['add', 'child.txt'], work)
+      git(['commit', '-m', 'child'], work)
+      const child = git(['rev-parse', 'HEAD'], work)
+      git(['push', 'origin', 'HEAD:child'], work)
+
+      await expect(
+        rebaseOntoTip({ mirror, remote: origin, token: null, base: 'main', branch: 'parent', expectedOid: parent }),
+      ).rejects.toThrow('already based on main')
+      expect(git(['rev-parse', 'origin/parent'], work)).toBe(parent)
+
+      git(['checkout', 'main'], work)
+      write(work, 'file.txt', 'two\n')
+      git(['add', 'file.txt'], work)
+      git(['commit', '-m', 'trunk again'], work)
+      git(['push', 'origin', 'HEAD:main'], work)
+
+      const rebased = await rebaseOntoTip({
+        mirror,
+        remote: origin,
+        token: null,
+        base: 'main',
+        branch: 'parent',
+        expectedOid: parent,
+      })
+      const restacked = await rebaseOnto({
+        mirror,
+        remote: origin,
+        token: null,
+        trunk: 'parent',
+        branch: 'child',
+        cutoffOid: parent,
+        expectedOid: child,
+      })
+      git(['fetch', 'origin'], work)
+      expect(git(['rev-parse', 'origin/parent'], work)).toBe(rebased)
+      expect(git(['rev-parse', 'origin/child'], work)).toBe(restacked)
+      expect(git(['merge-base', '--is-ancestor', 'origin/main', 'origin/parent'], work)).toBe('')
+      expect(git(['merge-base', '--is-ancestor', 'origin/parent', 'origin/child'], work)).toBe('')
+      expect(git(['show', 'origin/child:file.txt'], work)).toBe('two')
+      expect(git(['diff', '--name-only', 'origin/main', 'origin/parent'], work).split('\n').filter(Boolean)).toEqual(['parent.txt'])
+      expect(git(['diff', '--name-only', 'origin/parent', 'origin/child'], work).split('\n').filter(Boolean)).toEqual(['child.txt'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

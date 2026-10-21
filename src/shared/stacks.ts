@@ -43,6 +43,13 @@ export type StackSummary = {
   topKey: string
 }
 
+/** The chosen pull request, then each one stacked above it, bottom-up. */
+export function restackChain(orderedTopToBottom: PullRequest[], key: string): PullRequest[] | null {
+  const index = orderedTopToBottom.findIndex((pr) => pr.key === key)
+  if (index < 0) return null
+  return orderedTopToBottom.slice(0, index + 1).reverse()
+}
+
 export function buildStacks(prs: PullRequest[]): Stack[] {
   const byRepo = new Map<string, PullRequest[]>()
   for (const pr of prs) {

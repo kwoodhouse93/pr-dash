@@ -18,7 +18,7 @@ import { summarizeNotes, summarizeThreads } from '../src/shared/feedback.ts'
 import { reviewSearchQueries } from '../src/server/github.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
-import { buildStacks } from '../src/shared/stacks.ts'
+import { buildStacks, restackChain } from '../src/shared/stacks.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { buildOutline } from '../src/shared/view.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT } from '../src/shared/types.ts'
@@ -435,6 +435,14 @@ describe('stacks and grouping', () => {
     expect(stacks).toHaveLength(1)
     expect(stacks[0]?.prs.map((item) => item.number)).toEqual([3, 2, 1])
     expect(stacks[0]?.trunk).toBe('dev')
+  })
+
+  it('restacks the chosen pull request and everything above it', () => {
+    const ordered = buildStacks(stack)[0]!.prs
+    expect(restackChain(ordered, ordered[2]!.key)?.map((item) => item.number)).toEqual([1, 2, 3])
+    expect(restackChain(ordered, ordered[1]!.key)?.map((item) => item.number)).toEqual([2, 3])
+    expect(restackChain(ordered, ordered[0]!.key)?.map((item) => item.number)).toEqual([3])
+    expect(restackChain(ordered, 'missing')).toBeNull()
   })
 
   it('does not link pull requests across repositories', () => {

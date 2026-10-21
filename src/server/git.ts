@@ -96,6 +96,63 @@ export async function abortRebases(mirror: string) {
   }
 }
 
+export function mirrorPath(repo: string): string {
+  const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'data', 'pr-dash.sqlite')
+  const [owner, name] = repo.split('/')
+  return path.join(path.dirname(dbPath), 'mirrors', owner ?? 'repo', `${name ?? repo}.git`)
+}
+
+export class AlreadyBased extends GitError {
+  constructor(branch: string, base: string) {
+    super(`${branch} is already based on ${base}.`)
+    this.name = 'AlreadyBased'
+  }
+}
+
+function refspec(ref: string): string {
+  return `+refs/heads/${ref}:refs/heads/${ref}`
+}
+
+async function fetchHeads(mirror: string, token: string | null, refs: string[]) {
+  await git(mirror, ['fetch', '--prune', 'origin', ...refs.map(refspec)], token)
+}
+
+/** Replay `branch` onto the latest tip of `base`, using their merge base as the cutoff. */
+export async function rebaseOntoTip(input: {
+  mirror: string
+  remote: string
+  token: string | null
+  base: string
+  branch: string
+  expectedOid: string
+  shouldStop?: () => boolean
+}): Promise<string> {
+  assertRef(input.base)
+  assertRef(input.branch)
+  const expected = input.expectedOid.toLowerCase()
+  assertOid(expected)
+  if (input.shouldStop?.()) throw new GitCancelled()
+  await ensureMirror(input.mirror, input.remote, input.token)
+  await fetchHeads(input.mirror, input.token, [input.base, input.branch])
+  const remoteOid = (await git(input.mirror, ['rev-parse', `refs/heads/${input.branch}`], null)).toLowerCase()
+  if (remoteOid !== expected) throw new GitError(`${input.branch} moved on the remote.`)
+  const baseOid = (await git(input.mirror, ['rev-parse', `refs/heads/${input.base}`], null)).toLowerCase()
+  const mergeBase = await git(input.mirror, ['merge-base', `refs/heads/${input.base}`, `refs/heads/${input.branch}`], null)
+    .then((oid) => oid.toLowerCase())
+    .catch(() => '')
+  if (!OID.test(mergeBase)) throw new GitError(`${input.branch} has no common history with ${input.base}.`)
+  if (mergeBase === baseOid) throw new AlreadyBased(input.branch, input.base)
+  return replay({
+    mirror: input.mirror,
+    token: input.token,
+    onto: input.base,
+    branch: input.branch,
+    cutoffOid: mergeBase,
+    expectedOid: expected,
+    shouldStop: input.shouldStop,
+  })
+}
+
 export async function rebaseOnto(input: {
   mirror: string
   remote: string
@@ -114,22 +171,37 @@ export async function rebaseOnto(input: {
   assertOid(expected)
   if (input.shouldStop?.()) throw new GitCancelled()
   await ensureMirror(input.mirror, input.remote, input.token)
-  await git(
-    input.mirror,
-    ['fetch', '--prune', 'origin', `+refs/heads/${input.trunk}:refs/heads/${input.trunk}`, `+refs/heads/${input.branch}:refs/heads/${input.branch}`],
-    input.token,
-  )
+  await fetchHeads(input.mirror, input.token, [input.trunk, input.branch])
   const remoteOid = (await git(input.mirror, ['rev-parse', `refs/heads/${input.branch}`], null)).toLowerCase()
   if (remoteOid !== expected) throw new GitError(`${input.branch} moved on the remote.`)
   const kind = await git(input.mirror, ['cat-file', '-t', cutoff], null).catch(() => '')
   if (kind !== 'commit') throw new GitError(`Commit ${cutoff.slice(0, 7)} is not in ${input.branch}.`)
-  if (input.shouldStop?.()) throw new GitCancelled()
+  return replay({
+    mirror: input.mirror,
+    token: input.token,
+    onto: input.trunk,
+    branch: input.branch,
+    cutoffOid: cutoff,
+    expectedOid: expected,
+    shouldStop: input.shouldStop,
+  })
+}
 
+async function replay(input: {
+  mirror: string
+  token: string | null
+  onto: string
+  branch: string
+  cutoffOid: string
+  expectedOid: string
+  shouldStop?: () => boolean
+}): Promise<string> {
+  if (input.shouldStop?.()) throw new GitCancelled()
   const worktree = await mkdtemp(path.join(tmpdir(), 'pr-dash-rebase-'))
   try {
-    await git(input.mirror, ['worktree', 'add', '--detach', worktree, input.trunk], null)
+    await git(input.mirror, ['worktree', 'add', '--detach', worktree, input.onto], null)
     try {
-      await git(worktree, ['rebase', '--onto', input.trunk, cutoff, input.branch], null)
+      await git(worktree, ['rebase', '--onto', input.onto, input.cutoffOid, input.branch], null)
     } catch (error) {
       await git(worktree, ['rebase', '--abort'], null).catch(() => undefined)
       throw error
@@ -140,7 +212,7 @@ export async function rebaseOnto(input: {
     try {
       await git(
         worktree,
-        ['push', 'origin', `HEAD:refs/heads/${input.branch}`, `--force-with-lease=refs/heads/${input.branch}:${expected}`],
+        ['push', 'origin', `HEAD:refs/heads/${input.branch}`, `--force-with-lease=refs/heads/${input.branch}:${input.expectedOid}`],
         input.token,
       )
     } finally {

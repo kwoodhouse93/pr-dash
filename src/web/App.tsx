@@ -426,6 +426,15 @@ export function App() {
                   throw caught
                 }
               }}
+              onRebase={async (key) => {
+                try {
+                  const snap = await api.rebase(key)
+                  ++applyId.current
+                  setData(adopt(snap))
+                } finally {
+                  void refresh()
+                }
+              }}
               onResolveConflictWithCursor={async (key) => {
                 const snap = await api.resolveConflictWithCursor(key)
                 ++applyId.current

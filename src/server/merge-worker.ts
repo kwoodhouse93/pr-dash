@@ -1,11 +1,10 @@
-import path from 'node:path'
 import { ciLevel } from '../shared/ci.ts'
 import { canSquashMerge, sliceParts, stackReviewBar, upstackBlock } from '../shared/merge.ts'
 import { bootAction, cancelGrace, interpretWait, rebasesAfter, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
 import { buildStacks } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
-import { abortRebases, GitCancelled, interruptGit, rebaseOnto } from './git.ts'
+import { abortRebases, GitCancelled, interruptGit, mirrorPath, rebaseOnto } from './git.ts'
 import { fetchLivePull, loadGithubToken, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
 
 const POLL_MS = 20_000
@@ -434,9 +433,7 @@ function settle(database: DashboardDb, entry: MergeEntry) {
 }
 
 function mirrorFor(repo: string): string {
-  const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'data', 'pr-dash.sqlite')
-  const [owner, name] = repo.split('/')
-  return path.join(path.dirname(dbPath), 'mirrors', owner ?? 'repo', `${name ?? repo}.git`)
+  return mirrorPath(repo)
 }
 
 function delay(ms: number) {

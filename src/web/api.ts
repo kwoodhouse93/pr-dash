@@ -38,6 +38,7 @@ export const api = {
   rerun: (keys: string[], mode: 'failed' | 'all') =>
     post<{ reran: number; errors: string[]; runs: { repo: string; runId: number }[] }>('/api/rerun', { keys, mode }),
   resolveConflictWithCursor: (key: string) => post<Snapshot>(`/api/conflicts/${encodeURIComponent(key)}/cursor`, {}),
+  rebase: (key: string) => post<Snapshot>('/api/rebase', { key }),
   merge: (key: string) => post<Snapshot>('/api/merge', { key }),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),
   enqueue: (key: string, scope: 'pr' | 'downstack') => post<QueueSnapshot>('/api/merge-queue', { key, scope }),

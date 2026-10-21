@@ -28,7 +28,7 @@ function useStackLock(): StackLock {
   return useContext(StackLockContext)
 }
 
-const COLUMNS = 13
+const COLUMNS = 14
 
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
 const EMPTY_HOLDS: CheckHold[] = []
@@ -62,6 +62,7 @@ export function PrTable({
   holds,
   onRerun,
   onResolveConflictWithCursor,
+  onRebase,
   linearConfigured,
   onUpdateIssue,
 }: {
@@ -85,6 +86,7 @@ export function PrTable({
   holds: Map<string, CheckHold[]>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
+  onRebase: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
@@ -107,6 +109,7 @@ export function PrTable({
     queueByKey,
     onRerun,
     onResolveConflictWithCursor,
+    onRebase,
     linearConfigured,
     onUpdateIssue,
   }
@@ -125,6 +128,7 @@ export function PrTable({
           <SortHeader label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
           <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
           <th className="conflict">Conflict</th>
+          <th className="uptodate">Up-to-date</th>
           <th>Review</th>
           <th>Feedback</th>
           {mode === 'mine' ? <th className="merge">Merge</th> : null}
@@ -204,6 +208,7 @@ type RowShared = {
   queueByKey: Map<string, RowMark>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
+  onRebase: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }
@@ -395,6 +400,7 @@ function BlockRows({
           queueByKey={shared.queueByKey}
           onRerun={shared.onRerun}
           onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
+          onRebase={shared.onRebase}
           onUpdateIssue={shared.onUpdateIssue}
         />
       )
@@ -418,6 +424,7 @@ function BlockRows({
       onCreateAssigned={shared.onCreateAssigned}
       onRerun={shared.onRerun}
       onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
+      onRebase={shared.onRebase}
       onUpdateIssue={shared.onUpdateIssue}
       onMerge={shared.onMerge}
       onQueue={shared.onQueue}
@@ -449,6 +456,7 @@ function DataRow({
   queueByKey,
   onRerun,
   onResolveConflictWithCursor,
+  onRebase,
   onUpdateIssue,
 }: {
   mode: 'mine' | 'review'
@@ -471,6 +479,7 @@ function DataRow({
   queueByKey: Map<string, RowMark>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
+  onRebase: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   const holds = useHolds()
@@ -495,7 +504,6 @@ function DataRow({
       <td className="title-block">
         <div className="title-line">
           {pr.isDraft ? <span className="pill draft">Draft</span> : null}
-          {pr.behind ? <span className="pill">Behind</span> : null}
           <a href={pr.url} target="_blank" rel="noreferrer">
             {pr.title}
           </a>
@@ -523,6 +531,7 @@ function DataRow({
         <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
       </td>
       <Conflict id={`conflict:${pr.id}`} prs={[pr]} onResolveWithCursor={onResolveConflictWithCursor} />
+      <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} prByKey={prByKey} onRebase={onRebase} />
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
       </td>
@@ -582,6 +591,7 @@ function SummaryRow({
   onCreateAssigned,
   onRerun,
   onResolveConflictWithCursor,
+  onRebase,
   onUpdateIssue,
   onMerge,
   onQueue,
@@ -604,6 +614,7 @@ function SummaryRow({
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
+  onRebase: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
@@ -637,7 +648,6 @@ function SummaryRow({
           {summary.draftCount > 0 ? (
             <span className="pill draft">{summary.draftCount === visible.length ? 'Draft' : `${summary.draftCount} draft`}</span>
           ) : null}
-          {summary.behind ? <span className="pill">Behind</span> : null}
           <a href={summary.url} target="_blank" rel="noreferrer">
             {summary.title}
           </a>
@@ -667,6 +677,13 @@ function SummaryRow({
         <CiControl id={`ci:${block.id}`} prs={visible} onRerun={onRerun} />
       </td>
       <Conflict id={`conflict:${block.id}`} prs={visible} onResolveWithCursor={onResolveConflictWithCursor} />
+      <UpToDate
+        id={`uptodate:${block.id}`}
+        targetKey={lowestBehindKey(block.stackKeys, visible)}
+        stackKeys={block.stackKeys}
+        prByKey={prByKey}
+        onRebase={onRebase}
+      />
       <td>
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
@@ -857,6 +874,115 @@ function Conflict({
       </span>
     </td>
   )
+}
+
+function UpToDate({
+  id,
+  targetKey,
+  stackKeys,
+  prByKey,
+  onRebase,
+}: {
+  id: string
+  targetKey: string | null
+  stackKeys: string[]
+  prByKey: Map<string, PullRequest>
+  onRebase: (key: string) => Promise<void>
+}) {
+  const plan = targetKey ? rebasePlan(stackKeys, targetKey, prByKey) : null
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { locked, lock, unlock } = useStackLock()
+  const close = useMenuClose()
+
+  async function rebase(target: PullRequest) {
+    if (pending) return
+    if (!lock()) return
+    setError(null)
+    setPending(true)
+    try {
+      await onRebase(target.key)
+      close()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not rebase.')
+    } finally {
+      setPending(false)
+      unlock()
+    }
+  }
+
+  if (!plan) {
+    return (
+      <td className="uptodate">
+        <span className="sr">Up to date</span>
+      </td>
+    )
+  }
+
+  const { target, above } = plan
+  return (
+    <td className="uptodate">
+      <ClickCard
+        id={id}
+        className="uptodate-x"
+        disabled={locked && !pending}
+        label={
+          <>
+            <span className="sr">Not up to date. Rebase onto the base branch</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </>
+        }
+      >
+        <h3>Rebase</h3>
+        <p>{rebaseCopy(target, above)}</p>
+        <button type="button" className="menu-item" disabled={pending || locked} onClick={() => void rebase(target)}>
+          {pending ? 'Rebasing…' : 'Rebase'}
+        </button>
+        {error ? <p className="launch-error">{error}</p> : null}
+      </ClickCard>
+    </td>
+  )
+}
+
+function rebasePlan(
+  stackKeys: string[],
+  targetKey: string,
+  prByKey: Map<string, PullRequest>,
+): { target: PullRequest; above: PullRequest[] } | null {
+  const target = prByKey.get(targetKey)
+  if (!target) return null
+  const index = stackKeys.indexOf(targetKey)
+  const above =
+    index < 0
+      ? []
+      : stackKeys
+          .slice(0, index)
+          .reverse()
+          .flatMap((key) => {
+            const pr = prByKey.get(key)
+            return pr ? [pr] : []
+          })
+  return { target, above }
+}
+
+function lowestBehindKey(stackKeys: string[], prs: PullRequest[]): string | null {
+  const behind = new Set(prs.filter((pr) => pr.behind).map((pr) => pr.key))
+  for (let index = stackKeys.length - 1; index >= 0; index--) {
+    const key = stackKeys[index]!
+    if (behind.has(key)) return key
+  }
+  return null
+}
+
+function rebaseCopy(target: PullRequest, above: PullRequest[]): string {
+  const onto = `the latest commit of ${target.baseRef}`
+  if (above.length === 0) return `Rebase #${target.number} onto ${onto}.`
+  const names = above.map((pr) => `#${pr.number}`)
+  const list =
+    names.length === 1 ? names[0]! : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
+  return `Rebase #${target.number} onto ${onto}. ${list} ${above.length === 1 ? 'is' : 'are'} restacked with it.`
 }
 
 function CursorChip({

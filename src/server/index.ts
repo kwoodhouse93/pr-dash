@@ -20,6 +20,7 @@ import { markMerged, refreshSnapshot, syncStatus } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
 import { startCursorConflictResolver } from './cursor.ts'
+import { rebasePull, RebaseRejected } from './rebase.ts'
 
 loadEnv()
 
@@ -211,6 +212,18 @@ app.post('/api/rerun', async (c) => {
     return c.json(result)
   } catch (error) {
     return c.json({ error: messageOf(error) }, 500)
+  }
+})
+
+app.post('/api/rebase', async (c) => {
+  try {
+    const body = await c.req.json<{ key?: string }>()
+    const key = body.key ?? ''
+    if (!key) return c.json({ error: 'A pull request is required.' }, 400)
+    return c.json(await rebasePull(db, key))
+  } catch (error) {
+    const status = error instanceof RebaseRejected ? 409 : 502
+    return c.json({ error: messageOf(error) }, status)
   }
 })
 
