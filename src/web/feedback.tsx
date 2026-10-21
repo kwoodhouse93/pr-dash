@@ -375,7 +375,7 @@ function ThreadCard({
         className="thread-file"
         onClick={(event) => {
           const target = event.target
-          if (target instanceof HTMLElement && target.closest('a, button')) return
+          if (target instanceof Element && target.closest('a')) return
           setOpen((value) => !value)
         }}
       >
@@ -384,7 +384,6 @@ function ThreadCard({
           className="thread-toggle"
           aria-expanded={open}
           aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
-          onClick={() => setOpen((value) => !value)}
         >
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
