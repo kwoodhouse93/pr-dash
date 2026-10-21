@@ -25,6 +25,8 @@ function post<T>(path: string, payload: unknown): Promise<T> {
 export type SyncStatus = {
   running: boolean
   message: string
+  completed: number
+  total: number
   graphql: {
     paused: boolean
     limit: number | null

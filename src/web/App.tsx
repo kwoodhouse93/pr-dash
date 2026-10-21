@@ -5,7 +5,7 @@ import { rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
 import { cursorLinks } from '../shared/cursor.ts'
-import { buildOutline, needsAttention, outlineEmpty } from '../shared/view.ts'
+import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
 import { formatExact, repoColors } from './format.ts'
@@ -17,6 +17,10 @@ import { PrTable } from './table.tsx'
 import type { SyncStatus } from './api.ts'
 
 const REFRESH_MS = 3 * 60 * 1000
+const FRESH_MS = 10 * 60 * 1000
+const STALE_MS = 30 * 60 * 1000
+
+type RefreshProgress = { completed: number; total: number }
 
 export function App() {
   const [prefs, setPrefs] = useState(loadPreferences)
@@ -24,6 +28,8 @@ export function App() {
   const [booting, setBooting] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [status, setStatus] = useState('Idle')
+  const [progress, setProgress] = useState<RefreshProgress | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -51,6 +57,11 @@ export function App() {
   useEffect(() => savePreferences(prefs), [prefs])
 
   useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
     setHolds((current) => {
       if (current.size === 0) return current
       const byKey = new Map(
@@ -69,15 +80,22 @@ export function App() {
     })
   }, [data])
 
-  async function refresh(options: { force?: boolean; focus?: 'mine' | 'review'; full?: boolean } = {}) {
+  async function refresh(options: { force?: boolean; focus?: 'mine' | 'review'; full?: boolean; feedback?: 'if-ran' | 'always' } = {}) {
     const page = pageRef.current
     const focus = options.focus ?? (page === 'review' ? 'review' : 'mine')
     const listed = page === 'mine' || page === 'review'
+    const feedback = options.feedback ?? 'if-ran'
     if (!options.full && !listed && !options.force) return false
-    if (!options.force && !options.full && Date.now() - refreshedAt.current[focus] < REFRESH_MS) return false
+    const recent = !options.force && !options.full && Date.now() - refreshedAt.current[focus] < REFRESH_MS
+    if (recent) {
+      if (feedback === 'always') await showFeedback(focus)
+      return false
+    }
     const id = ++applyId.current
     setRefreshing(true)
     setError(null)
+    setStatus('Starting refresh')
+    setProgress(null)
     const started = Date.now()
     const poll = window.setInterval(() => {
       void api.snapshot().then((snap) => {
@@ -93,6 +111,18 @@ export function App() {
         refreshedAt.current[focus] = started
       }
       if (id === applyId.current) setData(adopt(snap))
+      if (id === applyId.current) {
+        try {
+          if (options.full) {
+            await loadFeedback('mine')
+            if (id === applyId.current) await loadFeedback('review')
+          } else {
+            await loadFeedback(focus)
+          }
+        } catch (caught) {
+          if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Could not load thread replies')
+        }
+      }
       return true
     } catch (caught) {
       if (!options.full) refreshedAt.current[focus] = 0
@@ -100,6 +130,20 @@ export function App() {
       return false
     } finally {
       window.clearInterval(poll)
+      if (id === applyId.current) setRefreshing(false)
+    }
+  }
+
+  async function showFeedback(focus: 'mine' | 'review') {
+    const id = ++applyId.current
+    setRefreshing(true)
+    setStatus('Reading thread replies')
+    setProgress(null)
+    try {
+      await loadFeedback(focus)
+    } catch (caught) {
+      if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Could not load thread replies')
+    } finally {
       if (id === applyId.current) setRefreshing(false)
     }
   }
@@ -140,18 +184,13 @@ export function App() {
         if (!cancel) setBooting(false)
       }
       const page = pageRef.current
-      if (page === 'mine' || page === 'review') {
-        await refresh({ force: true })
-        await loadFeedback(page)
-      }
+      if (page === 'mine' || page === 'review') await refresh({ force: true })
     })()
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
       const page = pageRef.current
       if (page !== 'mine' && page !== 'review') return
-      void refresh().then((ran) => {
-        if (ran) return loadFeedback(page)
-      })
+      void refresh()
     }, 30_000)
     return () => {
       cancel = true
@@ -163,8 +202,7 @@ export function App() {
     if (previousPage.current === prefs.page) return
     previousPage.current = prefs.page
     if (prefs.page !== 'mine' && prefs.page !== 'review') return
-    const page = prefs.page
-    void refresh().then(() => loadFeedback(page))
+    void refresh({ feedback: 'always' })
   }, [prefs.page])
 
   useEffect(() => {
@@ -210,8 +248,9 @@ export function App() {
     if (!refreshing) return
     const timer = window.setInterval(() => {
       void api.status().then((next) => {
-        setStatus(next.message)
         setSync(next)
+        if (next.message !== 'Idle') setStatus(next.message)
+        if (next.total > 0) setProgress({ completed: next.completed, total: next.total })
       }).catch(() => undefined)
     }, 400)
     return () => window.clearInterval(timer)
@@ -236,8 +275,15 @@ export function App() {
   const visible = !outlineEmpty(outline)
   const reviewBadge = review.filter((pr) => pr.reviewPending || needsAttention(pr, 'reviewer')).length
   const listPage = page === 'mine' || page === 'review'
-  const listSyncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt) : (data?.mineSyncedAt ?? data?.syncedAt)
   const filtersOn = JSON.stringify(prefs.filters) !== JSON.stringify(DEFAULT_FILTERS)
+  const matched = useMemo(() => {
+    const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
+    const attention = page === 'review' ? 'reviewer' : 'author'
+    return prs.filter((pr) => prMatches(pr, prefs.filters, names, attention)).length
+  }, [prs, initiatives, prefs.filters, page])
+  const noun = page === 'review' ? 'to review' : 'open'
+  const countLabel = filtersOn ? `${matched}/${prs.length} ${noun}` : `${prs.length} ${noun}`
+  const syncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt ?? null) : (data?.mineSyncedAt ?? data?.syncedAt ?? null)
 
   const applyFeedback = useCallback((key: string, counts: FeedbackCounts) => {
     setData((current) => {
@@ -281,41 +327,31 @@ export function App() {
       <div className="app">
         <header className="top">
           <div className="top-row">
-            <div className="brand">
-              <h1>{page === 'queue' ? 'Merge queue' : page === 'review' ? 'Review' : page === 'settings' ? 'Settings' : 'My PRs'}</h1>
-              <nav className="nav">
-                <button type="button" className="text-btn" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
-                  My PRs
-                </button>
-                <button type="button" className="text-btn" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
-                  Review
-                  {reviewBadge > 0 ? <span className="nav-count">{reviewBadge}</span> : null}
-                </button>
-                <button type="button" className="text-btn" aria-pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))}>
-                  Merge queue
-                  {queue && queue.entries.length > 0 ? <span className="nav-count">{queue.entries.length}</span> : null}
-                </button>
-                <button type="button" className="text-btn" aria-pressed={page === 'settings'} onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}>
-                  Settings
-                </button>
-              </nav>
-              <p className="meta">
-                {page === 'settings' ? (
-                  'How this dashboard calls GitHub'
-                ) : (
-                  <>
-                    {data?.viewer ? <strong>{data.viewer}</strong> : page === 'review' ? 'Pull requests for you to review' : 'Your open changes'}
-                    {listPage && prs.length ? ` · ${prs.length} ${page === 'review' ? 'to review' : 'open'}` : ''}
-                    {listPage && listSyncedAt ? ` · updated ${formatExact(listSyncedAt)}` : ''}
-                    {refreshing ? ` · ${status}` : ''}
-                  </>
-                )}
-              </p>
-            </div>
-            {page === 'settings' ? null : (
-              <button type="button" className="primary" onClick={() => void refresh({ force: true })} disabled={refreshing}>
-                {refreshing ? 'Refreshing' : 'Refresh'}
+            <nav className="nav">
+              <button type="button" className="text-btn" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
+                My PRs
               </button>
+              <button type="button" className="text-btn" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
+                Review
+                {reviewBadge > 0 ? <span className="nav-count">{reviewBadge}</span> : null}
+              </button>
+              <button type="button" className="text-btn" aria-pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))}>
+                Merge queue
+                {queue && queue.entries.length > 0 ? <span className="nav-count">{queue.entries.length}</span> : null}
+              </button>
+              <button type="button" className="text-btn" aria-pressed={page === 'settings'} onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}>
+                Settings
+              </button>
+            </nav>
+            {page === 'settings' ? null : (
+              <RefreshControl
+                refreshing={refreshing}
+                status={status}
+                progress={progress}
+                syncedAt={syncedAt}
+                now={now}
+                onRefresh={() => void refresh({ force: true })}
+              />
             )}
           </div>
           <div className="filters" hidden={!listPage}>
@@ -417,6 +453,7 @@ export function App() {
                 onDelete={(id) => mutate(() => api.deleteInitiative(id))}
               />
             </ClickCard>
+            <span className="filter-count">{countLabel}</span>
           </div>
         </header>
         {error ? <div className="banner error">{error}</div> : null}
@@ -435,10 +472,8 @@ export function App() {
               reviewSyncedAt={data?.reviewSyncedAt ?? null}
               syncing={refreshing}
               onFullSync={() => {
-                const page = pageRef.current === 'review' ? 'review' : 'mine'
-                void refresh({ force: true, full: true, focus: page }).then(async () => {
-                  await loadFeedback('mine')
-                  await loadFeedback('review')
+                const focus = pageRef.current === 'review' ? 'review' : 'mine'
+                void refresh({ force: true, full: true, focus }).then(async () => {
                   setSync(await api.status().catch(() => null))
                 })
               }}
@@ -574,5 +609,108 @@ export function App() {
         </div>
       </div>
     </MenuProvider>
+  )
+}
+
+function freshness(iso: string | null, now: number): 'fresh' | 'aging' | 'stale' {
+  if (!iso) return 'stale'
+  const then = Date.parse(iso)
+  if (Number.isNaN(then)) return 'stale'
+  const age = now - then
+  if (age > STALE_MS) return 'stale'
+  if (age > FRESH_MS) return 'aging'
+  return 'fresh'
+}
+
+function RefreshControl({
+  refreshing,
+  status,
+  progress,
+  syncedAt,
+  now,
+  onRefresh,
+}: {
+  refreshing: boolean
+  status: string
+  progress: RefreshProgress | null
+  syncedAt: string | null
+  now: number
+  onRefresh: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    const onPointer = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onPointer)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onPointer)
+    }
+  }, [open])
+  const when = syncedAt ? formatExact(syncedAt) : 'Not updated yet'
+  const text = status && status !== 'Idle' ? status : 'Refreshing'
+  const known = progress != null && progress.total > 0
+  return (
+    <div className="refresh-cluster">
+      <div className="freshness" ref={ref}>
+        <button
+          type="button"
+          className="pip-btn"
+          aria-expanded={open}
+          aria-label={syncedAt ? `Last updated ${when}` : 'Not updated yet'}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className={`pip ${freshness(syncedAt, now)}`} />
+        </button>
+        {open ? (
+          <div className="freshness-pop" role="status">
+            {when}
+          </div>
+        ) : null}
+      </div>
+      {refreshing ? (
+        <div className="refresh-activity" aria-live="polite">
+          {known ? (
+            <span
+              className="refresh-bar"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={progress.total}
+              aria-valuenow={progress.completed}
+              aria-label="Refresh progress"
+            >
+              <span style={{ width: `${Math.min(100, (progress.completed / progress.total) * 100)}%` }} />
+            </span>
+          ) : (
+            <SyncArrows />
+          )}
+          <span className="refresh-text" title={text}>
+            {text}
+          </span>
+        </div>
+      ) : (
+        <button type="button" className="ghost refresh-btn" onClick={onRefresh}>
+          Refresh
+        </button>
+      )}
+    </div>
+  )
+}
+
+function SyncArrows() {
+  return (
+    <svg className="refresh-spin" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 3v5h5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 16h5v5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }

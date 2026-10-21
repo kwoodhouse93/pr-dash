@@ -45,6 +45,8 @@ app.get('/api/status', (c) =>
   c.json({
     running: syncStatus.running,
     message: syncStatus.message,
+    completed: syncStatus.completed,
+    total: syncStatus.total,
     graphql: graphqlStatus(GRAPHQL_PAUSE_BELOW),
     rules: db.ruleCache().map((rule) => ({ repo: rule.repo, fetchedAt: rule.fetchedAt })),
   }),

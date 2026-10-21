@@ -1,5 +1,6 @@
 import { carryThreadFeedback } from '../shared/feedback.ts'
 import { applyThreadDetails, mapPullRequest } from '../shared/map.ts'
+import { refreshSteps, stepIndex, type RefreshStep } from '../shared/progress.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
 import { rulesFresh } from '../shared/rules.ts'
@@ -21,7 +22,26 @@ import {
 } from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
 
-export const syncStatus = { running: false, message: 'Idle' }
+export const syncStatus = { running: false, message: 'Idle', completed: 0, total: 0 }
+
+let steps: RefreshStep[] = []
+let stepAt = 0
+
+function beginSteps(full: boolean) {
+  steps = refreshSteps(full, Boolean(process.env.LINEAR_API_KEY))
+  stepAt = 0
+  syncStatus.completed = 0
+  syncStatus.total = steps.length
+  syncStatus.message = 'Starting refresh'
+}
+
+function note(message: string) {
+  syncStatus.message = message
+  const next = stepIndex(steps, stepAt, message)
+  if (next === stepAt) return
+  stepAt = next
+  syncStatus.completed = next
+}
 
 export type RefreshFocus = 'mine' | 'review'
 
@@ -122,7 +142,7 @@ async function rulesFor(
 
 async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Promise<Snapshot> {
   syncStatus.running = true
-  syncStatus.message = 'Starting refresh'
+  beginSteps(full)
   const token = loadGithubToken()
   const warnings: string[] = []
   let failed: string | null = null
@@ -132,12 +152,12 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
     const paused = pauseNow()
     if (paused) {
       warnings.push(paused)
-      syncStatus.message = paused
+      note(paused)
       if (full) {
         const repos = reposIn(db.snapshot())
         try {
           await rulesFor(db, token, repos, true, (message) => {
-            syncStatus.message = message
+            note(message)
           })
         } catch (error) {
           warnings.push(messageOf(error))
@@ -148,7 +168,7 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
         const blocked = pauseNow()
         if (blocked) {
           warnings.push(blocked)
-          syncStatus.message = blocked
+          note(blocked)
           break
         }
         try {
@@ -157,7 +177,7 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
         } catch (error) {
           if (error instanceof GraphqlPaused) {
             warnings.push(error.message)
-            syncStatus.message = error.message
+            note(error.message)
             break
           }
           const message = messageOf(error)
@@ -180,12 +200,12 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
       })
     }
     if (failed) throw new Error(failed)
-    syncStatus.message = 'Checking Cursor'
+    note('Checking Cursor')
     await refreshCursorSessions(db.cursorSessions(), (prKey, session) => db.saveCursorSession(prKey, session))
     return db.snapshot()
   } finally {
     syncStatus.running = false
-    syncStatus.message = 'Idle'
+    note('Idle')
   }
 }
 
@@ -196,9 +216,9 @@ function reposIn(snap: Snapshot): string[] {
 async function refreshMine(db: DashboardDb, token: string, forceRules: boolean): Promise<string | null> {
   const previous = new Map(db.snapshot().pullRequests.map((pr) => [pr.key, pr]))
   const fetched = await fetchAuthoredPullRequests(token, (message) => {
-    syncStatus.message = message
+    note(message)
   }, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
-    syncStatus.message = message
+    note(message)
   }))
   const warning = await withLinear(fetched.pullRequests, fetched.warning)
   const current = db.snapshot()
@@ -217,9 +237,9 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
 async function refreshReview(db: DashboardDb, token: string, forceRules: boolean): Promise<string | null> {
   const previous = new Map(db.snapshot().reviewPullRequests.map((pr) => [pr.key, pr]))
   const fetched = await fetchReviewPullRequests(token, (message) => {
-    syncStatus.message = message
+    note(message)
   }, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
-    syncStatus.message = message
+    note(message)
   }))
   const warning = await withLinear(fetched.pullRequests, fetched.warning)
   const current = db.snapshot()
@@ -238,7 +258,7 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
 async function withLinear(pullRequests: PullRequest[], warning: string | null): Promise<string | null> {
   const linearKey = process.env.LINEAR_API_KEY
   if (!linearKey) return warning
-  syncStatus.message = 'Reading Linear projects'
+  note('Reading Linear projects')
   try {
     await enrichLinearProjects(pullRequests, linearKey)
     return warning
@@ -259,7 +279,7 @@ async function readFeedback(db: DashboardDb, next: RefreshFocus): Promise<{ snap
   if (paused || stale.length === 0) return { snapshot: snap, pending: stale.length, paused }
   const batch = stale.slice(0, 8)
   syncStatus.running = true
-  syncStatus.message = `Reading thread replies (${Math.min(8, stale.length)} of ${stale.length})`
+  note(`Reading thread replies (${Math.min(8, stale.length)} of ${stale.length})`)
   try {
     assertGraphql(GRAPHQL_PAUSE_BELOW)
     const token = loadGithubToken()
@@ -289,7 +309,7 @@ async function readFeedback(db: DashboardDb, next: RefreshFocus): Promise<{ snap
     throw error
   } finally {
     syncStatus.running = false
-    syncStatus.message = 'Idle'
+    note('Idle')
   }
 }
 
@@ -299,14 +319,14 @@ async function readOne(db: DashboardDb, key: string): Promise<Snapshot> {
   const current = [...snap.pullRequests, ...snap.reviewPullRequests].find((pr) => pr.key === key)
   if (!current) throw new Error('That pull request is no longer in this list.')
   syncStatus.running = true
-  syncStatus.message = `Refreshing #${current.number}`
+  note(`Refreshing #${current.number}`)
   try {
     const token = loadGithubToken()
     const viewerState = await viewerFor(token)
     const loaded = await fetchOnePull(token, current.id)
     if (!loaded || !loaded.open) return dropPull(db, key)
     const rules = await rulesFor(db, token, [current.repo], false, (message) => {
-      syncStatus.message = message
+      note(message)
     })
     const rule = rules.get(current.repo)
     const viewer = viewerState.login || snap.viewer || ''
@@ -334,7 +354,7 @@ async function readOne(db: DashboardDb, key: string): Promise<Snapshot> {
     })
   } finally {
     syncStatus.running = false
-    syncStatus.message = 'Idle'
+    note('Idle')
   }
 }
 
