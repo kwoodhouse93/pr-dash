@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { cursorLinks, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
@@ -6,11 +6,27 @@ import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
 import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { StackSummary } from '../shared/stacks.ts'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
-import type { Bucket, Outline, StackBlock } from '../shared/view.ts'
+import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
-import { ClickCard, HoverCard } from './menus.tsx'
+import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
+
+type StackLock = {
+  locked: boolean
+  lock: () => boolean
+  unlock: () => void
+}
+
+const StackLockContext = createContext<StackLock>({
+  locked: false,
+  lock: () => false,
+  unlock: () => {},
+})
+
+function useStackLock(): StackLock {
+  return useContext(StackLockContext)
+}
 
 const COLUMNS = 13
 
@@ -32,8 +48,10 @@ export function PrTable({
   prByKey,
   repoColor,
   expanded,
+  collapsed,
   onSort,
   onToggle,
+  onToggleSection,
   onAssign,
   onCreateAssigned,
   onMerge,
@@ -52,8 +70,10 @@ export function PrTable({
   prByKey: Map<string, PullRequest>
   repoColor: Map<string, string>
   expanded: Set<string>
+  collapsed: Set<string>
   onSort: (key: SortKey) => void
   onToggle: (id: string) => void
+  onToggleSection: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
@@ -73,7 +93,9 @@ export function PrTable({
     repoColor,
     tones,
     expanded,
+    collapsed,
     onToggle,
+    onToggleSection,
     onAssign,
     onCreateAssigned,
     onMerge,
@@ -108,7 +130,7 @@ export function PrTable({
       <tbody>
         {outline.projects.length ? <Band title="Linear projects" /> : null}
         {outline.projects.map((project) => (
-          <ProjectRows key={project.id} title={project.title} issues={project.issues} {...shared} />
+          <ProjectRows key={project.id} project={project} {...shared} />
         ))}
         {outline.initiatives.length ? <Band title="Initiatives" /> : null}
         {outline.initiatives.map((bucket) => (
@@ -166,7 +188,9 @@ type RowShared = {
   repoColor: Map<string, string>
   tones: Map<string, 'a' | 'b'>
   expanded: Set<string>
+  collapsed: Set<string>
   onToggle: (id: string) => void
+  onToggleSection: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
@@ -189,33 +213,36 @@ function Band({ title }: { title: string }) {
   )
 }
 
-function ProjectRows({ title, issues, ...shared }: { title: string; issues: Bucket[] } & RowShared) {
-  const count = issues.reduce((total, issue) => total + issue.count, 0)
+function ProjectRows({ project, ...shared }: { project: ProjectGroup } & RowShared) {
+  const count = project.issues.reduce((total, issue) => total + issue.count, 0)
+  const open = !shared.collapsed.has(project.id)
   return (
     <>
-      <tr className="project depth-1">
+      <tr className="project depth-1 fold" onClick={(event) => toggleSection(event, () => shared.onToggleSection(project.id))}>
         <td colSpan={COLUMNS}>
-          <span className="section-title">{title}</span>
-          <span className="section-meta">{count === 1 ? '1 pull request' : `${count} pull requests`}</span>
+          <SectionHead open={open} label={project.title} onToggle={() => shared.onToggleSection(project.id)}>
+            <span className="section-title">{project.title}</span>
+            <span className="section-meta">{count === 1 ? '1 pull request' : `${count} pull requests`}</span>
+          </SectionHead>
         </td>
       </tr>
-      {issues.map((bucket) => (
-        <BucketRows key={bucket.id} bucket={bucket} depth={2} {...shared} />
-      ))}
+      {open
+        ? project.issues.map((bucket) => <BucketRows key={bucket.id} bucket={bucket} depth={2} {...shared} />)
+        : null}
     </>
   )
 }
 
 function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bucket; depth: number; untitled?: boolean } & RowShared) {
+  const collapsible = Boolean(bucket.title) && !untitled
+  const open = !collapsible || !shared.collapsed.has(bucket.id)
   return (
     <>
-      {bucket.title && !untitled ? (
-        <tr className={`section depth-${depth}`}>
+      {collapsible ? (
+        <tr className={`section depth-${depth} fold`} onClick={(event) => toggleSection(event, () => shared.onToggleSection(bucket.id))}>
           <td colSpan={COLUMNS}>
-            <span className="section-line">
-              {shared.linearConfigured ? (
-                <SectionIssue bucket={bucket} onUpdateIssue={shared.onUpdateIssue} />
-              ) : null}
+            <SectionHead open={open} label={bucket.title!} onToggle={() => shared.onToggleSection(bucket.id)}>
+              {shared.linearConfigured ? <SectionIssue bucket={bucket} onUpdateIssue={shared.onUpdateIssue} /> : null}
               {bucket.href ? (
                 <a className="section-title" href={bucket.href} target="_blank" rel="noreferrer">
                   {bucket.title}
@@ -224,17 +251,59 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
                 <span className="section-title">{bucket.title}</span>
               )}
               {bucket.meta ? <span className="section-meta">{bucket.meta}</span> : null}
-            </span>
+            </SectionHead>
           </td>
         </tr>
       ) : null}
-      {bucket.stacks.map((block) => (
-        <BlockRows key={block.id} bucket={bucket} block={block} tone={shared.tones.get(`${bucket.id}:${block.id}`) ?? 'a'} {...shared} />
-      ))}
-      {bucket.singles.map((block) => (
-        <BlockRows key={block.id} bucket={bucket} block={block} tone={null} {...shared} />
-      ))}
+      {open ? (
+        <>
+          {bucket.stacks.map((block) => (
+            <BlockRows key={block.id} bucket={bucket} block={block} tone={shared.tones.get(`${bucket.id}:${block.id}`) ?? 'a'} {...shared} />
+          ))}
+          {bucket.singles.map((block) => (
+            <BlockRows key={block.id} bucket={bucket} block={block} tone={null} {...shared} />
+          ))}
+        </>
+      ) : null}
     </>
+  )
+}
+
+function toggleSection(event: { target: EventTarget | null }, toggle: () => void) {
+  const target = event.target
+  if (target instanceof HTMLElement && target.closest('button, a, input, label')) return
+  toggle()
+}
+
+function SectionHead({
+  open,
+  label,
+  onToggle,
+  children,
+}: {
+  open: boolean
+  label: string
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <div className="section-head">
+      <div className="section-line">{children}</div>
+      <button
+        type="button"
+        className="section-toggle"
+        aria-expanded={open}
+        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          onToggle()
+        }}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </div>
   )
 }
 
@@ -269,10 +338,26 @@ function BlockRows({
 }: { bucket: Bucket; block: StackBlock; tone: 'a' | 'b' | null } & RowShared) {
   const openId = `${bucket.id}:${block.id}`
   const open = shared.expanded.has(openId)
+  const lockRef = useRef(false)
+  const [locked, setLocked] = useState(false)
+  const stackLock: StackLock = {
+    locked,
+    lock: () => {
+      if (lockRef.current) return false
+      lockRef.current = true
+      setLocked(true)
+      return true
+    },
+    unlock: () => {
+      lockRef.current = false
+      setLocked(false)
+    },
+  }
   const visible = block.rows.flatMap((row) => (row.type === 'pr' ? [row.pr] : []))
   const stackTone = block.collapsible ? tone : null
-  if (!block.collapsible || open) {
-    return block.rows.map((row, index) => {
+  const rows =
+    !block.collapsible || open ? (
+      block.rows.map((row, index) => {
       const spine = stackTone ? spineAt(index, block.rows.length) : null
       return row.type === 'ellipsis' ? (
         <tr key={row.id} className={`ellipsis${spineClass(spine, stackTone)}`}>
@@ -308,8 +393,7 @@ function BlockRows({
         />
       )
     })
-  }
-  return (
+    ) : (
     <SummaryRow
       key={block.id}
       block={block}
@@ -333,7 +417,8 @@ function BlockRows({
       onStackMerge={shared.onStackMerge}
       queueByKey={shared.queueByKey}
     />
-  )
+    )
+  return <StackLockContext.Provider value={stackLock}>{rows}</StackLockContext.Provider>
 }
 
 function DataRow({
@@ -380,11 +465,12 @@ function DataRow({
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   const holds = useHolds()
+  const { locked } = useStackLock()
   const mark = queueByKey.get(pr.key) ?? null
   const ci = shownLevel([pr], holds)
   return (
     <tr
-      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
+      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
         if (!toggle) return
         if ((event.target as HTMLElement).closest('button, a, input, label')) return
@@ -508,9 +594,10 @@ function SummaryRow({
   const ordered = orderedStack(block, prByKey)
   const mark = foremost(block.stackKeys, queueByKey)
   const top = ordered[0] ?? null
+  const { locked } = useStackLock()
   return (
     <tr
-      className={`stack ${ci === 'red' ? 'fail' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
+      className={`stack ${ci === 'red' ? 'fail' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button, a, input, label')) return
         onToggle(openId)
@@ -640,13 +727,14 @@ function Subline({
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
+  const { locked } = useStackLock()
   if (issues.length === 0) return null
   return (
     <div className="subline">
       {issues.map((issue) => (
         <span key={issue.identifier} className="issue-ref">
           {linearConfigured && isLinearIdentifier(issue.identifier) ? (
-            <IssueControls menuKey={`${menuScope}:${issue.identifier}`} issue={issue} onUpdate={onUpdateIssue} />
+            <IssueControls menuKey={`${menuScope}:${issue.identifier}`} issue={issue} disabled={locked} onUpdate={onUpdateIssue} />
           ) : null}
           {issue.url ? (
             <a href={issue.url} target="_blank" rel="noreferrer">
@@ -678,6 +766,7 @@ function Conflict({
   const sessions = prs.flatMap((pr) => (pr.cursorSession ? [{ pr, session: pr.cursorSession }] : []))
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const { locked } = useStackLock()
 
   async function resolve(pr: PullRequest) {
     setError(null)
@@ -703,6 +792,7 @@ function Conflict({
           <ClickCard
             id={id}
             className="conflict-x"
+            disabled={locked}
             label={
               <>
                 <span className="sr">Resolve merge conflict with Cursor</span>
@@ -715,7 +805,7 @@ function Conflict({
             <h3>Resolve with Cursor</h3>
             <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
             {conflicts.map((pr) => (
-              <button key={pr.key} type="button" className="menu-item" disabled={pending !== null} onClick={() => void resolve(pr)}>
+              <button key={pr.key} type="button" className="menu-item" disabled={locked || pending !== null} onClick={() => void resolve(pr)}>
                 {pending === pr.key ? 'Starting Cursor…' : `#${pr.number} · ${pr.title}`}
               </button>
             ))}
@@ -737,9 +827,11 @@ function CursorChip({
   sessions: { pr: PullRequest; session: CursorSession }[]
 }) {
   const lead = leadingCursorStatus(sessions.map((item) => item.session.status)) ?? 'running'
+  const { locked } = useStackLock()
   return (
     <ClickCard
       id={id}
+      disabled={locked}
       className={`cursor-chip ${lead}`}
       label={
         <>
@@ -800,11 +892,13 @@ function RowMenu(props: {
   onCreate: (name: string, keys: string[]) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
+  const { locked } = useStackLock()
   return (
     <td className="row-actions">
       <ClickCard
         id={props.id}
         className="row-menu"
+        disabled={locked}
         label={
           <>
             <span className="sr">Row actions</span>
@@ -909,29 +1003,33 @@ function StackMergeButton({
   const pendingRef = useRef(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { locked, lock, unlock } = useStackLock()
+  const closeMenus = useMenuClose()
   const label = `Merge ${count} PRs`
+  const busy = pending || locked
   return (
     <div className="merge-action">
       <button
         type="button"
         className="primary merge"
-        disabled={pending}
-        aria-busy={pending}
+        disabled={busy}
+        aria-busy={busy}
         aria-label={pending ? `Queuing #${pr.number} and ${count - 1} below` : `Squash and merge #${pr.number} and ${count - 1} below`}
         onClick={() => {
-          if (pendingRef.current) return
+          if (pendingRef.current || locked) return
+          if (!lock()) return
           pendingRef.current = true
           setPending(true)
           setError(null)
+          closeMenus()
           void onStackMerge(pr.key)
-            .then(() => {
-              pendingRef.current = false
-              setPending(false)
-            })
             .catch((caught: unknown) => {
+              setError(caught instanceof Error ? caught.message : 'Could not queue that stack')
+            })
+            .finally(() => {
               pendingRef.current = false
               setPending(false)
-              setError(caught instanceof Error ? caught.message : 'Could not queue that stack')
+              unlock()
             })
         }}
       >
@@ -956,17 +1054,22 @@ function SplitMerge({
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLButtonElement>(null)
+  const { locked } = useStackLock()
+  const busy = pending || locked
+  useEffect(() => {
+    if (locked) setOpen(false)
+  }, [locked])
   return (
     <div className="merge-action">
       <div className="split-merge">
         <button
           type="button"
           className="primary merge"
-          disabled={pending}
-          aria-busy={pending}
+          disabled={busy}
+          aria-busy={busy}
           aria-label={pending ? `Merging #${pr.number}` : `Squash and merge #${pr.number}`}
           onClick={() => {
-            if (pendingRef.current) return
+            if (pendingRef.current || locked) return
             pendingRef.current = true
             setPending(true)
             setError(null)
@@ -985,7 +1088,7 @@ function SplitMerge({
           className="primary merge caret"
           aria-expanded={open}
           aria-label={`More merge actions for #${pr.number}`}
-          disabled={pending}
+          disabled={busy}
           onClick={() => setOpen((current) => !current)}
         >
           ▾
@@ -1072,8 +1175,9 @@ function Feedback({
 
 function CiControl({ id, prs, onRerun }: { id: string; prs: PullRequest[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
   const level = shownLevel(prs, useHolds())
+  const { locked } = useStackLock()
   return (
-    <ClickCard id={id} className={`ci ${level}`} label={ciLabel(level)}>
+    <ClickCard id={id} className={`ci ${level}`} disabled={locked} label={ciLabel(level)}>
       <CiPanel prs={prs} level={level} onRerun={onRerun} />
     </ClickCard>
   )
@@ -1220,9 +1324,11 @@ function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; s
   const changes = summary?.changesRequested ?? prs[0]!.changesRequested
   const mark = summary?.mergeMark ?? prs[0]!.mergeMark
   const needed = mark === 'met' || mark === 'unmet'
+  const { locked } = useStackLock()
   return (
     <HoverCard
       id={id}
+      disabled={locked}
       className="marks"
       label={
         <>

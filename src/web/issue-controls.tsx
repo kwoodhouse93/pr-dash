@@ -12,10 +12,12 @@ export function isLinearIdentifier(value: string): boolean {
 export function IssueControls({
   menuKey,
   issue,
+  disabled = false,
   onUpdate,
 }: {
   menuKey: string
   issue: LinearIssue
+  disabled?: boolean
   onUpdate: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   const statusName = issue.status?.name ?? 'Set status'
@@ -26,6 +28,7 @@ export function IssueControls({
         id={`status:${menuKey}`}
         className="status-hit"
         panelClassName="picker-panel"
+        disabled={disabled}
         label={
           <>
             <span className="sr">{statusName}</span>
@@ -39,6 +42,7 @@ export function IssueControls({
         id={`assignee:${menuKey}`}
         className="assignee-hit"
         panelClassName="picker-panel"
+        disabled={disabled}
         label={
           <>
             <span className="sr">{assigneeName}</span>

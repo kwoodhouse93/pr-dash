@@ -97,33 +97,40 @@ export function HoverCard({
   id,
   className,
   label,
+  disabled = false,
   children,
 }: {
   id: string
   className?: string
   label: ReactNode
+  disabled?: boolean
   children: ReactNode
 }) {
   const menu = useMenu()
   const ref = useRef<HTMLButtonElement>(null)
   const open = menu.active?.id === id
+  useEffect(() => {
+    if (disabled && open) menu.close()
+  }, [disabled, open, menu])
   return (
     <>
       <button
         ref={ref}
         type="button"
         className={className}
+        disabled={disabled}
         aria-expanded={open}
-        onMouseEnter={() => ref.current && menu.hover(id, ref.current)}
+        onMouseEnter={() => !disabled && ref.current && menu.hover(id, ref.current)}
         onMouseLeave={() => menu.leave()}
         onClick={(event) => {
           event.stopPropagation()
-          if (ref.current) menu.pin(id, ref.current)
+          if (disabled || !ref.current) return
+          menu.pin(id, ref.current)
         }}
       >
         {label}
       </button>
-      {open && menu.active
+      {open && !disabled && menu.active
         ? createPortal(
             <div
               className="popover"
@@ -146,32 +153,39 @@ export function ClickCard({
   className,
   label,
   panelClassName,
+  disabled = false,
   children,
 }: {
   id: string
   className?: string
   label: ReactNode
   panelClassName?: string
+  disabled?: boolean
   children: ReactNode
 }) {
   const menu = useMenu()
   const ref = useRef<HTMLButtonElement>(null)
   const open = menu.active?.id === id
+  useEffect(() => {
+    if (disabled && open) menu.close()
+  }, [disabled, open, menu])
   return (
     <>
       <button
         ref={ref}
         type="button"
         className={className}
+        disabled={disabled}
         aria-expanded={open}
         onClick={(event) => {
           event.stopPropagation()
-          if (ref.current) menu.pin(id, ref.current)
+          if (disabled || !ref.current) return
+          menu.pin(id, ref.current)
         }}
       >
         {label}
       </button>
-      {open && menu.active
+      {open && !disabled && menu.active
         ? createPortal(
             <div
               className={panelClassName ? `popover ${panelClassName}` : 'popover'}

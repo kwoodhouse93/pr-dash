@@ -7,6 +7,7 @@ export type Preferences = {
   sort: Sort
   filters: Filters
   expanded: string[]
+  collapsed: string[]
 }
 
 export function loadPreferences(): Preferences {
@@ -19,6 +20,7 @@ export function loadPreferences(): Preferences {
       sort: { key, dir },
       filters: { ...DEFAULT_FILTERS, ...(raw.filters ?? {}) },
       expanded: Array.isArray(raw.expanded) ? raw.expanded.filter((id) => typeof id === 'string') : [],
+      collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
     }
   } catch {
     return fresh()
@@ -30,5 +32,5 @@ export function savePreferences(prefs: Preferences) {
 }
 
 function fresh(): Preferences {
-  return { sort: DEFAULT_SORT, filters: DEFAULT_FILTERS, expanded: [] }
+  return { sort: DEFAULT_SORT, filters: DEFAULT_FILTERS, expanded: [], collapsed: [] }
 }

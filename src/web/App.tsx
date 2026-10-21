@@ -326,6 +326,7 @@ export function App() {
               prByKey={prByKey}
               repoColor={colors}
               expanded={new Set(prefs.expanded)}
+              collapsed={new Set(prefs.collapsed)}
               queueByKey={rowMarks(queue?.entries ?? [])}
               onSort={chooseSort}
               onToggle={(id) =>
@@ -334,6 +335,14 @@ export function App() {
                   expanded: current.expanded.includes(id)
                     ? current.expanded.filter((item) => item !== id)
                     : [...current.expanded, id],
+                }))
+              }
+              onToggleSection={(id) =>
+                setPrefs((current) => ({
+                  ...current,
+                  collapsed: current.collapsed.includes(id)
+                    ? current.collapsed.filter((item) => item !== id)
+                    : [...current.collapsed, id],
                 }))
               }
               onAssign={(initiativeId, keys, action) => mutate(() => api.assign(initiativeId, keys, action))}
