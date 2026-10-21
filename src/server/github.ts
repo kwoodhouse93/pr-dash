@@ -51,32 +51,79 @@ async function rest(token: string, path: string, method = 'GET', body?: unknown)
   })
 }
 
+const PULL_FIELDS = `
+  id number title url isDraft createdAt updatedAt additions deletions changedFiles
+  baseRefName headRefName reviewDecision mergeStateStatus mergeable
+  author { login avatarUrl }
+  repository { nameWithOwner name squashMergeAllowed defaultBranchRef { name } }
+  reviews(last: 40) { nodes { state submittedAt body author { __typename login } } }
+  reviewThreads(first: 60) {
+    pageInfo { hasNextPage }
+    nodes {
+      isResolved
+      isOutdated
+      resolvedBy { login }
+      comments(last: 30) { nodes { author { __typename login } createdAt } }
+    }
+  }
+  comments(first: 12) { nodes { author { __typename login } body } }
+  latestComments: comments(last: 20) { nodes { author { __typename login } createdAt body } }
+  reviewRequests(first: 20) {
+    nodes {
+      requestedReviewer {
+        __typename
+        ... on User { login }
+        ... on Team { combinedSlug }
+      }
+    }
+  }
+`
+
 const LIST_QUERY = `
   query Authored($cursor: String) {
     viewer {
       login
       pullRequests(first: 12, states: [OPEN], after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
         pageInfo { hasNextPage endCursor }
+        nodes { ${PULL_FIELDS} }
+      }
+    }
+  }
+`
+
+const SEARCH_QUERY = `
+  query Review($query: String!, $cursor: String) {
+    search(query: $query, type: ISSUE, first: 20, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { ... on PullRequest { ${PULL_FIELDS} } }
+    }
+  }
+`
+
+const VIEWER_QUERY = `query Viewer { viewer { login } }`
+
+const TEAMS_QUERY = `
+  query Teams($login: String!) {
+    viewer {
+      organizations(first: 15) {
         nodes {
-          id number title url isDraft createdAt updatedAt additions deletions changedFiles
-          baseRefName headRefName reviewDecision mergeStateStatus mergeable
-          author { login }
-          repository { nameWithOwner name squashMergeAllowed defaultBranchRef { name } }
-          reviews(last: 40) { nodes { state submittedAt author { __typename login } } }
-          reviewThreads(first: 60) {
-            pageInfo { hasNextPage }
-            nodes {
-              isResolved
-              isOutdated
-              comments(last: 20) { nodes { author { __typename login } createdAt } }
-            }
+          teams(first: 30, userLogins: [$login]) {
+            nodes { combinedSlug }
           }
-          comments(first: 12) { nodes { author { __typename login } body } }
         }
       }
     }
   }
 `
+
+export function reviewSearchQueries(teams: string[]): string[] {
+  const base = 'is:open is:pr archived:false -author:@me'
+  return [
+    `${base} review-requested:@me`,
+    `${base} reviewed-by:@me`,
+    ...teams.map((team) => `${base} team-review-requested:${team}`),
+  ]
+}
 
 type ListData = {
   viewer: {
@@ -93,7 +140,7 @@ async function fetchNodes(token: string, onProgress: (message: string) => void):
   let cursor: string | null = null
   let viewer = ''
   for (let page = 0; page < 12; page += 1) {
-    onProgress(page === 0 ? 'Fetching pull requests' : `Fetching pull requests (${nodes.length} so far)`)
+    onProgress(page === 0 ? 'Fetching your pull requests' : `Fetching your pull requests (${nodes.length} so far)`)
     const data: ListData = await graphql<ListData>(token, LIST_QUERY, { cursor })
     viewer = data.viewer.login
     nodes.push(...data.viewer.pullRequests.nodes.filter((node): node is GitHubPull => node != null))
@@ -101,6 +148,59 @@ async function fetchNodes(token: string, onProgress: (message: string) => void):
     cursor = data.viewer.pullRequests.pageInfo.endCursor
   }
   return { viewer, nodes }
+}
+
+type SearchData = {
+  search: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null }
+    nodes: Array<GitHubPull | null> | null
+  }
+}
+
+type TeamsData = {
+  viewer: {
+    organizations: {
+      nodes: Array<{ teams: { nodes: Array<{ combinedSlug: string } | null> | null } } | null> | null
+    } | null
+  }
+}
+
+async function viewerContext(token: string): Promise<{ login: string; teams: string[]; warning: string | null }> {
+  const viewer = await graphql<{ viewer: { login: string } }>(token, VIEWER_QUERY)
+  const login = viewer.viewer.login
+  try {
+    const data = await graphql<TeamsData>(token, TEAMS_QUERY, { login })
+    const teams = (data.viewer.organizations?.nodes ?? []).flatMap((org) =>
+      (org?.teams.nodes ?? []).flatMap((team) => (team?.combinedSlug ? [team.combinedSlug] : [])),
+    )
+    return { login, teams: [...new Set(teams)], warning: null }
+  } catch {
+    return { login, teams: [], warning: 'Team review requests were not loaded.' }
+  }
+}
+
+async function fetchReviewNodes(
+  token: string,
+  onProgress: (message: string) => void,
+): Promise<{ viewer: string; teams: string[]; nodes: GitHubPull[]; warning: string | null }> {
+  const { login, teams, warning } = await viewerContext(token)
+  const seen = new Set<string>()
+  const nodes: GitHubPull[] = []
+  for (const query of reviewSearchQueries(teams)) {
+    let cursor: string | null = null
+    for (let page = 0; page < 6 && nodes.length < 120; page += 1) {
+      onProgress(nodes.length === 0 ? 'Fetching pull requests to review' : `Fetching pull requests to review (${nodes.length} so far)`)
+      const data: SearchData = await graphql<SearchData>(token, SEARCH_QUERY, { query, cursor })
+      for (const node of data.search.nodes ?? []) {
+        if (!node || seen.has(node.id) || node.author?.login === login) continue
+        seen.add(node.id)
+        nodes.push(node)
+      }
+      if (!data.search.pageInfo.hasNextPage) break
+      cursor = data.search.pageInfo.endCursor
+    }
+  }
+  return { viewer: login, teams, nodes, warning }
 }
 
 type CheckData = Record<string, {
@@ -183,23 +283,27 @@ async function readRulesets(token: string, repo: string): Promise<Parameters<typ
   return rulesets.filter((ruleset) => ruleset != null) as Parameters<typeof reviewPolicy>[0]
 }
 
-export async function fetchAuthoredPullRequests(
+async function hydrate(
   token: string,
+  viewer: string,
+  teams: string[],
+  nodes: GitHubPull[],
   onProgress: (message: string) => void,
+  extraWarning: string | null,
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
-  const { viewer, nodes } = await fetchNodes(token, onProgress)
   const repos = [...new Set(nodes.map((node) => node.repository.nameWithOwner))]
   const [bundles, required] = await Promise.all([
     fetchChecks(token, nodes.map((node) => node.id), onProgress),
     fetchRepoRules(token, repos, onProgress),
   ])
-  const warnings: string[] = []
+  const warnings: string[] = extraWarning ? [extraWarning] : []
   const pullRequests = nodes.map((node) => {
     const bundle = bundles.get(node.id)
     const rules = required.get(node.repository.nameWithOwner)
     if (!bundle) warnings.push(`${node.repository.nameWithOwner}#${node.number} is missing checks`)
     return mapPullRequest(node, {
       viewer,
+      teams,
       requiredNames: rules?.checks ?? [],
       requiredApprovals: rules?.requiredApprovals ?? 0,
       dismissStale: rules?.dismissStale ?? false,
@@ -212,6 +316,22 @@ export async function fetchAuthoredPullRequests(
     pullRequests,
     warning: warnings.length ? warnings.slice(0, 3).join('; ') : null,
   }
+}
+
+export async function fetchAuthoredPullRequests(
+  token: string,
+  onProgress: (message: string) => void,
+): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
+  const { viewer, nodes } = await fetchNodes(token, onProgress)
+  return hydrate(token, viewer, [], nodes, onProgress, null)
+}
+
+export async function fetchReviewPullRequests(
+  token: string,
+  onProgress: (message: string) => void,
+): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
+  const { viewer, teams, nodes, warning } = await fetchReviewNodes(token, onProgress)
+  return hydrate(token, viewer, teams, nodes, onProgress, warning)
 }
 
 export async function squashMergePullRequest(token: string, repo: string, number: number): Promise<void> {

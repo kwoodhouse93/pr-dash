@@ -61,5 +61,24 @@ describe('cursor sessions', () => {
       warning: null,
     })
     expect(db.snapshot().pullRequests[0]?.cursorSession?.status).toBe('running')
+
+    const review = { key: 'acme/app#2', title: 'Theirs', author: 'ada' } as PullRequest
+    db.saveSnapshot({
+      viewer: 'k',
+      syncedAt: '2026-10-21T00:03:00Z',
+      pullRequests: [pullRequest],
+      reviewPullRequests: [review],
+      linearConfigured: false,
+      warning: null,
+    })
+    expect(db.snapshot().reviewPullRequests.map((item) => item.key)).toEqual(['acme/app#2'])
+    db.saveSnapshot({
+      viewer: 'k',
+      syncedAt: '2026-10-21T00:04:00Z',
+      pullRequests: [pullRequest],
+      linearConfigured: false,
+      warning: null,
+    })
+    expect(db.snapshot().reviewPullRequests.map((item) => item.key)).toEqual(['acme/app#2'])
   })
 })

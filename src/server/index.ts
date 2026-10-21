@@ -17,7 +17,7 @@ import {
 import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
 import { canSquashMerge } from '../shared/merge.ts'
 import { markMerged, refreshSnapshot, syncStatus } from './sync.ts'
-import type { PullRequest } from '../shared/types.ts'
+import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
 import { startCursorConflictResolver } from './cursor.ts'
 
@@ -32,7 +32,9 @@ app.get('/api/status', (c) => c.json(syncStatus))
 
 app.post('/api/refresh', async (c) => {
   try {
-    return c.json(await refreshSnapshot(db))
+    const body = await c.req.json<{ focus?: string }>().catch(() => ({ focus: undefined }))
+    const focus = body.focus === 'review' ? 'review' : 'mine'
+    return c.json(await refreshSnapshot(db, focus))
   } catch (error) {
     return c.json({ error: messageOf(error) }, 500)
   }
@@ -196,7 +198,7 @@ app.post('/api/rerun', async (c) => {
     const body = await c.req.json<{ keys?: string[]; mode?: 'failed' | 'all' }>()
     const mode = body.mode === 'all' ? 'all' : 'failed'
     const keys = new Set(body.keys ?? [])
-    const prs = db.snapshot().pullRequests.filter((pr) => keys.has(pr.key))
+    const prs = listedPulls(db.snapshot()).filter((pr) => keys.has(pr.key))
     const runs = collectRuns(prs, mode)
     if (runs.length === 0) {
       return c.json(
@@ -213,7 +215,7 @@ app.post('/api/rerun', async (c) => {
 })
 
 app.post('/api/conflicts/:key/cursor', async (c) => {
-  const pr = db.snapshot().pullRequests.find((item) => item.key === c.req.param('key'))
+  const pr = listedPulls(db.snapshot()).find((item) => item.key === c.req.param('key'))
   if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
   if (!pr.conflict) return c.json({ error: 'That pull request no longer has a merge conflict.' }, 409)
   try {
@@ -238,6 +240,10 @@ const hostname = process.env.HOST ?? '127.0.0.1'
 serve({ fetch: app.fetch, port, hostname }, () => {
   console.log(`pr-dash API on http://${hostname}:${port}`)
 })
+
+function listedPulls(snap: Snapshot): PullRequest[] {
+  return [...snap.pullRequests, ...snap.reviewPullRequests]
+}
 
 function collectRuns(prs: PullRequest[], mode: 'failed' | 'all'): { repo: string; runId: number }[] {
   const runs: { repo: string; runId: number }[] = []

@@ -1,6 +1,8 @@
 # pr-dash
 
-A local dashboard for pull requests you authored. Stacks collapse to one row. CI, review, and review threads are on the row. The page is one outline: Linear projects, then initiatives, then issues with no project, then pull requests with no issue.
+A local dashboard for pull requests you authored and pull requests you review. Stacks collapse to one row. CI, review, and review threads are on the row. Each list is one outline: Linear projects, then initiatives, then issues with no project, then pull requests with no issue.
+
+My PRs is changes you opened. Review is open pull requests that request your review, including teams you belong to, plus open pull requests you have already reviewed. Review rows show the author and leave out merge actions. A refresh loads the tab you are looking at first.
 
 ## Run
 
@@ -21,7 +23,7 @@ Set `CURSOR_API_KEY` to enable the Cursor action on a merge-conflict mark. It la
 
 - **CI.** Red means a required check failed. Yellow means required checks are fine and an optional check failed. Blue means something is still running. Hover a status for each check. Rerun failed, or rerun all, applies to GitHub Actions workflows on that row. Vercel and other external checks are listed and cannot be rerun from here.
 - **Review.** Three marks, in order: any approval, a human approval, and GitHub’s merge requirement (including code owners when that rule applies). Grey means no review is required, which is common on drafts and on stacked pull requests whose base is not the default branch. White is still waiting. Green means that mark is satisfied.
-- **Feedback.** Threads, unresolved threads, and threads awaiting you. Awaiting you means the thread is unresolved and the latest human comment is not yours.
+- **Feedback.** On My PRs: threads, unresolved threads, and threads awaiting you. Awaiting you means the thread is unresolved and the latest human comment is not yours. On Review: unread threads you joined that have a newer reply, resolved threads you joined that moved after you last spoke, unresolved threads, and total threads. On My PRs, a highlighted comment means a conversation comment or a review summary you have not answered. On Review, that highlight is a review summary, or a conversation you already joined. Other conversation comments stay visible without the highlight. Inline thread replies count as an answer.
 - **Merge.** A Merge button shows when the pull request targets the repository’s default branch and looks ready to squash: not a draft, not conflicting, not behind, and not blocked by required reviews or checks. One click squash-merges it. The button stays pending until GitHub confirms. The row leaves the list after a success, and stays, with GitHub’s error, if the merge is refused.
 - **Conflict.** Click a red conflict mark and choose the affected pull request to start a Cursor Cloud Agent. It resolves the conflict on the pull request’s existing branch. The row keeps a status chip for that session — Creating, Running, Finished, or Failed — and opens the final reply, the pushed branch, and links back to Cursor and the web. The chip updates when the dashboard refreshes.
 

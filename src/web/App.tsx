@@ -4,12 +4,12 @@ import { rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
 import { cursorLinks } from '../shared/cursor.ts'
-import { buildOutline, outlineEmpty } from '../shared/view.ts'
+import { buildOutline, needsAttention, outlineEmpty } from '../shared/view.ts'
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
 import { formatExact, repoColors } from './format.ts'
 import { ClickCard, MenuProvider } from './menus.tsx'
-import { loadPreferences, savePreferences } from './prefs.ts'
+import { loadPreferences, savePreferences, type DashboardPage } from './prefs.ts'
 import { MergeQueuePage } from './queue.tsx'
 import { PrTable } from './table.tsx'
 
@@ -22,15 +22,22 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
-  const [page, setPage] = useState<'list' | 'queue'>('list')
   const [queue, setQueue] = useState<QueueSnapshot | null>(null)
   const applyId = useRef(0)
   const mergedKeys = useRef(new Set<string>())
   const seenQueue = useRef(new Set<string>())
+  const pageRef = useRef<DashboardPage>(prefs.page)
+  pageRef.current = prefs.page
 
   function adopt(snap: Snapshot): Snapshot {
-    if (mergedKeys.current.size === 0) return snap
-    return { ...snap, pullRequests: snap.pullRequests.filter((pr) => !mergedKeys.current.has(pr.key)) }
+    const reviewPullRequests = snap.reviewPullRequests ?? []
+    if (mergedKeys.current.size === 0) return { ...snap, reviewPullRequests }
+    const keep = (pr: Snapshot['pullRequests'][number]) => !mergedKeys.current.has(pr.key)
+    return {
+      ...snap,
+      pullRequests: snap.pullRequests.filter(keep),
+      reviewPullRequests: reviewPullRequests.filter(keep),
+    }
   }
 
   useEffect(() => savePreferences(prefs), [prefs])
@@ -38,7 +45,9 @@ export function App() {
   useEffect(() => {
     setHolds((current) => {
       if (current.size === 0) return current
-      const byKey = new Map((data?.pullRequests ?? []).map((pr) => [pr.key, pr]))
+      const byKey = new Map(
+        [...(data?.pullRequests ?? []), ...(data?.reviewPullRequests ?? [])].map((pr) => [pr.key, pr]),
+      )
       let changed = false
       const next = new Map<string, CheckHold[]>()
       for (const [key, list] of current) {
@@ -56,12 +65,19 @@ export function App() {
     const id = ++applyId.current
     setRefreshing(true)
     setError(null)
+    const focus = pageRef.current === 'review' ? 'review' : 'mine'
+    const poll = window.setInterval(() => {
+      void api.snapshot().then((snap) => {
+        if (id === applyId.current) setData(adopt(snap))
+      }).catch(() => undefined)
+    }, 800)
     try {
-      const snap = await api.refresh()
+      const snap = await api.refresh(focus)
       if (id === applyId.current) setData(adopt(snap))
     } catch (caught) {
       if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Refresh failed')
     } finally {
+      window.clearInterval(poll)
       if (id === applyId.current) setRefreshing(false)
     }
   }
@@ -133,16 +149,25 @@ export function App() {
     return () => window.clearInterval(timer)
   }, [refreshing])
 
-  const prs = data?.pullRequests ?? []
+  const page = prefs.page
+  const mine = data?.pullRequests ?? []
+  const review = data?.reviewPullRequests ?? []
+  const prs = page === 'review' ? review : mine
   const initiatives = data?.initiatives ?? []
   const prByKey = useMemo(() => new Map(prs.map((pr) => [pr.key, pr])), [prs])
   const outline = useMemo(
-    () => buildOutline(prs, initiatives, prefs.filters, prefs.sort),
-    [prs, initiatives, prefs],
+    () => buildOutline(prs, initiatives, prefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author'),
+    [prs, initiatives, prefs, page],
   )
-  const repos = useMemo(() => [...new Set(prs.map((pr) => pr.repo))].sort(), [prs])
+  const repos = useMemo(() => {
+    const names = [...new Set(prs.map((pr) => pr.repo))]
+    if (prefs.filters.repo && !names.includes(prefs.filters.repo)) names.push(prefs.filters.repo)
+    return names.sort()
+  }, [prs, prefs.filters.repo])
   const colors = useMemo(() => repoColors(repos), [repos])
   const visible = !outlineEmpty(outline)
+  const reviewBadge = review.filter((pr) => pr.reviewPending || needsAttention(pr, 'reviewer')).length
+  const listPage = page === 'mine' || page === 'review'
   const filtersOn = JSON.stringify(prefs.filters) !== JSON.stringify(DEFAULT_FILTERS)
 
   function patchFilters(patch: Partial<Filters>) {
@@ -175,19 +200,23 @@ export function App() {
         <header className="top">
           <div className="top-row">
             <div className="brand">
-              <h1>{page === 'queue' ? 'Merge queue' : 'Pull requests'}</h1>
+              <h1>{page === 'queue' ? 'Merge queue' : page === 'review' ? 'Review' : 'My PRs'}</h1>
               <nav className="nav">
-                <button type="button" className="text-btn" aria-pressed={page === 'list'} onClick={() => setPage('list')}>
-                  Pull requests
+                <button type="button" className="text-btn" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
+                  My PRs
                 </button>
-                <button type="button" className="text-btn" aria-pressed={page === 'queue'} onClick={() => setPage('queue')}>
+                <button type="button" className="text-btn" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
+                  Review
+                  {reviewBadge > 0 ? <span className="nav-count">{reviewBadge}</span> : null}
+                </button>
+                <button type="button" className="text-btn" aria-pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))}>
                   Merge queue
                   {queue && queue.entries.length > 0 ? <span className="nav-count">{queue.entries.length}</span> : null}
                 </button>
               </nav>
               <p className="meta">
-                {data?.viewer ? <strong>{data.viewer}</strong> : 'Your open changes'}
-                {prs.length ? ` · ${prs.length} open` : ''}
+                {data?.viewer ? <strong>{data.viewer}</strong> : page === 'review' ? 'Pull requests for you to review' : 'Your open changes'}
+                {listPage && prs.length ? ` · ${prs.length} ${page === 'review' ? 'to review' : 'open'}` : ''}
                 {data?.syncedAt ? ` · updated ${formatExact(data.syncedAt)}` : ''}
                 {refreshing ? ` · ${status}` : ''}
               </p>
@@ -201,7 +230,7 @@ export function App() {
               className="search"
               value={prefs.filters.query}
               onChange={(event) => patchFilters({ query: event.target.value })}
-              placeholder="Title, repo, number, issue"
+              placeholder={page === 'review' ? 'Title, author, repo, number, issue' : 'Title, repo, number, issue'}
               aria-label="Filter pull requests"
             />
             <select
@@ -263,7 +292,7 @@ export function App() {
               aria-pressed={prefs.filters.awaitingOnly}
               onClick={() => patchFilters({ awaitingOnly: !prefs.filters.awaitingOnly })}
             >
-              Awaiting you
+              {page === 'review' ? 'Unread' : 'Awaiting you'}
             </button>
             <button
               type="button"
@@ -304,22 +333,29 @@ export function App() {
               onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
             />
           ) : null}
-          {page === 'list' && booting && prs.length === 0 ? <div className="empty">Loading saved pull requests…</div> : null}
-          {page === 'list' && !booting && prs.length === 0 && refreshing ? <div className="empty">{status}</div> : null}
-          {page === 'list' && !booting && prs.length === 0 && !refreshing ? (
+          {listPage && booting && prs.length === 0 ? <div className="empty">Loading saved pull requests…</div> : null}
+          {listPage && !booting && prs.length === 0 && refreshing ? <div className="empty">{status}</div> : null}
+          {page === 'mine' && !booting && prs.length === 0 && !refreshing ? (
             <div className="empty">
               <h2>No open pull requests</h2>
               <p>This view is pull requests you authored. Refresh again after the next one is open.</p>
             </div>
           ) : null}
-          {page === 'list' && prs.length > 0 && !visible ? (
+          {page === 'review' && !booting && prs.length === 0 && !refreshing ? (
+            <div className="empty">
+              <h2>No pull requests to review</h2>
+              <p>This view is open pull requests that request your review, including your teams, and open pull requests you have already reviewed.</p>
+            </div>
+          ) : null}
+          {listPage && prs.length > 0 && !visible ? (
             <div className="empty">
               <h2>Nothing matches</h2>
               <p>Clear a filter to see the rest of the outline.</p>
             </div>
           ) : null}
-          {page === 'list' && prs.length > 0 && visible ? (
+          {listPage && prs.length > 0 && visible ? (
             <PrTable
+              mode={page === 'review' ? 'review' : 'mine'}
               outline={outline}
               sort={prefs.sort}
               initiatives={initiatives}
@@ -394,7 +430,7 @@ export function App() {
                 const snap = await api.resolveConflictWithCursor(key)
                 ++applyId.current
                 setData(adopt(snap))
-                const session = snap.pullRequests.find((item) => item.key === key)?.cursorSession
+                const session = [...snap.pullRequests, ...(snap.reviewPullRequests ?? [])].find((item) => item.key === key)?.cursorSession
                 if (!session) throw new Error('Cursor started without a session link.')
                 return { url: cursorLinks(session.agentId).webUrl }
               }}

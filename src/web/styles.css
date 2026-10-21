@@ -304,6 +304,32 @@ tbody tr.tone-a:hover > td,
 tbody tr.tone-b:hover > td { background: var(--bg-hover); --row-bg: var(--bg-hover); }
 
 td.merge { white-space: normal; width: 148px; vertical-align: middle; }
+td.author, th.author { width: 1%; white-space: nowrap; }
+.author { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.avatars { display: inline-flex; align-items: center; }
+.author img, .avatar.fallback {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--chip);
+}
+.avatars img, .avatars .avatar.fallback { box-shadow: 0 0 0 2px var(--row-bg, var(--bg)); }
+.avatars img + img, .avatars img + .avatar.fallback, .avatars .avatar.fallback + img, .avatars .avatar.fallback + .avatar.fallback { margin-left: -7px; }
+.avatar.fallback {
+  display: inline-grid;
+  place-items: center;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1;
+}
+.author-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 14px;
+}
 .merge-action { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .primary.merge { padding: 4px 12px; font-size: 14px; white-space: nowrap; }
 .split-merge { display: inline-flex; }

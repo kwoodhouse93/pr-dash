@@ -24,7 +24,7 @@ function post<T>(path: string, payload: unknown): Promise<T> {
 export const api = {
   snapshot: () => request<Snapshot>('/api/snapshot'),
   status: () => request<{ running: boolean; message: string }>('/api/status'),
-  refresh: () => post<Snapshot>('/api/refresh', {}),
+  refresh: (focus: 'mine' | 'review' = 'mine') => post<Snapshot>('/api/refresh', { focus }),
   createInitiative: (name: string) => post<Snapshot>('/api/initiatives', { name }),
   renameInitiative: (id: string, name: string) =>
     request<Snapshot>(`/api/initiatives/${id}`, {

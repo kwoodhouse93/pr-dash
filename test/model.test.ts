@@ -14,7 +14,8 @@ import {
   selectChecks,
   withoutHolds,
 } from '../src/shared/ci.ts'
-import { summarizeThreads } from '../src/shared/feedback.ts'
+import { summarizeNotes, summarizeThreads } from '../src/shared/feedback.ts'
+import { reviewSearchQueries } from '../src/server/github.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
@@ -260,6 +261,80 @@ describe('feedback', () => {
     expect(summary.threadCount).toBe(4)
     expect(summary.unresolvedCount).toBe(3)
     expect(summary.awaitingYouCount).toBe(1)
+    expect(summary.unreadCount).toBe(0)
+    expect(summary.resolvedUnreadCount).toBe(0)
+  })
+
+  it('counts replies on threads the viewer joined, including ones resolved afterwards', () => {
+    const summary = summarizeThreads(
+      [
+        {
+          isResolved: false,
+          comments: [
+            { author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T10:00:00Z' },
+            { author: { __typename: 'User', login: 'ada' }, createdAt: '2026-10-20T11:00:00Z' },
+          ],
+        },
+        {
+          isResolved: true,
+          resolvedBy: 'ada',
+          comments: [{ author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T09:00:00Z' }],
+        },
+        {
+          isResolved: true,
+          resolvedBy: 'grace',
+          comments: [{ author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T09:00:00Z' }],
+        },
+        {
+          isResolved: false,
+          comments: [{ author: { __typename: 'User', login: 'ada' }, createdAt: '2026-10-20T09:00:00Z' }],
+        },
+      ],
+      'grace',
+    )
+    expect(summary.unreadCount).toBe(1)
+    expect(summary.resolvedUnreadCount).toBe(1)
+    expect(summary.awaitingYouCount).toBe(2)
+    expect(summary.unresolvedCount).toBe(2)
+  })
+
+  it('counts an unanswered review message unless a later thread reply covers it', () => {
+    const review = {
+      author: { __typename: 'User', login: 'ada' },
+      createdAt: '2026-10-20T12:00:00Z',
+      body: 'Please rename this before merging.',
+      kind: 'review' as const,
+    }
+    const chatter = {
+      author: { __typename: 'User', login: 'ada' },
+      createdAt: '2026-10-20T12:00:00Z',
+      body: '@claude review',
+      kind: 'comment' as const,
+    }
+    const thread = {
+      isResolved: false,
+      comments: [{ author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T13:00:00Z' }],
+    }
+    expect(summarizeNotes([], [review], 'grace')).toEqual({ author: 1, reviewer: 1 })
+    expect(summarizeNotes([thread], [review], 'grace')).toEqual({ author: 0, reviewer: 0 })
+    expect(summarizeNotes([], [{ ...review, body: '   ' }], 'grace')).toEqual({ author: 0, reviewer: 0 })
+    expect(summarizeNotes([], [chatter], 'grace')).toEqual({ author: 1, reviewer: 0 })
+    expect(summarizeNotes([], [
+      { ...chatter, author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T11:00:00Z', body: 'Looking' },
+      chatter,
+    ], 'grace')).toEqual({ author: 1, reviewer: 1 })
+  })
+})
+
+describe('review search', () => {
+  it('keeps your own pull requests out and includes team review requests', () => {
+    expect(reviewSearchQueries([])).toEqual([
+      'is:open is:pr archived:false -author:@me review-requested:@me',
+      'is:open is:pr archived:false -author:@me reviewed-by:@me',
+    ])
+    expect(reviewSearchQueries(['initech/eng'])).toContain(
+      'is:open is:pr archived:false -author:@me team-review-requested:initech/eng',
+    )
   })
 })
 
@@ -307,6 +382,7 @@ function pr(over: Partial<PullRequest> & Pick<PullRequest, 'id' | 'number' | 'ba
     title: `PR ${over.number}`,
     url: `https://github.com/initech/frontend/pull/${over.number}`,
     author: 'grace',
+    authorAvatarUrl: null,
     isDraft: false,
     createdAt: '2026-10-01T00:00:00Z',
     updatedAt: `2026-10-0${over.number}T00:00:00Z`,
@@ -335,6 +411,11 @@ function pr(over: Partial<PullRequest> & Pick<PullRequest, 'id' | 'number' | 'ba
     threadCount: 0,
     unresolvedCount: 0,
     awaitingYouCount: 0,
+    unreadCount: 0,
+    resolvedUnreadCount: 0,
+    commentAwaitingCount: 0,
+    reviewCommentAwaitingCount: 0,
+    reviewPending: false,
     threadsTruncated: false,
     linearIssues: [],
     initiativeIds: [],

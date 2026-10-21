@@ -10,6 +10,7 @@ export type DashboardDb = {
     viewer: string
     syncedAt: string
     pullRequests: PullRequest[]
+    reviewPullRequests?: PullRequest[]
     linearConfigured: boolean
     warning: string | null
   }): Snapshot
@@ -29,6 +30,7 @@ type SnapshotRow = {
   linear_configured: number
   warning: string | null
   pull_requests: string
+  review_pull_requests: string | null
 }
 
 export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'data', 'pr-dash.sqlite')): DashboardDb {
@@ -43,7 +45,8 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       synced_at TEXT,
       linear_configured INTEGER NOT NULL DEFAULT 0,
       warning TEXT,
-      pull_requests TEXT NOT NULL DEFAULT '[]'
+      pull_requests TEXT NOT NULL DEFAULT '[]',
+      review_pull_requests TEXT NOT NULL DEFAULT '[]'
     );
     CREATE TABLE IF NOT EXISTS initiatives (
       id TEXT PRIMARY KEY,
@@ -68,8 +71,15 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     );
   `)
 
+  const columns = db.prepare('PRAGMA table_info(snapshot)').all() as { name: string }[]
+  if (!columns.some((column) => column.name === 'review_pull_requests')) {
+    db.exec(`ALTER TABLE snapshot ADD COLUMN review_pull_requests TEXT NOT NULL DEFAULT '[]'`)
+  }
+
   const queue = attachQueue(db)
-  const readSnapshotRow = db.prepare('SELECT viewer, synced_at, linear_configured, warning, pull_requests FROM snapshot WHERE id = 1')
+  const readSnapshotRow = db.prepare(
+    'SELECT viewer, synced_at, linear_configured, warning, pull_requests, review_pull_requests FROM snapshot WHERE id = 1',
+  )
   const readInitiatives = db.prepare('SELECT id, name, created_at, updated_at FROM initiatives ORDER BY created_at ASC')
   const readAssignments = db.prepare('SELECT initiative_id, pr_key FROM initiative_pull_requests')
   const readCursorSessions = db.prepare(
@@ -128,21 +138,28 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     }))
   }
 
+  function decorate(list: PullRequest[], tags: Map<string, string[]>, sessions: Map<string, CursorSession>): PullRequest[] {
+    return list.map((pr) => ({
+      ...pr,
+      initiativeIds: tags.get(pr.key) ?? [],
+      cursorSession: sessions.get(pr.key) ?? null,
+    }))
+  }
+
+  function parseList(raw: string | null | undefined): PullRequest[] {
+    if (!raw) return []
+    return JSON.parse(raw) as PullRequest[]
+  }
+
   function snapshot(): Snapshot {
     const row = readSnapshotRow.get() as SnapshotRow | undefined
     const tags = assignments()
     const sessions = new Map(cursorSessions().map((item) => [item.prKey, item.session]))
-    const pullRequests = row
-      ? (JSON.parse(row.pull_requests) as PullRequest[]).map((pr) => ({
-          ...pr,
-          initiativeIds: tags.get(pr.key) ?? [],
-          cursorSession: sessions.get(pr.key) ?? null,
-        }))
-      : []
     return {
       viewer: row?.viewer ?? null,
       syncedAt: row?.synced_at ?? null,
-      pullRequests,
+      pullRequests: row ? decorate(parseList(row.pull_requests), tags, sessions) : [],
+      reviewPullRequests: row ? decorate(parseList(row.review_pull_requests), tags, sessions) : [],
       initiatives: initiatives(),
       linearConfigured: row ? row.linear_configured === 1 : Boolean(process.env.LINEAR_API_KEY),
       warning: row?.warning ?? null,
@@ -161,17 +178,27 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   return {
     snapshot,
     saveSnapshot(input) {
-      const stripped = input.pullRequests.map(({ cursorSession: _session, ...pr }) => ({ ...pr, initiativeIds: [] }))
+      const strip = (list: PullRequest[]) => list.map(({ cursorSession: _session, ...pr }) => ({ ...pr, initiativeIds: [] }))
+      const existing = readSnapshotRow.get() as SnapshotRow | undefined
+      const review = input.reviewPullRequests ?? parseList(existing?.review_pull_requests)
       db.prepare(
-        `INSERT INTO snapshot (id, viewer, synced_at, linear_configured, warning, pull_requests)
-         VALUES (1, ?, ?, ?, ?, ?)
+        `INSERT INTO snapshot (id, viewer, synced_at, linear_configured, warning, pull_requests, review_pull_requests)
+         VALUES (1, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            viewer = excluded.viewer,
            synced_at = excluded.synced_at,
            linear_configured = excluded.linear_configured,
            warning = excluded.warning,
-           pull_requests = excluded.pull_requests`,
-      ).run(input.viewer, input.syncedAt, input.linearConfigured ? 1 : 0, input.warning, JSON.stringify(stripped))
+           pull_requests = excluded.pull_requests,
+           review_pull_requests = excluded.review_pull_requests`,
+      ).run(
+        input.viewer,
+        input.syncedAt,
+        input.linearConfigured ? 1 : 0,
+        input.warning,
+        JSON.stringify(strip(input.pullRequests)),
+        JSON.stringify(strip(review)),
+      )
       return snapshot()
     },
     createInitiative(name) {
@@ -228,10 +255,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     updateLinearIssue(identifier, patch) {
       const row = readSnapshotRow.get() as SnapshotRow | undefined
       if (!row) throw new Error('Refresh pull requests before updating a Linear issue.')
-      const pullRequests = JSON.parse(row.pull_requests) as PullRequest[]
+      const pullRequests = parseList(row.pull_requests)
+      const reviewPullRequests = parseList(row.review_pull_requests)
       const id = identifier.toUpperCase()
       let found = false
-      for (const pr of pullRequests) {
+      for (const pr of [...pullRequests, ...reviewPullRequests]) {
         for (const issue of pr.linearIssues) {
           if (issue.identifier.toUpperCase() !== id) continue
           found = true
@@ -245,8 +273,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         }
       }
       if (!found) throw new Error(`Issue ${identifier} is not on an open pull request.`)
-      const stored = pullRequests.map((pr) => ({ ...pr, initiativeIds: [] }))
-      db.prepare('UPDATE snapshot SET pull_requests = ? WHERE id = 1').run(JSON.stringify(stored))
+      const strip = (list: PullRequest[]) => list.map((pr) => ({ ...pr, initiativeIds: [] }))
+      db.prepare('UPDATE snapshot SET pull_requests = ?, review_pull_requests = ? WHERE id = 1').run(
+        JSON.stringify(strip(pullRequests)),
+        JSON.stringify(strip(reviewPullRequests)),
+      )
       return snapshot()
     },
   }

@@ -56,6 +56,7 @@ export type PullRequest = {
   title: string
   url: string
   author: string
+  authorAvatarUrl: string | null
   isDraft: boolean
   createdAt: string
   updatedAt: string
@@ -86,6 +87,11 @@ export type PullRequest = {
   threadCount: number
   unresolvedCount: number
   awaitingYouCount: number
+  unreadCount: number
+  resolvedUnreadCount: number
+  commentAwaitingCount: number
+  reviewCommentAwaitingCount: number
+  reviewPending: boolean
   threadsTruncated: boolean
   linearIssues: LinearIssue[]
   initiativeIds: string[]
@@ -114,6 +120,7 @@ export type Snapshot = {
   viewer: string | null
   syncedAt: string | null
   pullRequests: PullRequest[]
+  reviewPullRequests: PullRequest[]
   initiatives: Initiative[]
   linearConfigured: boolean
   warning: string | null

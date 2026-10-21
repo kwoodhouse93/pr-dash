@@ -29,6 +29,11 @@ export type StackSummary = {
   threadCount: number
   unresolvedCount: number
   awaitingYouCount: number
+  unreadCount: number
+  resolvedUnreadCount: number
+  commentAwaitingCount: number
+  reviewCommentAwaitingCount: number
+  authors: { login: string; avatarUrl: string | null }[]
   draftCount: number
   conflict: boolean
   behind: boolean
@@ -96,6 +101,17 @@ function chains(repo: string, group: PullRequest[]): Stack[] {
   return stacks
 }
 
+function authorsOf(prs: PullRequest[]): { login: string; avatarUrl: string | null }[] {
+  const authors: { login: string; avatarUrl: string | null }[] = []
+  const seen = new Set<string>()
+  for (const pr of prs) {
+    if (seen.has(pr.author)) continue
+    seen.add(pr.author)
+    authors.push({ login: pr.author, avatarUrl: pr.authorAvatarUrl ?? null })
+  }
+  return authors
+}
+
 function sum(prs: PullRequest[], pick: (pr: PullRequest) => number): number {
   return prs.reduce((total, pr) => total + pick(pr), 0)
 }
@@ -143,6 +159,11 @@ export function summarize(prs: PullRequest[], partial: boolean): StackSummary {
     threadCount: sum(prs, (pr) => pr.threadCount),
     unresolvedCount: sum(prs, (pr) => pr.unresolvedCount),
     awaitingYouCount: sum(prs, (pr) => pr.awaitingYouCount),
+    unreadCount: sum(prs, (pr) => pr.unreadCount ?? 0),
+    resolvedUnreadCount: sum(prs, (pr) => pr.resolvedUnreadCount ?? 0),
+    commentAwaitingCount: sum(prs, (pr) => pr.commentAwaitingCount ?? 0),
+    reviewCommentAwaitingCount: sum(prs, (pr) => pr.reviewCommentAwaitingCount ?? 0),
+    authors: authorsOf(prs),
     draftCount: prs.filter((pr) => pr.isDraft).length,
     conflict: prs.some((pr) => pr.conflict),
     behind: prs.some((pr) => pr.behind),

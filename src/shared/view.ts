@@ -37,15 +37,23 @@ export type Outline = {
   unassigned: Bucket | null
 }
 
+export type Attention = 'author' | 'reviewer'
+
+export function needsAttention(pr: PullRequest, attention: Attention): boolean {
+  if (attention === 'reviewer') return (pr.unreadCount ?? 0) > 0 || (pr.reviewCommentAwaitingCount ?? 0) > 0
+  return (pr.awaitingYouCount ?? 0) > 0 || (pr.commentAwaitingCount ?? 0) > 0
+}
+
 export function prMatches(
   pr: PullRequest,
   filters: Filters,
   initiativeNames: Map<string, string>,
+  attention: Attention = 'author',
 ): boolean {
   if (filters.repo && pr.repo !== filters.repo) return false
   if (filters.hideDrafts && pr.isDraft) return false
   if (filters.ci !== 'all' && pr.ci !== filters.ci) return false
-  if (filters.awaitingOnly && pr.awaitingYouCount === 0) return false
+  if (filters.awaitingOnly && !needsAttention(pr, attention)) return false
   if (filters.initiativeId === 'none' && pr.initiativeIds.length > 0) return false
   if (
     filters.initiativeId &&
@@ -63,6 +71,7 @@ export function prMatches(
   if (query) {
     const haystack = [
       pr.title,
+      pr.author,
       pr.repo,
       pr.repoName,
       String(pr.number),
@@ -238,9 +247,10 @@ export function buildOutline(
   initiatives: Initiative[],
   filters: Filters,
   sort: Sort,
+  attention: Attention = 'author',
 ): Outline {
   const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
-  const matches = (pr: PullRequest) => prMatches(pr, filters, names)
+  const matches = (pr: PullRequest) => prMatches(pr, filters, names, attention)
   const stacks = buildStacks(prs)
   const blocksFor = (inGroup: (pr: PullRequest) => boolean, outsideReason: string) =>
     sortBlocks(

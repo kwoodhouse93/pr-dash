@@ -42,6 +42,7 @@ function shownLevel(prs: PullRequest[], holds: Map<string, CheckHold[]>): CiDisp
 }
 
 export function PrTable({
+  mode,
   outline,
   sort,
   initiatives,
@@ -64,6 +65,7 @@ export function PrTable({
   linearConfigured,
   onUpdateIssue,
 }: {
+  mode: 'mine' | 'review'
   outline: Outline
   sort: Sort
   initiatives: Initiative[]
@@ -88,6 +90,7 @@ export function PrTable({
 }) {
   const tones = stackTones(outline)
   const shared = {
+    mode,
     namesList: initiatives,
     prByKey,
     repoColor,
@@ -115,6 +118,7 @@ export function PrTable({
           <th className="grip" aria-label="Stack" />
           <th className="num">#</th>
           <SortHeader label="Title" sortKey="title" sort={sort} onSort={onSort} />
+          {mode === 'review' ? <th className="author">Author</th> : null}
           <SortHeader label="Repo" sortKey="repo" sort={sort} onSort={onSort} />
           <SortHeader label="Size" sortKey="size" sort={sort} onSort={onSort} />
           <SortHeader label="Created" sortKey="created" sort={sort} onSort={onSort} />
@@ -123,7 +127,7 @@ export function PrTable({
           <th className="conflict">Conflict</th>
           <th>Review</th>
           <th>Feedback</th>
-          <th className="merge">Merge</th>
+          {mode === 'mine' ? <th className="merge">Merge</th> : null}
           <th aria-label="Actions" />
         </tr>
       </thead>
@@ -183,6 +187,7 @@ function spineClass(spine: Spine | null, tone: 'a' | 'b' | null): string {
 }
 
 type RowShared = {
+  mode: 'mine' | 'review'
   namesList: Initiative[]
   prByKey: Map<string, PullRequest>
   repoColor: Map<string, string>
@@ -370,6 +375,7 @@ function BlockRows({
       ) : (
         <DataRow
           key={row.pr.id}
+          mode={shared.mode}
           pr={row.pr}
           block={block}
           child={block.collapsible}
@@ -393,9 +399,10 @@ function BlockRows({
         />
       )
     })
-    ) : (
+  ) : (
     <SummaryRow
       key={block.id}
+      mode={shared.mode}
       block={block}
       visible={visible}
       openId={openId}
@@ -422,6 +429,7 @@ function BlockRows({
 }
 
 function DataRow({
+  mode,
   pr,
   block,
   child,
@@ -443,6 +451,7 @@ function DataRow({
   onResolveConflictWithCursor,
   onUpdateIssue,
 }: {
+  mode: 'mine' | 'review'
   pr: PullRequest
   block: StackBlock
   child: boolean
@@ -498,6 +507,11 @@ function DataRow({
           onUpdateIssue={onUpdateIssue}
         />
       </td>
+      {mode === 'review' ? (
+        <td className="author">
+          <Authors people={[{ login: pr.author, avatarUrl: pr.authorAvatarUrl ?? null }]} />
+        </td>
+      ) : null}
       <td className="repo" title={pr.repo}>
         <i className="pip" style={{ background: repoColor.get(pr.repo) }} />
         {pr.repoName}
@@ -514,22 +528,29 @@ function DataRow({
       </td>
       <td>
         <Feedback
+          mode={mode}
           threads={pr.threadCount}
           unresolved={pr.unresolvedCount}
-          awaiting={pr.awaitingYouCount}
+          awaiting={pr.awaitingYouCount ?? 0}
+          unread={pr.unreadCount ?? 0}
+          resolvedUnread={pr.resolvedUnreadCount ?? 0}
+          comments={pr.commentAwaitingCount ?? 0}
+          reviewComments={pr.reviewCommentAwaitingCount ?? 0}
           truncated={pr.threadsTruncated}
         />
       </td>
-      <td className="merge">
-        <MergeControls
-          pr={pr}
-          ordered={orderedStack(block, prByKey)}
-          mark={mark}
-          onMerge={onMerge}
-          onQueue={onQueue}
-          onStackMerge={onStackMerge}
-        />
-      </td>
+      {mode === 'mine' ? (
+        <td className="merge">
+          <MergeControls
+            pr={pr}
+            ordered={orderedStack(block, prByKey)}
+            mark={mark}
+            onMerge={onMerge}
+            onQueue={onQueue}
+            onStackMerge={onStackMerge}
+          />
+        </td>
+      ) : null}
       <RowMenu
         id={`menu:${pr.id}`}
         primaryKey={pr.key}
@@ -545,6 +566,7 @@ function DataRow({
 }
 
 function SummaryRow({
+  mode,
   block,
   visible,
   openId,
@@ -566,6 +588,7 @@ function SummaryRow({
   onStackMerge,
   queueByKey,
 }: {
+  mode: 'mine' | 'review'
   block: StackBlock
   visible: PullRequest[]
   openId: string
@@ -628,6 +651,11 @@ function SummaryRow({
           onUpdateIssue={onUpdateIssue}
         />
       </td>
+      {mode === 'review' ? (
+        <td className="author">
+          <Authors people={summary.authors ?? []} />
+        </td>
+      ) : null}
       <td className="repo" title={summary.repo}>
         <i className="pip" style={{ background: repoColor.get(summary.repo) }} />
         {summary.repoName}
@@ -643,8 +671,19 @@ function SummaryRow({
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
       <td>
-        <Feedback threads={summary.threadCount} unresolved={summary.unresolvedCount} awaiting={summary.awaitingYouCount} truncated={false} />
+        <Feedback
+          mode={mode}
+          threads={summary.threadCount}
+          unresolved={summary.unresolvedCount}
+          awaiting={summary.awaitingYouCount ?? 0}
+          unread={summary.unreadCount ?? 0}
+          resolvedUnread={summary.resolvedUnreadCount ?? 0}
+          comments={summary.commentAwaitingCount ?? 0}
+          reviewComments={summary.reviewCommentAwaitingCount ?? 0}
+          truncated={false}
+        />
       </td>
+      {mode === 'mine' ? (
       <td className="merge">
         {top && !summary.partial ? (
           <MergeControls
@@ -660,6 +699,7 @@ function SummaryRow({
           <QueueStatus mark={mark} progress />
         ) : null}
       </td>
+      ) : null}
       <RowMenu
         id={`menu:${block.id}`}
         primaryKey={summary.topKey}
@@ -1144,31 +1184,80 @@ function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue:
 }
 
 function Feedback({
+  mode,
   threads,
   unresolved,
   awaiting,
+  unread,
+  resolvedUnread,
+  comments,
+  reviewComments,
   truncated,
 }: {
+  mode: 'mine' | 'review'
   threads: number
   unresolved: number
   awaiting: number
+  unread: number
+  resolvedUnread: number
+  comments: number
+  reviewComments: number
   truncated: boolean
 }) {
-  if (threads === 0) return <span className="feedback">0 threads</span>
+  const parts: { key: string; text: string; hot: boolean }[] = []
+  const commentText = (count: number) => `${count} comment${count === 1 ? '' : 's'}`
+  if (mode === 'review') {
+    if (unread > 0) parts.push({ key: 'unread', text: `${unread} unread`, hot: true })
+    if (reviewComments > 0) parts.push({ key: 'review-comments', text: commentText(reviewComments), hot: true })
+    const otherComments = comments - reviewComments
+    if (reviewComments === 0 && comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: false })
+    else if (otherComments > 0) parts.push({ key: 'comments', text: `${otherComments} other`, hot: false })
+    if (resolvedUnread > 0) parts.push({ key: 'resolved', text: `${resolvedUnread} resolved unread`, hot: false })
+  } else {
+    if (awaiting > 0) parts.push({ key: 'awaiting', text: `${awaiting} awaiting`, hot: true })
+    if (comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: true })
+  }
+  if (unresolved > 0) parts.push({ key: 'unresolved', text: `${unresolved} unresolved`, hot: false })
+  if (threads > 0 || parts.length === 0) {
+    parts.push({
+      key: 'threads',
+      text: `${threads}${truncated ? '+' : ''} thread${threads === 1 ? '' : 's'}`,
+      hot: false,
+    })
+  }
+  const title = mode === 'review'
+    ? 'Unread is an open thread you joined that has a newer reply. A highlighted comment is a review message, or a conversation you joined, that you have not answered. Other comments are conversation notes you have not joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
+    : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'
   return (
-    <span className="feedback" title="Awaiting you means an unresolved thread whose latest human comment is not yours.">
-      {awaiting > 0 ? <em className="await">{awaiting} awaiting</em> : null}
-      {awaiting > 0 && unresolved > 0 ? <span className="dot">·</span> : null}
-      {unresolved > 0 ? (
-        <span>
-          {unresolved} unresolved
+    <span className="feedback" title={title}>
+      {parts.map((part, index) => (
+        <span key={part.key}>
+          {index > 0 ? <span className="dot">·</span> : null}
+          {part.hot ? <em className="await">{part.text}</em> : <span>{part.text}</span>}
         </span>
-      ) : null}
-      {awaiting > 0 || unresolved > 0 ? <span className="dot">·</span> : null}
-      <span>
-        {threads}
-        {truncated ? '+' : ''} thread{threads === 1 ? '' : 's'}
+      ))}
+    </span>
+  )
+}
+
+function Authors({ people }: { people: { login: string; avatarUrl: string | null }[] }) {
+  if (people.length === 0) return <span className="author">Unknown</span>
+  const shown = people.slice(0, 3)
+  const label = people.length === 1 ? people[0]!.login : `${people.length} authors`
+  return (
+    <span className="author" title={people.map((person) => person.login).join(', ')}>
+      <span className="avatars">
+        {shown.map((person) =>
+          person.avatarUrl ? (
+            <img key={person.login} src={person.avatarUrl} alt="" />
+          ) : (
+            <span key={person.login} className="avatar fallback" aria-hidden="true">
+              {person.login.slice(0, 1).toUpperCase()}
+            </span>
+          ),
+        )}
       </span>
+      <span className="author-name">{label}</span>
     </span>
   )
 }
