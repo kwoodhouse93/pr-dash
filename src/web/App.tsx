@@ -156,7 +156,7 @@ export function App() {
   const initiatives = data?.initiatives ?? []
   const prByKey = useMemo(() => new Map(prs.map((pr) => [pr.key, pr])), [prs])
   const outline = useMemo(
-    () => buildOutline(prs, initiatives, prefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author'),
+    () => buildOutline(prs, initiatives, prefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', prefs.byIssue),
     [prs, initiatives, prefs, page],
   )
   const repos = useMemo(() => {
@@ -302,6 +302,15 @@ export function App() {
             >
               Hide drafts
             </button>
+            <button
+              type="button"
+              className="ghost"
+              aria-pressed={prefs.byIssue}
+              title="Show Linear issues, with pull requests under each one"
+              onClick={() => setPrefs((current) => ({ ...current, byIssue: !current.byIssue }))}
+            >
+              By issue
+            </button>
             {filtersOn ? (
               <button type="button" className="text-btn" onClick={() => patchFilters(DEFAULT_FILTERS)}>
                 Clear filters
@@ -391,6 +400,7 @@ export function App() {
                   return api.assign(created.id, keys, 'add')
                 })
               }}
+              byIssue={prefs.byIssue}
               linearConfigured={Boolean(data?.linearConfigured)}
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
               onMerge={async (key) => {

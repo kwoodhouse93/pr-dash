@@ -574,6 +574,46 @@ describe('stacks and grouping', () => {
     ])
   })
 
+  it('shows a stack once, intact, when not grouped by issue', () => {
+    const prs = [
+      pr({
+        id: 'a',
+        number: 1,
+        baseRef: 'dev',
+        headRef: 'branch-a',
+        initiativeIds: ['cleanup'],
+        linearIssues: [{ identifier: 'ENG-1', title: 'Bottom', url: null, projectId: 'p1', projectName: 'Updates' }],
+      }),
+      pr({
+        id: 'b',
+        number: 2,
+        baseRef: 'branch-a',
+        headRef: 'branch-b',
+        linearIssues: [{ identifier: 'ENG-2', title: 'Middle', url: null, projectId: null, projectName: null }],
+      }),
+      pr({
+        id: 'c',
+        number: 3,
+        baseRef: 'branch-b',
+        headRef: 'branch-c',
+        linearIssues: [{ identifier: 'ENG-1', title: 'Bottom', url: null, projectId: 'p1', projectName: 'Updates' }],
+      }),
+    ]
+    const view = buildOutline(
+      prs,
+      [{ id: 'cleanup', name: 'Auth cleanup', createdAt: '', updatedAt: '' }],
+      DEFAULT_FILTERS,
+      DEFAULT_SORT,
+      'author',
+      false,
+    )
+    expect(view.projects).toEqual([])
+    expect(view.initiatives).toEqual([])
+    expect(view.looseIssues).toEqual([])
+    expect(view.unassigned?.stacks).toHaveLength(1)
+    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([3, 2, 1])
+  })
+
   it('groups a tagged slice of a stack under an initiative', () => {
     const prs = stack.map((item) =>
       item.number === 1 || item.number === 2 ? { ...item, initiativeIds: ['cleanup'] } : item,

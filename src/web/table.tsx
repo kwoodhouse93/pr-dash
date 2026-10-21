@@ -64,6 +64,7 @@ export function PrTable({
   onRerun,
   onResolveConflictWithCursor,
   onRebase,
+  byIssue,
   linearConfigured,
   onUpdateIssue,
 }: {
@@ -88,6 +89,7 @@ export function PrTable({
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
+  byIssue: boolean
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
@@ -159,9 +161,13 @@ export function PrTable({
           </SectionBand>
         ) : null}
         {outline.unassigned ? (
-          <SectionBand id="band:unassigned" title="No issue" collapsed={collapsed} onToggle={onToggleSection}>
+          byIssue ? (
+            <SectionBand id="band:unassigned" title="No issue" collapsed={collapsed} onToggle={onToggleSection}>
+              <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
+            </SectionBand>
+          ) : (
             <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
-          </SectionBand>
+          )
         ) : null}
       </tbody>
     </table>

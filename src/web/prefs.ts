@@ -11,6 +11,7 @@ export type Preferences = {
   expanded: string[]
   collapsed: string[]
   page: DashboardPage
+  byIssue: boolean
 }
 
 export function loadPreferences(): Preferences {
@@ -26,6 +27,7 @@ export function loadPreferences(): Preferences {
       expanded: Array.isArray(raw.expanded) ? raw.expanded.filter((id) => typeof id === 'string') : [],
       collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
       page,
+      byIssue: raw.byIssue !== false,
     }
   } catch {
     return fresh()
@@ -37,5 +39,5 @@ export function savePreferences(prefs: Preferences) {
 }
 
 function fresh(): Preferences {
-  return { sort: DEFAULT_SORT, filters: DEFAULT_FILTERS, expanded: [], collapsed: [], page: 'mine' }
+  return { sort: DEFAULT_SORT, filters: DEFAULT_FILTERS, expanded: [], collapsed: [], page: 'mine', byIssue: true }
 }

@@ -248,6 +248,7 @@ export function buildOutline(
   filters: Filters,
   sort: Sort,
   attention: Attention = 'author',
+  byIssue = true,
 ): Outline {
   const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
   const matches = (pr: PullRequest) => prMatches(pr, filters, names, attention)
@@ -260,6 +261,15 @@ export function buildOutline(
       }),
       sort,
     )
+
+  if (!byIssue) {
+    return {
+      projects: [],
+      initiatives: [],
+      looseIssues: [],
+      unassigned: toBucket('all', null, null, null, blocksFor(() => true, 'filtered out')),
+    }
+  }
 
   const projectIssues = new Map<string, { project: string; identifier: string; title: string; href: string | null }>()
   const looseIssues = new Map<string, { identifier: string; title: string; href: string | null }>()
