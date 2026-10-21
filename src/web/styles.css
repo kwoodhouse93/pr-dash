@@ -439,8 +439,18 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .files { color: var(--faint); }
 th.conflict,
 td.conflict { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px; }
-.conflict-x { color: var(--red); display: inline-grid; place-items: center; }
+.conflict-x {
+  border: 0;
+  background: transparent;
+  color: var(--red);
+  display: inline-grid;
+  place-items: center;
+  padding: 3px;
+  border-radius: 5px;
+}
+.conflict-x:hover { background: var(--red-dim); }
 .conflict-x svg { width: 14px; height: 14px; display: block; }
+.launch-error { color: var(--red) !important; margin-top: 8px !important; }
 
 .ci, .marks {
   border: 0;

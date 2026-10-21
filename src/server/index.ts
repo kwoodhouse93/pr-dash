@@ -20,6 +20,7 @@ import { canSquashMerge } from '../shared/merge.ts'
 import { markMerged, refreshSnapshot, syncStatus } from './sync.ts'
 import type { PullRequest } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
+import { startCursorConflictResolver } from './cursor.ts'
 
 loadEnv()
 
@@ -218,6 +219,17 @@ app.post('/api/rerun', async (c) => {
     return c.json(result)
   } catch (error) {
     return c.json({ error: messageOf(error) }, 500)
+  }
+})
+
+app.post('/api/conflicts/:key/cursor', async (c) => {
+  const pr = db.snapshot().pullRequests.find((item) => item.key === c.req.param('key'))
+  if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
+  if (!pr.conflict) return c.json({ error: 'That pull request no longer has a merge conflict.' }, 409)
+  try {
+    return c.json(await startCursorConflictResolver(pr))
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
   }
 })
 
