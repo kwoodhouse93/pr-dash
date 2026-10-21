@@ -198,6 +198,7 @@ function live(over: Partial<LivePull> = {}): LivePull {
     baseRef: 'main',
     headRef: 'feature',
     headOid: 'a'.repeat(40),
+    behindBy: null,
     unresolvedCount: 0,
     threadsTruncated: false,
     committedAt: null,
@@ -235,6 +236,9 @@ describe('wait decisions', () => {
       ).action,
     ).toBe('wait')
     expect(interpretWait(live({ mergeStateStatus: 'BEHIND' }), 'main', ['Check'])).toMatchObject({ action: 'behind' })
+    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', behindBy: 4 }), 'main', ['Check'])).toMatchObject({ action: 'behind' })
+    expect(interpretWait(live({ mergeStateStatus: 'CLEAN', behindBy: 1 }), 'main', ['Check'])).toMatchObject({ action: 'behind' })
+    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', behindBy: 0 }), 'main', ['Check'])).toMatchObject({ action: 'wait' })
   })
 
   it('waits when a required check was cancelled so a replacement run can start', () => {

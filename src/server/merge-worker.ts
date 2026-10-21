@@ -1,4 +1,5 @@
 import { ciLevel } from '../shared/ci.ts'
+import { isBehindBase } from '../shared/map.ts'
 import { canSquashMerge, sliceParts, stackReviewBar, upstackBlock } from '../shared/merge.ts'
 import { bootAction, cancelGrace, interpretWait, rebasesAfter, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
 import { buildStacks } from '../shared/stacks.ts'
@@ -146,7 +147,7 @@ function withLive(pr: PullRequest, live: LivePull): PullRequest {
     checks: live.checks,
     ci: ciLevel(live.checks),
     conflict: live.mergeable === 'CONFLICTING' || live.mergeStateStatus === 'DIRTY',
-    behind: live.mergeStateStatus === 'BEHIND',
+    behind: isBehindBase(live.mergeStateStatus, live.behindBy),
   }
 }
 

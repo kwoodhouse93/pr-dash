@@ -1,3 +1,4 @@
+import { isBehindBase } from './map.ts'
 import { requiredCheckGate } from './merge.ts'
 import type { Check, Mergeable, Reviewer } from './types.ts'
 import type { ReviewDecision } from './approval.ts'
@@ -79,6 +80,8 @@ export type LivePull = {
   baseRef: string
   headRef: string
   headOid: string
+  /** Commits on the base that the head does not contain. Null when the comparison was not loaded. */
+  behindBy: number | null
   unresolvedCount: number
   threadsTruncated: boolean
   committedAt: string | null
@@ -230,7 +233,7 @@ export function interpretWait(live: LivePull, trunk: string, requiredNames: stri
   if (live.reviewDecision === 'REVIEW_REQUIRED') {
     return { action: 'fail', reason: `#${live.number} is missing a required review.` }
   }
-  if (live.mergeStateStatus === 'BEHIND') return { action: 'behind', headOid: live.headOid }
+  if (isBehindBase(live.mergeStateStatus, live.behindBy)) return { action: 'behind', headOid: live.headOid }
 
   const gate = requiredCheckGate(live.checks, requiredNames, live.mergeable, live.mergeStateStatus)
   if (gate?.action === 'fail') {

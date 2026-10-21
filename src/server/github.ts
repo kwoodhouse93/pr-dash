@@ -60,7 +60,7 @@ function markGraphqlSpent(resetAt = Date.now() + 60_000) {
   }
 }
 
-async function graphql<T>(token: string, query: string, variables?: Record<string, unknown>): Promise<T> {
+async function graphql<T>(token: string, query: string, variables?: Record<string, unknown>, partial = false): Promise<T> {
   assertGraphql()
   const response = await fetch('https://api.github.com/graphql', {
     method: 'POST',
@@ -81,7 +81,7 @@ async function graphql<T>(token: string, query: string, variables?: Record<strin
       markGraphqlSpent()
       throw new GraphqlPaused(graphqlStatus().message ?? body.errors.map((error) => error.message).join('; '))
     }
-    throw new Error(body.errors.map((error) => error.message).join('; '))
+    if (!partial || !body.data) throw new Error(body.errors.map((error) => error.message).join('; '))
   }
   if (!body.data) throw new Error('GitHub query failed')
   return body.data
@@ -355,6 +355,48 @@ async function fetchChecks(token: string, ids: string[], onProgress: (message: s
   return bundles
 }
 
+type BehindNode = {
+  id?: string
+  baseRef?: { compare?: { behindBy?: number | null } | null } | null
+} | null
+
+/**
+ * Commits on the base that the head is missing. A missing comparison is omitted so callers
+ * can fall back to mergeStateStatus. One unresolved ref does not fail the rest of the batch.
+ */
+async function fetchBehind(token: string, pulls: { id: string; number: number }[]): Promise<Map<string, number>> {
+  const found = new Map<string, number>()
+  const batchSize = 8
+  for (let index = 0; index < pulls.length; index += batchSize) {
+    const batch = pulls.slice(index, index + batchSize)
+    const varDefs = batch.map((_, number) => `$id${number}: ID!, $head${number}: String!`).join(', ')
+    const fields = batch
+      .map(
+        (_, number) => `
+        p${number}: node(id: $id${number}) {
+          ... on PullRequest {
+            id
+            baseRef { compare(headRef: $head${number}) { behindBy } }
+          }
+        }
+      `,
+      )
+      .join('\n')
+    const variables: Record<string, string> = {}
+    batch.forEach((pull, number) => {
+      variables[`id${number}`] = pull.id
+      variables[`head${number}`] = `refs/pull/${pull.number}/head`
+    })
+    const data = await graphql<Record<string, BehindNode>>(token, `query Behind(${varDefs}) { ${fields} }`, variables, true)
+    batch.forEach((_, number) => {
+      const node = data[`p${number}`]
+      const behindBy = node?.baseRef?.compare?.behindBy
+      if (node?.id && typeof behindBy === 'number') found.set(node.id, behindBy)
+    })
+  }
+  return found
+}
+
 export type RepoRules = { checks: string[]; requiredApprovals: number; dismissStale: boolean }
 
 export type RulesLoader = (repos: string[]) => Promise<Map<string, RepoRules>>
@@ -393,8 +435,12 @@ async function hydrate(
   loadRules: RulesLoader,
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   const repos = [...new Set(nodes.map((node) => node.repository.nameWithOwner))]
-  const [bundles, required] = await Promise.all([
+  const [bundles, behind, required] = await Promise.all([
     fetchChecks(token, nodes.map((node) => node.id), onProgress),
+    fetchBehind(
+      token,
+      nodes.map((node) => ({ id: node.id, number: node.number })),
+    ),
     loadRules(repos),
   ])
   const warnings: string[] = extraWarning ? [extraWarning] : []
@@ -411,6 +457,7 @@ async function hydrate(
       committedAt: bundle?.committedAt ?? null,
       checks: bundle?.checks ?? [],
       suites: bundle?.suites ?? [],
+      behindBy: behind.get(node.id) ?? null,
     })
   })
   return {
@@ -480,12 +527,20 @@ type OneData = {
 export async function fetchOnePull(
   token: string,
   id: string,
-): Promise<{ pull: GitHubPull; open: boolean; committedAt: string | null; checks: RawCheck[]; suites: RawCheckSuite[] } | null> {
+): Promise<{
+  pull: GitHubPull
+  open: boolean
+  committedAt: string | null
+  checks: RawCheck[]
+  suites: RawCheckSuite[]
+  behindBy: number | null
+} | null> {
   const data = await graphql<OneData>(token, ONE_QUERY, { id })
   const node = data.node
   if (!node) return null
   const commit = readCommitChecks(node.commits?.nodes?.[0]?.commit)
-  return { pull: node, open: node.state == null || node.state === 'OPEN', ...commit }
+  const behind = await fetchBehind(token, [{ id: node.id, number: node.number }])
+  return { pull: node, open: node.state == null || node.state === 'OPEN', ...commit, behindBy: behind.get(node.id) ?? null }
 }
 
 const THREAD_QUERY = `
@@ -597,7 +652,7 @@ const LIVE_QUERY = `
   query Live($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
       pullRequest(number: $number) {
-        number state isDraft mergeable mergeStateStatus reviewDecision
+        id number state isDraft mergeable mergeStateStatus reviewDecision
         baseRefName headRefName headRefOid
         commits(last: 1) {
           nodes {
@@ -630,6 +685,7 @@ const LIVE_QUERY = `
 type LiveData = {
   repository: {
     pullRequest: {
+      id: string
       number: number
       state: 'OPEN' | 'CLOSED' | 'MERGED'
       isDraft: boolean
@@ -668,6 +724,7 @@ export async function fetchLivePull(token: string, repo: string, number: number,
   const loaded = readCommitChecks(commit)
   const threads = (pull.reviewThreads.nodes ?? []).filter((thread): thread is { isResolved: boolean } => thread != null)
   const reviews = summarizeReviews((pull.reviews.nodes ?? []).filter((review): review is NonNullable<typeof review> => review != null))
+  const behind = await fetchBehind(token, [{ id: pull.id, number: pull.number }])
   return {
     number: pull.number,
     state: pull.state,
@@ -678,6 +735,7 @@ export async function fetchLivePull(token: string, repo: string, number: number,
     baseRef: pull.baseRefName,
     headRef: pull.headRefName,
     headOid: (commit?.oid ?? pull.headRefOid).toLowerCase(),
+    behindBy: behind.get(pull.id) ?? null,
     unresolvedCount: threads.filter((thread) => !thread.isResolved).length,
     threadsTruncated: pull.reviewThreads.pageInfo.hasNextPage,
     committedAt: loaded.committedAt,

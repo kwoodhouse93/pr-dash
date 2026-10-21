@@ -198,6 +198,16 @@ function mapRawCheck(node: RawCheck): Check | null {
   }
 }
 
+/**
+ * GitHub's Update branch button follows commits on the base that are missing from the head.
+ * `mergeStateStatus` is `BEHIND` only when that is the sole merge blocker, so a `BLOCKED`
+ * pull request can still be behind. `behindBy` is null when that comparison was not loaded.
+ */
+export function isBehindBase(mergeStateStatus: string | null, behindBy: number | null | undefined): boolean {
+  if (typeof behindBy === 'number') return behindBy > 0
+  return mergeStateStatus === 'BEHIND'
+}
+
 export function mapPullRequest(
   node: GitHubPull,
   extras: {
@@ -209,6 +219,7 @@ export function mapPullRequest(
     committedAt: string | null
     checks: RawCheck[]
     suites?: RawCheckSuite[]
+    behindBy?: number | null
   },
 ): PullRequest {
   const reviews = summarizeReviews((node.reviews.nodes ?? []).filter(present))
@@ -255,7 +266,7 @@ export function mapPullRequest(
     changesRequested: reviews.changesRequested,
     reviewers: reviews.reviewers,
     conflict: node.mergeable === 'CONFLICTING' || node.mergeStateStatus === 'DIRTY',
-    behind: node.mergeStateStatus === 'BEHIND',
+    behind: isBehindBase(node.mergeStateStatus, extras.behindBy),
     checks,
     ci: ciLevel(checks),
     threadCount: detail.feedback.threadCount,

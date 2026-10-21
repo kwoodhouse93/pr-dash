@@ -393,6 +393,7 @@ function mapOne(
     committedAt: loaded.committedAt,
     checks: loaded.checks,
     suites: loaded.suites,
+    behindBy: loaded.behindBy,
   })
 }
 

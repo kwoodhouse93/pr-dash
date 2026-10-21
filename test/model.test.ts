@@ -16,7 +16,7 @@ import {
   withoutHolds,
 } from '../src/shared/ci.ts'
 import { feedbackCounts, quoteReply, summarizeNotes, summarizeThreads, threadKinds, threadPermalink } from '../src/shared/feedback.ts'
-import { checksFromRaw, type RawCheckSuite } from '../src/shared/map.ts'
+import { checksFromRaw, isBehindBase, mapPullRequest, type GitHubPull, type RawCheckSuite } from '../src/shared/map.ts'
 import { reviewSearchQueries } from '../src/server/github.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
@@ -921,6 +921,63 @@ describe('stacks and grouping', () => {
     expect(view.unassigned).toBeNull()
   })
 })
+
+describe('up to date', () => {
+  it('treats a base that has commits the head lacks as behind, even when GitHub reports another merge state', () => {
+    expect(isBehindBase('BLOCKED', 4)).toBe(true)
+    expect(isBehindBase('CLEAN', 1)).toBe(true)
+    expect(isBehindBase('BEHIND', null)).toBe(true)
+    expect(isBehindBase('BLOCKED', 0)).toBe(false)
+    expect(isBehindBase('CLEAN', null)).toBe(false)
+    const pull = mapPullRequest(githubPull({ mergeStateStatus: 'BLOCKED' }), {
+      viewer: 'ada',
+      requiredNames: [],
+      requiredApprovals: 0,
+      dismissStale: false,
+      committedAt: null,
+      checks: [],
+      behindBy: 4,
+    })
+    expect(pull.behind).toBe(true)
+    expect(
+      mapPullRequest(githubPull({ mergeStateStatus: 'BLOCKED' }), {
+        viewer: 'ada',
+        requiredNames: [],
+        requiredApprovals: 0,
+        dismissStale: false,
+        committedAt: null,
+        checks: [],
+        behindBy: 0,
+      }).behind,
+    ).toBe(false)
+  })
+})
+
+function githubPull(over: Partial<GitHubPull> = {}): GitHubPull {
+  return {
+    id: 'pr-1',
+    number: 3903,
+    title: 'Topic',
+    url: 'https://github.com/acme/app/pull/3903',
+    isDraft: false,
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-10-21T00:00:00Z',
+    additions: 1,
+    deletions: 0,
+    changedFiles: 1,
+    baseRefName: 'dev',
+    headRefName: 'topic',
+    reviewDecision: 'APPROVED',
+    mergeStateStatus: 'CLEAN',
+    mergeable: 'MERGEABLE',
+    author: { login: 'ada' },
+    repository: { nameWithOwner: 'acme/app', name: 'app', squashMergeAllowed: true, defaultBranchRef: { name: 'dev' } },
+    reviews: { nodes: [] },
+    reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
+    comments: { nodes: [] },
+    ...over,
+  }
+}
 
 describe('squash merge', () => {
   const ready = pr({

@@ -1,3 +1,4 @@
+import { isBehindBase } from '../shared/map.ts'
 import { buildStacks, restackChain } from '../shared/stacks.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
@@ -46,7 +47,7 @@ export async function rebasePull(db: DashboardDb, key: string): Promise<Snapshot
   if (rootLive.mergeable === 'CONFLICTING' || rootLive.mergeStateStatus === 'DIRTY') {
     throw new RebaseRejected(`#${root.number} has a merge conflict.`)
   }
-  if (rootLive.mergeStateStatus !== 'BEHIND') {
+  if (!isBehindBase(rootLive.mergeStateStatus, rootLive.behindBy)) {
     throw new RebaseRejected(`#${root.number} is already up to date with ${rootLive.baseRef}.`)
   }
 
