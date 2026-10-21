@@ -37,7 +37,8 @@ button { cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
 a { color: inherit; text-decoration: none; }
 a:hover { text-decoration: underline; }
-a[target="_blank"]::after {
+a[target="_blank"]::after,
+a.external::after {
   content: "";
   display: inline-block;
   width: 0.78em;

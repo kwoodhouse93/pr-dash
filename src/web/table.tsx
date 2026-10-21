@@ -1074,7 +1074,7 @@ function CursorChip({
             {session.branch ? <p>Pushed to {session.branch}.</p> : null}
             {session.result ? <Markdown className="cursor-result" text={session.result} /> : null}
             <div className="cursor-links">
-              <a href={links.desktopUrl}>Open in Cursor</a>
+              <a className="external" href={links.desktopUrl}>Open in Cursor</a>
               <a href={links.webUrl} target="_blank" rel="noreferrer">
                 Open on the web
               </a>
