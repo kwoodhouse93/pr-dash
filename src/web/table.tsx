@@ -127,8 +127,8 @@ export function PrTable({
           <SortHeader label="Created" sortKey="created" sort={sort} onSort={onSort} />
           <SortHeader label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
           <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
-          <th className="conflict">Conflict</th>
           <th className="uptodate">Up-to-date</th>
+          <th className="conflict">Conflict</th>
           <th>Review</th>
           <th>Feedback</th>
           {mode === 'mine' ? <th className="merge">Merge</th> : null}
@@ -530,8 +530,8 @@ function DataRow({
       <td>
         <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
       </td>
-      <Conflict id={`conflict:${pr.id}`} prs={[pr]} onResolveWithCursor={onResolveConflictWithCursor} />
       <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} prByKey={prByKey} onRebase={onRebase} />
+      <Conflict id={`conflict:${pr.id}`} prs={[pr]} onResolveWithCursor={onResolveConflictWithCursor} />
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
       </td>
@@ -676,7 +676,6 @@ function SummaryRow({
       <td>
         <CiControl id={`ci:${block.id}`} prs={visible} onRerun={onRerun} />
       </td>
-      <Conflict id={`conflict:${block.id}`} prs={visible} onResolveWithCursor={onResolveConflictWithCursor} />
       <UpToDate
         id={`uptodate:${block.id}`}
         targetKey={lowestBehindKey(block.stackKeys, visible)}
@@ -684,6 +683,7 @@ function SummaryRow({
         prByKey={prByKey}
         onRebase={onRebase}
       />
+      <Conflict id={`conflict:${block.id}`} prs={visible} onResolveWithCursor={onResolveConflictWithCursor} />
       <td>
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
