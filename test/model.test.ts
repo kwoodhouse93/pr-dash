@@ -14,11 +14,11 @@ import {
   selectChecks,
   withoutHolds,
 } from '../src/shared/ci.ts'
-import { summarizeNotes, summarizeThreads } from '../src/shared/feedback.ts'
+import { summarizeNotes, summarizeThreads, threadPermalink } from '../src/shared/feedback.ts'
 import { reviewSearchQueries } from '../src/server/github.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
-import { buildStacks, restackChain } from '../src/shared/stacks.ts'
+import { buildStacks, restackChain, summarize } from '../src/shared/stacks.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { buildOutline } from '../src/shared/view.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT } from '../src/shared/types.ts'
@@ -298,6 +298,52 @@ describe('feedback', () => {
     expect(summary.unresolvedCount).toBe(2)
   })
 
+  it('links the first matching thread and keeps a later one from replacing it', () => {
+    const summary = summarizeThreads(
+      [
+        {
+          isResolved: true,
+          url: 'https://github.com/acme/app/pull/1#discussion_r1',
+          comments: [{ author: { __typename: 'User', login: 'ada' }, createdAt: '2026-10-20T09:00:00Z' }],
+        },
+        {
+          isResolved: false,
+          url: 'https://github.com/acme/app/pull/1#discussion_r2',
+          comments: [{ author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T10:00:00Z' }],
+        },
+        {
+          isResolved: false,
+          url: 'https://github.com/acme/app/pull/1#discussion_r3',
+          comments: [
+            { author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T11:00:00Z' },
+            { author: { __typename: 'User', login: 'ada' }, createdAt: '2026-10-20T12:00:00Z' },
+          ],
+        },
+        {
+          isResolved: true,
+          resolvedBy: 'ada',
+          url: 'https://github.com/acme/app/pull/1#discussion_r4',
+          comments: [{ author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T08:00:00Z' }],
+        },
+        {
+          isResolved: false,
+          url: 'https://github.com/acme/app/pull/1#discussion_r5',
+          comments: [{ author: { __typename: 'User', login: 'ada' }, createdAt: '2026-10-20T13:00:00Z' }],
+        },
+      ],
+      'grace',
+    )
+    expect(summary.unresolvedUrl).toBe('https://github.com/acme/app/pull/1#discussion_r2')
+    expect(summary.awaitingUrl).toBe('https://github.com/acme/app/pull/1#discussion_r3')
+    expect(summary.unreadUrl).toBe('https://github.com/acme/app/pull/1#discussion_r3')
+    expect(summary.resolvedUnreadUrl).toBe('https://github.com/acme/app/pull/1#discussion_r4')
+    expect(threadPermalink([
+      { url: 'https://github.com/acme/app/pull/1#discussion_r1' },
+      { url: null },
+      { url: 'https://github.com/acme/app/pull/1#discussion_r9' },
+    ])).toBe('https://github.com/acme/app/pull/1#discussion_r9')
+  })
+
   it('counts an unanswered review message unless a later thread reply covers it', () => {
     const review = {
       author: { __typename: 'User', login: 'ada' },
@@ -435,6 +481,35 @@ describe('stacks and grouping', () => {
     expect(stacks).toHaveLength(1)
     expect(stacks[0]?.prs.map((item) => item.number)).toEqual([3, 2, 1])
     expect(stacks[0]?.trunk).toBe('dev')
+  })
+
+  it('points a collapsed stack at the first pull request with each kind of thread', () => {
+    const summary = summarize(
+      [
+        pr({
+          id: 'c',
+          number: 3,
+          baseRef: 'branch-b',
+          headRef: 'branch-c',
+          unresolvedThreadUrl: 'https://github.com/acme/app/pull/3#discussion_r3',
+        }),
+        pr({
+          id: 'b',
+          number: 2,
+          baseRef: 'branch-a',
+          headRef: 'branch-b',
+          awaitingThreadUrl: 'https://github.com/acme/app/pull/2#discussion_r2',
+          unresolvedThreadUrl: 'https://github.com/acme/app/pull/2#discussion_r8',
+          unreadThreadUrl: 'https://github.com/acme/app/pull/2#discussion_r2',
+        }),
+      ],
+      false,
+    )
+    expect(summary.unresolvedThreadUrl).toBe('https://github.com/acme/app/pull/3#discussion_r3')
+    expect(summary.awaitingThreadUrl).toBe('https://github.com/acme/app/pull/2#discussion_r2')
+    expect(summary.unreadThreadUrl).toBe('https://github.com/acme/app/pull/2#discussion_r2')
+    expect(summary.resolvedUnreadThreadUrl).toBeNull()
+    expect(summary.url).toBe('https://github.com/initech/frontend/pull/3')
   })
 
   it('restacks the chosen pull request and everything above it', () => {

@@ -89,6 +89,10 @@ export type PullRequest = {
   awaitingYouCount: number
   unreadCount: number
   resolvedUnreadCount: number
+  awaitingThreadUrl?: string | null
+  unresolvedThreadUrl?: string | null
+  unreadThreadUrl?: string | null
+  resolvedUnreadThreadUrl?: string | null
   commentAwaitingCount: number
   reviewCommentAwaitingCount: number
   reviewPending: boolean

@@ -6,6 +6,7 @@ type Comment = {
 export type Thread = {
   isResolved: boolean
   resolvedBy?: string | null
+  url?: string | null
   comments: Comment[]
 }
 
@@ -22,6 +23,23 @@ export type FeedbackSummary = {
   awaitingYouCount: number
   unreadCount: number
   resolvedUnreadCount: number
+  awaitingUrl: string | null
+  unresolvedUrl: string | null
+  unreadUrl: string | null
+  resolvedUnreadUrl: string | null
+}
+
+/** Prefer the newest comment permalink so the link lands on the latest reply. */
+export function threadPermalink(comments: { url?: string | null }[]): string | null {
+  for (let index = comments.length - 1; index >= 0; index -= 1) {
+    const url = comments[index]?.url
+    if (url) return url
+  }
+  return null
+}
+
+function keepFirst(current: string | null, url: string | null | undefined): string | null {
+  return current ?? url ?? null
 }
 
 function humanComments(comments: Comment[]): Comment[] {
@@ -36,6 +54,10 @@ export function summarizeThreads(threads: Thread[], viewerLogin: string): Feedba
   let awaitingYouCount = 0
   let unreadCount = 0
   let resolvedUnreadCount = 0
+  let awaitingUrl: string | null = null
+  let unresolvedUrl: string | null = null
+  let unreadUrl: string | null = null
+  let resolvedUnreadUrl: string | null = null
   for (const thread of threads) {
     const humans = humanComments(thread.comments)
     const latest = humans.at(-1)
@@ -44,11 +66,21 @@ export function summarizeThreads(threads: Thread[], viewerLogin: string): Feedba
     const resolvedByOther = Boolean(thread.resolvedBy && thread.resolvedBy !== viewerLogin)
     if (!thread.isResolved) {
       unresolvedCount += 1
-      if (replied) awaitingYouCount += 1
-      if (involved && replied) unreadCount += 1
+      unresolvedUrl = keepFirst(unresolvedUrl, thread.url)
+      if (replied) {
+        awaitingYouCount += 1
+        awaitingUrl = keepFirst(awaitingUrl, thread.url)
+      }
+      if (involved && replied) {
+        unreadCount += 1
+        unreadUrl = keepFirst(unreadUrl, thread.url)
+      }
       continue
     }
-    if (involved && (replied || resolvedByOther)) resolvedUnreadCount += 1
+    if (involved && (replied || resolvedByOther)) {
+      resolvedUnreadCount += 1
+      resolvedUnreadUrl = keepFirst(resolvedUnreadUrl, thread.url)
+    }
   }
   return {
     threadCount: threads.length,
@@ -56,6 +88,10 @@ export function summarizeThreads(threads: Thread[], viewerLogin: string): Feedba
     awaitingYouCount,
     unreadCount,
     resolvedUnreadCount,
+    awaitingUrl,
+    unresolvedUrl,
+    unreadUrl,
+    resolvedUnreadUrl,
   }
 }
 

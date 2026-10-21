@@ -538,6 +538,7 @@ function DataRow({
       <td>
         <Feedback
           mode={mode}
+          prUrl={pr.url}
           threads={pr.threadCount}
           unresolved={pr.unresolvedCount}
           awaiting={pr.awaitingYouCount ?? 0}
@@ -546,6 +547,10 @@ function DataRow({
           comments={pr.commentAwaitingCount ?? 0}
           reviewComments={pr.reviewCommentAwaitingCount ?? 0}
           truncated={pr.threadsTruncated}
+          awaitingUrl={pr.awaitingThreadUrl}
+          unresolvedUrl={pr.unresolvedThreadUrl}
+          unreadUrl={pr.unreadThreadUrl}
+          resolvedUnreadUrl={pr.resolvedUnreadThreadUrl}
         />
       </td>
       {mode === 'mine' ? (
@@ -690,6 +695,7 @@ function SummaryRow({
       <td>
         <Feedback
           mode={mode}
+          prUrl={summary.url}
           threads={summary.threadCount}
           unresolved={summary.unresolvedCount}
           awaiting={summary.awaitingYouCount ?? 0}
@@ -698,6 +704,10 @@ function SummaryRow({
           comments={summary.commentAwaitingCount ?? 0}
           reviewComments={summary.reviewCommentAwaitingCount ?? 0}
           truncated={false}
+          awaitingUrl={summary.awaitingThreadUrl}
+          unresolvedUrl={summary.unresolvedThreadUrl}
+          unreadUrl={summary.unreadThreadUrl}
+          resolvedUnreadUrl={summary.resolvedUnreadThreadUrl}
         />
       </td>
       {mode === 'mine' ? (
@@ -1321,6 +1331,7 @@ function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue:
 
 function Feedback({
   mode,
+  prUrl,
   threads,
   unresolved,
   awaiting,
@@ -1329,8 +1340,13 @@ function Feedback({
   comments,
   reviewComments,
   truncated,
+  awaitingUrl,
+  unresolvedUrl,
+  unreadUrl,
+  resolvedUnreadUrl,
 }: {
   mode: 'mine' | 'review'
+  prUrl: string
   threads: number
   unresolved: number
   awaiting: number
@@ -1339,26 +1355,47 @@ function Feedback({
   comments: number
   reviewComments: number
   truncated: boolean
+  awaitingUrl?: string | null
+  unresolvedUrl?: string | null
+  unreadUrl?: string | null
+  resolvedUnreadUrl?: string | null
 }) {
-  const parts: { key: string; text: string; hot: boolean }[] = []
+  const parts: { key: string; text: string; hot: boolean; href: string | null; title: string }[] = []
   const commentText = (count: number) => `${count} comment${count === 1 ? '' : 's'}`
+  const threadLink = (url: string | null | undefined, deepTitle: string) =>
+    url ? { href: url, title: deepTitle } : { href: prUrl, title: 'Open the pull request' }
   if (mode === 'review') {
-    if (unread > 0) parts.push({ key: 'unread', text: `${unread} unread`, hot: true })
-    if (reviewComments > 0) parts.push({ key: 'review-comments', text: commentText(reviewComments), hot: true })
+    if (unread > 0) {
+      parts.push({ key: 'unread', text: `${unread} unread`, hot: true, ...threadLink(unreadUrl, 'Open the first unread thread') })
+    }
+    if (reviewComments > 0) parts.push({ key: 'review-comments', text: commentText(reviewComments), hot: true, href: null, title: '' })
     const otherComments = comments - reviewComments
-    if (reviewComments === 0 && comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: false })
-    else if (otherComments > 0) parts.push({ key: 'comments', text: `${otherComments} other`, hot: false })
-    if (resolvedUnread > 0) parts.push({ key: 'resolved', text: `${resolvedUnread} resolved unread`, hot: false })
+    if (reviewComments === 0 && comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: false, href: null, title: '' })
+    else if (otherComments > 0) parts.push({ key: 'comments', text: `${otherComments} other`, hot: false, href: null, title: '' })
+    if (resolvedUnread > 0) {
+      parts.push({
+        key: 'resolved',
+        text: `${resolvedUnread} resolved unread`,
+        hot: false,
+        ...threadLink(resolvedUnreadUrl, 'Open the first resolved thread you have not caught up on'),
+      })
+    }
   } else {
-    if (awaiting > 0) parts.push({ key: 'awaiting', text: `${awaiting} awaiting`, hot: true })
-    if (comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: true })
+    if (awaiting > 0) {
+      parts.push({ key: 'awaiting', text: `${awaiting} awaiting`, hot: true, ...threadLink(awaitingUrl, 'Open the first thread awaiting you') })
+    }
+    if (comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: true, href: null, title: '' })
   }
-  if (unresolved > 0) parts.push({ key: 'unresolved', text: `${unresolved} unresolved`, hot: false })
+  if (unresolved > 0) {
+    parts.push({ key: 'unresolved', text: `${unresolved} unresolved`, hot: false, ...threadLink(unresolvedUrl, 'Open the first unresolved thread') })
+  }
   if (threads > 0 || parts.length === 0) {
     parts.push({
       key: 'threads',
       text: `${threads}${truncated ? '+' : ''} thread${threads === 1 ? '' : 's'}`,
       hot: false,
+      href: prUrl,
+      title: 'Open the pull request',
     })
   }
   const title = mode === 'review'
@@ -1369,7 +1406,15 @@ function Feedback({
       {parts.map((part, index) => (
         <span key={part.key}>
           {index > 0 ? <span className="dot">·</span> : null}
-          {part.hot ? <em className="await">{part.text}</em> : <span>{part.text}</span>}
+          {part.href ? (
+            <a href={part.href} target="_blank" rel="noreferrer" title={part.title}>
+              {part.hot ? <em className="await">{part.text}</em> : part.text}
+            </a>
+          ) : part.hot ? (
+            <em className="await">{part.text}</em>
+          ) : (
+            <span>{part.text}</span>
+          )}
         </span>
       ))}
     </span>

@@ -31,6 +31,10 @@ export type StackSummary = {
   awaitingYouCount: number
   unreadCount: number
   resolvedUnreadCount: number
+  awaitingThreadUrl: string | null
+  unresolvedThreadUrl: string | null
+  unreadThreadUrl: string | null
+  resolvedUnreadThreadUrl: string | null
   commentAwaitingCount: number
   reviewCommentAwaitingCount: number
   authors: { login: string; avatarUrl: string | null }[]
@@ -123,6 +127,15 @@ function sum(prs: PullRequest[], pick: (pr: PullRequest) => number): number {
   return prs.reduce((total, pr) => total + pick(pr), 0)
 }
 
+/** First permalink in stack order (top of the stack, then each pull request below it). */
+function firstLink(prs: PullRequest[], pick: (pr: PullRequest) => string | null | undefined): string | null {
+  for (const pr of prs) {
+    const url = pick(pr)
+    if (url) return url
+  }
+  return null
+}
+
 function worstMerge(prs: PullRequest[]): { mark: MergeMark; detail: string } {
   if (prs.length === 1) return { mark: prs[0]!.mergeMark, detail: prs[0]!.mergeDetail }
   if (prs.some((pr) => pr.changesRequested)) {
@@ -168,6 +181,10 @@ export function summarize(prs: PullRequest[], partial: boolean): StackSummary {
     awaitingYouCount: sum(prs, (pr) => pr.awaitingYouCount),
     unreadCount: sum(prs, (pr) => pr.unreadCount ?? 0),
     resolvedUnreadCount: sum(prs, (pr) => pr.resolvedUnreadCount ?? 0),
+    awaitingThreadUrl: firstLink(prs, (pr) => pr.awaitingThreadUrl),
+    unresolvedThreadUrl: firstLink(prs, (pr) => pr.unresolvedThreadUrl),
+    unreadThreadUrl: firstLink(prs, (pr) => pr.unreadThreadUrl),
+    resolvedUnreadThreadUrl: firstLink(prs, (pr) => pr.resolvedUnreadThreadUrl),
     commentAwaitingCount: sum(prs, (pr) => pr.commentAwaitingCount ?? 0),
     reviewCommentAwaitingCount: sum(prs, (pr) => pr.reviewCommentAwaitingCount ?? 0),
     authors: authorsOf(prs),

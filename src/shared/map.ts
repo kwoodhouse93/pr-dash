@@ -1,6 +1,6 @@
 import { mergeReview, summarizeReviews, type ReviewDecision } from './approval.ts'
 import { applyRequired, ciLevel, selectChecks } from './ci.ts'
-import { summarizeNotes, summarizeThreads, type Note } from './feedback.ts'
+import { summarizeNotes, summarizeThreads, threadPermalink, type Note } from './feedback.ts'
 import { parseLinear } from './linear.ts'
 import type { Check, Mergeable, PullRequest } from './types.ts'
 
@@ -8,6 +8,7 @@ export type GitHubComment = {
   author: { __typename: string; login: string } | null
   body?: string
   createdAt?: string
+  url?: string | null
 }
 
 export type GitHubPull = {
@@ -127,14 +128,18 @@ export function mapPullRequest(
   },
 ): PullRequest {
   const reviews = summarizeReviews((node.reviews.nodes ?? []).filter(present))
-  const threads = (node.reviewThreads.nodes ?? []).filter(present).map((thread) => ({
-    isResolved: thread.isResolved,
-    resolvedBy: thread.resolvedBy?.login ?? null,
-    comments: (thread.comments.nodes ?? []).filter(present).map((comment) => ({
-      author: comment.author,
-      createdAt: comment.createdAt ?? '',
-    })),
-  }))
+  const threads = (node.reviewThreads.nodes ?? []).filter(present).map((thread) => {
+    const comments = (thread.comments.nodes ?? []).filter(present)
+    return {
+      isResolved: thread.isResolved,
+      resolvedBy: thread.resolvedBy?.login ?? null,
+      url: threadPermalink(comments),
+      comments: comments.map((comment) => ({
+        author: comment.author,
+        createdAt: comment.createdAt ?? '',
+      })),
+    }
+  })
   const feedback = summarizeThreads(threads, extras.viewer)
   const notes = conversationNotes(node)
   const commentsAwaiting = summarizeNotes(threads, notes, extras.viewer)
@@ -183,6 +188,10 @@ export function mapPullRequest(
     awaitingYouCount: feedback.awaitingYouCount,
     unreadCount: feedback.unreadCount,
     resolvedUnreadCount: feedback.resolvedUnreadCount,
+    awaitingThreadUrl: feedback.awaitingUrl,
+    unresolvedThreadUrl: feedback.unresolvedUrl,
+    unreadThreadUrl: feedback.unreadUrl,
+    resolvedUnreadThreadUrl: feedback.resolvedUnreadUrl,
     commentAwaitingCount: commentsAwaiting.author,
     reviewCommentAwaitingCount: commentsAwaiting.reviewer,
     reviewPending: reviewPending(node, extras.viewer, new Set(extras.teams ?? [])),

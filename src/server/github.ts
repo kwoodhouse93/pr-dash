@@ -63,7 +63,7 @@ const PULL_FIELDS = `
       isResolved
       isOutdated
       resolvedBy { login }
-      comments(last: 30) { nodes { author { __typename login } createdAt } }
+      comments(last: 30) { nodes { author { __typename login } createdAt url } }
     }
   }
   comments(first: 12) { nodes { author { __typename login } body } }
