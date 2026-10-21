@@ -291,8 +291,7 @@ td.merge { white-space: normal; width: 108px; vertical-align: middle; }
 .title-line { line-height: 1.4; }
 .title-line > * + * { margin-left: 8px; }
 .title-line a { font-weight: 400; }
-.title-line .pill,
-.title-line .chip { vertical-align: middle; }
+.title-line .pill { vertical-align: middle; }
 .subline { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; align-items: center; }
 .issue-ref { display: inline-flex; align-items: center; gap: 6px; }
 .issue-controls { display: inline-flex; align-items: center; flex: none; }
@@ -330,7 +329,7 @@ td.merge { white-space: normal; width: 108px; vertical-align: middle; }
 }
 .avatar.empty { color: var(--faint); }
 .avatar.empty svg { width: 12px; height: 12px; display: block; }
-.pill, .chip, .tag-btn {
+.pill, .tag-btn {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -341,9 +340,6 @@ td.merge { white-space: normal; width: 108px; vertical-align: middle; }
   color: var(--muted);
 }
 .pill.draft { color: var(--yellow); }
-.chip { color: var(--text); cursor: pointer; }
-.chip.partial { border-style: dashed; }
-.chip button { display: none; }
 .tag-btn { cursor: pointer; background: transparent; }
 .num, .when, .size { font-variant-numeric: tabular-nums; font-family: "Source Code Pro", ui-monospace, monospace; font-weight: 300; font-size: 14px; }
 .repo, .when { color: var(--muted); }

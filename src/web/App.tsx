@@ -260,7 +260,6 @@ export function App() {
                     : [...current.expanded, id],
                 }))
               }
-              onFilterInitiative={(id) => patchFilters({ initiativeId: id })}
               onAssign={(initiativeId, keys, action) => mutate(() => api.assign(initiativeId, keys, action))}
               onCreateAssigned={async (name, keys) => {
                 const before = new Set(initiatives.map((initiative) => initiative.id))

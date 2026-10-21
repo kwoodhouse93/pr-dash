@@ -20,7 +20,6 @@ export function PrTable({
   expanded,
   onSort,
   onToggle,
-  onFilterInitiative,
   onAssign,
   onCreateAssigned,
   onMerge,
@@ -36,7 +35,6 @@ export function PrTable({
   expanded: Set<string>
   onSort: (key: SortKey) => void
   onToggle: (id: string) => void
-  onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
@@ -44,17 +42,14 @@ export function PrTable({
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
-  const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
   const tones = stackTones(outline)
   const shared = {
-    names,
     namesList: initiatives,
     prByKey,
     repoColor,
     tones,
     expanded,
     onToggle,
-    onFilterInitiative,
     onAssign,
     onCreateAssigned,
     onMerge,
@@ -136,14 +131,12 @@ function spineClass(spine: Spine | null, tone: 'a' | 'b' | null): string {
 }
 
 type RowShared = {
-  names: Map<string, string>
   namesList: Initiative[]
   prByKey: Map<string, PullRequest>
   repoColor: Map<string, string>
   tones: Map<string, 'a' | 'b'>
   expanded: Set<string>
   onToggle: (id: string) => void
-  onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
@@ -265,12 +258,10 @@ function BlockRows({
           tone={stackTone}
           toggle={block.collapsible && row.pr.id === visible[0]?.id ? { id: openId, open, onToggle: shared.onToggle } : null}
           hideIssue={bucket.issueId ?? undefined}
-          names={shared.names}
           initiatives={shared.namesList}
           prByKey={shared.prByKey}
           repoColor={shared.repoColor}
           linearConfigured={shared.linearConfigured}
-          onFilterInitiative={shared.onFilterInitiative}
           onAssign={shared.onAssign}
           onCreateAssigned={shared.onCreateAssigned}
           onMerge={shared.onMerge}
@@ -289,13 +280,11 @@ function BlockRows({
       spine="only"
       tone={stackTone}
       hideIssue={bucket.issueId ?? undefined}
-      names={shared.names}
       initiatives={shared.namesList}
       prByKey={shared.prByKey}
       repoColor={shared.repoColor}
       linearConfigured={shared.linearConfigured}
       onToggle={shared.onToggle}
-      onFilterInitiative={shared.onFilterInitiative}
       onAssign={shared.onAssign}
       onCreateAssigned={shared.onCreateAssigned}
       onRerun={shared.onRerun}
@@ -311,13 +300,11 @@ function DataRow({
   spine,
   tone,
   toggle,
-  names,
   initiatives,
   prByKey,
   repoColor,
   hideIssue,
   linearConfigured,
-  onFilterInitiative,
   onAssign,
   onCreateAssigned,
   onMerge,
@@ -330,13 +317,11 @@ function DataRow({
   spine: Spine | null
   tone: 'a' | 'b' | null
   toggle: { id: string; open: boolean; onToggle: (id: string) => void } | null
-  names: Map<string, string>
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
   repoColor: Map<string, string>
   hideIssue?: string
   linearConfigured: boolean
-  onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
@@ -365,7 +350,6 @@ function DataRow({
           <a href={pr.url} target="_blank" rel="noreferrer">
             {pr.title}
           </a>
-          <InitiativeTags ids={pr.initiativeIds} partialIds={[]} names={names} onFilterInitiative={onFilterInitiative} />
         </div>
         <Subline
           menuScope={pr.id}
@@ -419,14 +403,12 @@ function SummaryRow({
   openId,
   spine,
   tone,
-  names,
   initiatives,
   prByKey,
   repoColor,
   hideIssue,
   linearConfigured,
   onToggle,
-  onFilterInitiative,
   onAssign,
   onCreateAssigned,
   onRerun,
@@ -437,14 +419,12 @@ function SummaryRow({
   openId: string
   spine: Spine
   tone: 'a' | 'b' | null
-  names: Map<string, string>
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
   repoColor: Map<string, string>
   hideIssue?: string
   linearConfigured: boolean
   onToggle: (id: string) => void
-  onFilterInitiative: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
@@ -452,7 +432,6 @@ function SummaryRow({
 }) {
   const summary = block.summary
   const issues = sharedIssues(visible, hideIssue)
-  const partialIds = summary.initiativeIds.filter((id) => visible.some((pr) => !pr.initiativeIds.includes(id)))
   return (
     <tr
       className={`stack ${summary.ci === 'red' ? 'fail' : ''}${spineClass(spine, tone)}`}
@@ -476,7 +455,6 @@ function SummaryRow({
           <a href={summary.url} target="_blank" rel="noreferrer">
             {summary.title}
           </a>
-          <InitiativeTags ids={summary.initiativeIds} partialIds={partialIds} names={names} onFilterInitiative={onFilterInitiative} />
           {summary.extra > 0 ? <span className="pill">+{summary.extra}</span> : null}
           {summary.partial ? <span className="pill">partial</span> : null}
         </div>
@@ -559,30 +537,6 @@ function sharedIssues(prs: PullRequest[], hideIssue?: string): LinearIssue[] {
     return [{ identifier: `${ids.length} issues`, title: null, url: null, projectId: null, projectName: null }]
   }
   return []
-}
-
-function InitiativeTags({
-  ids,
-  partialIds,
-  names,
-  onFilterInitiative,
-}: {
-  ids: string[]
-  partialIds: string[]
-  names: Map<string, string>
-  onFilterInitiative: (id: string) => void
-}) {
-  return ids.map((id) => (
-    <button
-      key={id}
-      type="button"
-      className={partialIds.includes(id) ? 'chip partial' : 'chip'}
-      onClick={() => onFilterInitiative(id)}
-      title={partialIds.includes(id) ? 'Not every pull request in this row is tagged' : 'Filter to this initiative'}
-    >
-      {names.get(id) ?? 'Initiative'}
-    </button>
-  ))
 }
 
 function Subline({
