@@ -828,12 +828,22 @@ function Conflict({
   async function resolve(pr: PullRequest) {
     setError(null)
     setPending(pr.key)
+    // Open during the click so the browser allows the tab. Leave opener set until
+    // the session URL is assigned; clearing it first keeps this about:blank tab
+    // and opens the session in a second one.
     const agent = window.open('', '_blank')
-    if (agent) agent.opener = null
     try {
       const result = await onResolveWithCursor(pr.key)
-      if (agent) agent.location.href = result.url
-      else setError('Cursor started, but the new tab was blocked. Allow pop-ups and try again.')
+      if (!agent) {
+        setError('Cursor started, but the new tab was blocked. Allow pop-ups and try again.')
+        return
+      }
+      agent.location.replace(result.url)
+      try {
+        agent.opener = null
+      } catch {
+        // Navigation can make the tab cross-origin before this runs.
+      }
     } catch (caught) {
       agent?.close()
       setError(caught instanceof Error ? caught.message : 'Could not start Cursor.')
