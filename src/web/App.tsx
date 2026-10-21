@@ -14,6 +14,7 @@ import { loadPreferences, savePreferences, type DashboardPage } from './prefs.ts
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
 import { PrTable } from './table.tsx'
+import { Toasts, clearActionError, dismissToast, toastError, toastSticky, toastSuccess, toastWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
 
 const REFRESH_MS = 3 * 60 * 1000
@@ -31,8 +32,6 @@ export function App() {
   const [progress, setProgress] = useState<RefreshProgress | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [sync, setSync] = useState<SyncStatus | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
   const [queue, setQueue] = useState<QueueSnapshot | null>(null)
   const applyId = useRef(0)
@@ -93,7 +92,7 @@ export function App() {
     }
     const id = ++applyId.current
     setRefreshing(true)
-    setError(null)
+    clearActionError()
     setStatus('Starting refresh')
     setProgress(null)
     const started = Date.now()
@@ -120,13 +119,13 @@ export function App() {
             await loadFeedback(focus)
           }
         } catch (caught) {
-          if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Could not load thread replies')
+          if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not load thread replies')
         }
       }
       return true
     } catch (caught) {
       if (!options.full) refreshedAt.current[focus] = 0
-      if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Refresh failed')
+      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Refresh failed')
       return false
     } finally {
       window.clearInterval(poll)
@@ -142,7 +141,7 @@ export function App() {
     try {
       await loadFeedback(focus)
     } catch (caught) {
-      if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Could not load thread replies')
+      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not load thread replies')
     } finally {
       if (id === applyId.current) setRefreshing(false)
     }
@@ -160,12 +159,12 @@ export function App() {
 
   async function mutate(work: () => Promise<Snapshot>) {
     const id = ++applyId.current
-    setError(null)
+    clearActionError()
     try {
       const snap = await work()
       if (id === applyId.current) setData(adopt(snap))
     } catch (caught) {
-      if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Could not save that change')
+      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not save that change')
       throw caught
     } finally {
       if (id === applyId.current) setRefreshing(false)
@@ -179,7 +178,7 @@ export function App() {
         const snap = await api.snapshot()
         if (!cancel) setData(adopt(snap))
       } catch (caught) {
-        if (!cancel) setError(caught instanceof Error ? caught.message : 'Could not load the saved snapshot')
+        if (!cancel) toastError(caught instanceof Error ? caught.message : 'Could not load the saved snapshot')
       } finally {
         if (!cancel) setBooting(false)
       }
@@ -256,6 +255,39 @@ export function App() {
     return () => window.clearInterval(timer)
   }, [refreshing])
 
+  const linearHint = Boolean(
+    data &&
+    !data.linearConfigured &&
+    [...data.pullRequests, ...(data.reviewPullRequests ?? [])].some((pr) => pr.linearIssues.length > 0),
+  )
+
+  useEffect(() => {
+    if (!data?.warning) {
+      dismissToast('snapshot-warning')
+      return
+    }
+    toastWarning(data.warning, 'snapshot-warning')
+  }, [data?.warning])
+
+  useEffect(() => {
+    if (!linearHint) {
+      dismissToast('linear-setup')
+      return
+    }
+    toastSticky(
+      'Set LINEAR_API_KEY to load Linear status, assignee, and project. Issue titles still come from GitHub, and initiatives do not need Linear.',
+      'linear-setup',
+    )
+  }, [linearHint])
+
+  useEffect(() => {
+    if (queue?.paused && queue.pauseReason) {
+      toastSticky(`Queue paused. ${queue.pauseReason}`, 'queue-paused', 'warning')
+    } else {
+      dismissToast('queue-paused')
+    }
+  }, [queue?.paused, queue?.pauseReason])
+
   const page = prefs.page
   const mine = data?.pullRequests ?? []
   const review = data?.reviewPullRequests ?? []
@@ -303,12 +335,12 @@ export function App() {
   }
 
   async function changeQueue(work: () => Promise<QueueSnapshot>, refreshAfter = false) {
-    setError(null)
+    clearActionError()
     try {
       setQueue(await work())
       if (refreshAfter) void refresh({ force: true, focus: 'mine' })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not update the merge queue')
+      toastError(caught instanceof Error ? caught.message : 'Could not update the merge queue')
     }
   }
 
@@ -324,6 +356,7 @@ export function App() {
 
   return (
     <MenuProvider>
+      <Toasts />
       <div className="app">
         <header className="top">
           <div className="top-row">
@@ -456,14 +489,6 @@ export function App() {
             <span className="filter-count">{countLabel}</span>
           </div>
         </header>
-        {error ? <div className="banner error">{error}</div> : null}
-        {notice ? <div className="banner">{notice}</div> : null}
-        {data?.warning ? <div className="banner">{data.warning}</div> : null}
-        {data && !data.linearConfigured && prs.some((pr) => pr.linearIssues.length > 0) ? (
-          <div className="banner">
-            Set LINEAR_API_KEY to load Linear status, assignee, and project. Issue titles still come from GitHub, and initiatives do not need Linear.
-          </div>
-        ) : null}
         <div className="scroll">
           {page === 'settings' ? (
             <SettingsPage
@@ -574,7 +599,8 @@ export function App() {
                   const text = result.errors.length
                     ? `Reran ${result.reran}. ${result.errors[0]}`
                     : `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}.`
-                  setNotice(text)
+                  if (result.errors.length) toastWarning(text)
+                  else toastSuccess(text)
                   void refresh({ force: true })
                   return text
                 } catch (caught) {

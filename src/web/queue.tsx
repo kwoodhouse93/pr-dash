@@ -19,9 +19,6 @@ export function MergeQueuePage({
   }
   return (
     <div className="queue-page">
-      {queue.paused && queue.pauseReason ? (
-        <p className="banner error">Queue paused. {queue.pauseReason}</p>
-      ) : null}
       {queue.entries.length === 0 ? (
         <div className="empty">
           <h2>Nothing queued</h2>
