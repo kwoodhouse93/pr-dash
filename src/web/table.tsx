@@ -10,6 +10,7 @@ import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.t
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
+import { Markdown } from './markdown.tsx'
 import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
 
 type StackLock = {
@@ -136,23 +137,31 @@ export function PrTable({
         </tr>
       </thead>
       <tbody>
-        {outline.projects.length ? <Band title="Linear projects" /> : null}
-        {outline.projects.map((project) => (
-          <ProjectRows key={project.id} project={project} {...shared} />
-        ))}
-        {outline.initiatives.length ? <Band title="Initiatives" /> : null}
-        {outline.initiatives.map((bucket) => (
-          <BucketRows key={bucket.id} bucket={bucket} depth={1} {...shared} />
-        ))}
-        {outline.looseIssues.length ? <Band title="Issues with no project" /> : null}
-        {outline.looseIssues.map((bucket) => (
-          <BucketRows key={bucket.id} bucket={bucket} depth={1} {...shared} />
-        ))}
+        {outline.projects.length ? (
+          <SectionBand id="band:projects" title="Linear projects" collapsed={collapsed} onToggle={onToggleSection}>
+            {outline.projects.map((project) => (
+              <ProjectRows key={project.id} project={project} {...shared} />
+            ))}
+          </SectionBand>
+        ) : null}
+        {outline.initiatives.length ? (
+          <SectionBand id="band:initiatives" title="Initiatives" collapsed={collapsed} onToggle={onToggleSection}>
+            {outline.initiatives.map((bucket) => (
+              <BucketRows key={bucket.id} bucket={bucket} depth={1} {...shared} />
+            ))}
+          </SectionBand>
+        ) : null}
+        {outline.looseIssues.length ? (
+          <SectionBand id="band:loose" title="Issues with no project" collapsed={collapsed} onToggle={onToggleSection}>
+            {outline.looseIssues.map((bucket) => (
+              <BucketRows key={bucket.id} bucket={bucket} depth={1} {...shared} />
+            ))}
+          </SectionBand>
+        ) : null}
         {outline.unassigned ? (
-          <>
-            <Band title="No issue" />
+          <SectionBand id="band:unassigned" title="No issue" collapsed={collapsed} onToggle={onToggleSection}>
             <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
-          </>
+          </SectionBand>
         ) : null}
       </tbody>
     </table>
@@ -213,13 +222,31 @@ type RowShared = {
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }
 
-function Band({ title }: { title: string }) {
+function SectionBand({
+  id,
+  title,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  id: string
+  title: string
+  collapsed: Set<string>
+  onToggle: (id: string) => void
+  children: ReactNode
+}) {
+  const open = !collapsed.has(id)
   return (
-    <tr className="band">
-      <td colSpan={COLUMNS}>
-        <span className="section-title">{title}</span>
-      </td>
-    </tr>
+    <>
+      <tr className="band fold" onClick={(event) => toggleSection(event, () => onToggle(id))}>
+        <td colSpan={COLUMNS}>
+          <SectionHead open={open} label={title} onToggle={() => onToggle(id)}>
+            <span className="section-title">{title}</span>
+          </SectionHead>
+        </td>
+      </tr>
+      {open ? children : null}
+    </>
   )
 }
 
@@ -882,9 +909,18 @@ function Conflict({
             <h3>Resolve with Cursor</h3>
             <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
             {conflicts.map((pr) => (
-              <button key={pr.key} type="button" className="menu-item" disabled={locked || pending !== null} onClick={() => void resolve(pr)}>
-                {pending === pr.key ? 'Starting Cursor…' : `#${pr.number} · ${pr.title}`}
-              </button>
+              <div key={pr.key} className="resolve-action">
+                {conflicts.length > 1 ? <p>#{pr.number}</p> : null}
+                <button
+                  type="button"
+                  className="primary resolve-cta"
+                  disabled={locked || pending !== null}
+                  aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with Cursor` : undefined}
+                  onClick={() => void resolve(pr)}
+                >
+                  {pending === pr.key ? 'Starting Cursor…' : 'Resolve with Cursor >'}
+                </button>
+              </div>
             ))}
             {error ? <p className="launch-error">{error}</p> : null}
           </ClickCard>
@@ -1036,7 +1072,7 @@ function CursorChip({
             </h3>
             <p>{cursorStatusDetail(session)}</p>
             {session.branch ? <p>Pushed to {session.branch}.</p> : null}
-            {session.result ? <p className="cursor-result">{session.result}</p> : null}
+            {session.result ? <Markdown className="cursor-result" text={session.result} /> : null}
             <div className="cursor-links">
               <a href={links.desktopUrl}>Open in Cursor</a>
               <a href={links.webUrl} target="_blank" rel="noreferrer">
@@ -1084,6 +1120,7 @@ function RowMenu(props: {
       <ClickCard
         id={props.id}
         className="row-menu"
+        closable={false}
         disabled={locked}
         label={
           <>

@@ -32,7 +32,7 @@ export function cursorStatusLabel(status: CursorSessionStatus): string {
     case 'creating':
       return 'Creating'
     case 'running':
-      return 'Running'
+      return 'Resolving'
     case 'finished':
       return 'Finished'
     case 'failed':

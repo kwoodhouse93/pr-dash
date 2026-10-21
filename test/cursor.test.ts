@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { cursorLinks, cursorPushedBranch, cursorSessionStatus, leadingCursorStatus } from '../src/shared/cursor.ts'
+import { cursorLinks, cursorPushedBranch, cursorSessionStatus, cursorStatusLabel, leadingCursorStatus } from '../src/shared/cursor.ts'
 import type { PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
 
@@ -20,6 +20,11 @@ describe('cursor sessions', () => {
   it('prefers a running session over a finished one', () => {
     expect(leadingCursorStatus(['finished', 'failed', 'running'])).toBe('running')
     expect(leadingCursorStatus([])).toBeNull()
+  })
+
+  it('labels an in-progress conflict session as resolving', () => {
+    expect(cursorStatusLabel('running')).toBe('Resolving')
+    expect(cursorStatusLabel('finished')).toBe('Finished')
   })
 
   it('reads the pushed branch and builds both session links', () => {

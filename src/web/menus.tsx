@@ -130,20 +130,16 @@ export function HoverCard({
       >
         {label}
       </button>
-      {open && !disabled && menu.active
-        ? createPortal(
-            <div
-              className="popover"
-              style={{ top: menu.active.top, left: menu.active.left }}
-              onMouseEnter={() => ref.current && menu.hover(id, ref.current)}
-              onMouseLeave={() => menu.leave()}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {children}
-            </div>,
-            document.body,
-          )
-        : null}
+      {open && !disabled && menu.active ? (
+        <PopoverShell
+          top={menu.active.top}
+          left={menu.active.left}
+          onMouseEnter={() => ref.current && menu.hover(id, ref.current)}
+          onMouseLeave={() => menu.leave()}
+        >
+          {children}
+        </PopoverShell>
+      ) : null}
     </>
   )
 }
@@ -154,6 +150,7 @@ export function ClickCard({
   label,
   panelClassName,
   disabled = false,
+  closable = true,
   children,
 }: {
   id: string
@@ -161,6 +158,7 @@ export function ClickCard({
   label: ReactNode
   panelClassName?: string
   disabled?: boolean
+  closable?: boolean
   children: ReactNode
 }) {
   const menu = useMenu()
@@ -185,19 +183,52 @@ export function ClickCard({
       >
         {label}
       </button>
-      {open && !disabled && menu.active
-        ? createPortal(
-            <div
-              className={panelClassName ? `popover ${panelClassName}` : 'popover'}
-              style={{ top: menu.active.top, left: menu.active.left }}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {children}
-            </div>,
-            document.body,
-          )
-        : null}
+      {open && !disabled && menu.active ? (
+        <PopoverShell top={menu.active.top} left={menu.active.left} panelClassName={panelClassName} closable={closable}>
+          {children}
+        </PopoverShell>
+      ) : null}
     </>
+  )
+}
+
+function PopoverShell({
+  top,
+  left,
+  panelClassName,
+  closable = true,
+  onMouseEnter,
+  onMouseLeave,
+  children,
+}: {
+  top: number
+  left: number
+  panelClassName?: string
+  closable?: boolean
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
+  children: ReactNode
+}) {
+  const close = useMenuClose()
+  const className = ['popover', panelClassName, closable ? 'has-close' : null].filter(Boolean).join(' ')
+  return createPortal(
+    <div
+      className={className}
+      style={{ top, left }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {closable ? (
+        <button type="button" className="popover-close" aria-label="Close" onClick={() => close()}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      ) : null}
+      {closable ? <div className="popover-body">{children}</div> : children}
+    </div>,
+    document.body,
   )
 }
 
