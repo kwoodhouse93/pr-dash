@@ -471,8 +471,8 @@ tr.held .stack-mark::after { opacity: 0.35; }
   font-size: 10px;
   line-height: 1;
 }
-.avatar.empty { color: var(--faint); }
-.avatar.empty svg { width: 12px; height: 12px; display: block; }
+.avatar.unassigned { color: var(--faint); }
+.avatar.unassigned svg { width: 12px; height: 12px; display: block; }
 .pill, .tag-btn {
   display: inline-flex;
   align-items: center;

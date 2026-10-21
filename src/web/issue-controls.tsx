@@ -271,7 +271,7 @@ function AssigneeFace({ user }: { user: LinearAssignee | null }) {
   if (user?.avatarUrl) return <img className="avatar" src={user.avatarUrl} alt="" />
   if (user) return <span className="avatar fallback">{user.name.slice(0, 1).toUpperCase()}</span>
   return (
-    <span className="avatar empty" aria-hidden="true">
+    <span className="avatar unassigned" aria-hidden="true">
       <svg viewBox="0 0 16 16">
         <circle cx="8" cy="5.2" r="2" fill="currentColor" />
         <path d="M3.8 12.6c.55-2.15 2-3.2 4.2-3.2s3.65 1.05 4.2 3.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
