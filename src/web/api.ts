@@ -35,7 +35,8 @@ export const api = {
   deleteInitiative: (id: string) => request<Snapshot>(`/api/initiatives/${id}`, { method: 'DELETE' }),
   assign: (initiativeId: string, prKeys: string[], action: 'add' | 'remove') =>
     post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
-  rerun: (keys: string[], mode: 'failed' | 'all') => post<{ reran: number; errors: string[] }>('/api/rerun', { keys, mode }),
+  rerun: (keys: string[], mode: 'failed' | 'all') =>
+    post<{ reran: number; errors: string[]; runs: { repo: string; runId: number }[] }>('/api/rerun', { keys, mode }),
   resolveConflictWithCursor: (key: string) => post<Snapshot>(`/api/conflicts/${encodeURIComponent(key)}/cursor`, {}),
   merge: (key: string) => post<Snapshot>('/api/merge', { key }),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),

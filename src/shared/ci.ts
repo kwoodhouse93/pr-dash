@@ -1,4 +1,4 @@
-import type { Check, CiLevel } from './types.ts'
+import type { Check, CiLevel, PullRequest } from './types.ts'
 
 const FAIL = new Set([
   'FAILURE',
@@ -83,12 +83,100 @@ export function ciLevel(checks: Check[]): CiLevel {
   return 'pending'
 }
 
-export function ciLabel(level: CiLevel): string {
+export type CiDisplay = CiLevel | 'invalidated'
+
+/** Identity of the check run currently on screen. A refresh that still returns this has not picked up a rerun. */
+export function checkStamp(check: Check): string {
+  return [check.status ?? '', check.conclusion ?? '', check.startedAt ?? '', check.completedAt ?? '', String(check.workflowRunId ?? '')].join('\0')
+}
+
+export type CheckHold = { name: string; stamp: string }
+
+/**
+ * Visible workflow checks a rerun would restart.
+ * `runs` is null before GitHub answers, then the set of `repo#runId` keys that actually reran.
+ */
+export function holdsFor(checks: Check[], mode: 'failed' | 'all', runs: ReadonlySet<string> | null, repo: string): CheckHold[] {
+  return selectChecks(checks).flatMap((check) => {
+    if (check.workflowRunId == null) return []
+    if (runs && !runs.has(`${repo}#${check.workflowRunId}`)) return []
+    if (mode === 'failed' && checkPhase(check) !== 'fail') return []
+    return [{ name: check.name, stamp: checkStamp(check) }]
+  })
+}
+
+export function collectHolds(prs: PullRequest[], mode: 'failed' | 'all', runs: ReadonlySet<string> | null): Map<string, CheckHold[]> {
+  const next = new Map<string, CheckHold[]>()
+  for (const pr of prs) {
+    const holds = holdsFor(pr.checks, mode, runs, pr.repo)
+    if (holds.length > 0) next.set(pr.key, holds)
+  }
+  return next
+}
+
+export function mergeHolds(current: Map<string, CheckHold[]>, extra: Map<string, CheckHold[]>): Map<string, CheckHold[]> {
+  const next = new Map(current)
+  for (const [key, list] of extra) {
+    const merged = new Map((next.get(key) ?? []).map((hold) => [hold.name, hold]))
+    for (const hold of list) merged.set(hold.name, hold)
+    next.set(key, [...merged.values()])
+  }
+  return next
+}
+
+export function withoutHolds(current: Map<string, CheckHold[]>, extra: Map<string, CheckHold[]>): Map<string, CheckHold[]> {
+  const next = new Map(current)
+  for (const [key, list] of extra) {
+    const drop = new Set(list.map((hold) => hold.name))
+    const kept = (next.get(key) ?? []).filter((hold) => !drop.has(hold.name))
+    if (kept.length === 0) next.delete(key)
+    else next.set(key, kept)
+  }
+  return next
+}
+
+/** Drop holds once the stored run is no longer the one on screen. */
+export function reconcileHolds(holds: CheckHold[], checks: Check[]): CheckHold[] {
+  const stamps = new Map(selectChecks(checks).map((check) => [check.name, checkStamp(check)]))
+  return holds.filter((hold) => stamps.get(hold.name) === hold.stamp)
+}
+
+export function activeHoldNames(checks: Check[], holds: CheckHold[]): Set<string> {
+  const wanted = new Map(holds.map((hold) => [hold.name, hold.stamp]))
+  const names = new Set<string>()
+  for (const check of selectChecks(checks)) {
+    if (wanted.get(check.name) === checkStamp(check)) names.add(check.name)
+  }
+  return names
+}
+
+/**
+ * A rerun hides the previous result. A required or optional failure that was not rerun still shows.
+ * Green, pending, and empty rollups wait until the refresh reports the new run.
+ */
+export function displayCi(checks: Check[], invalidated: ReadonlySet<string>): CiDisplay {
+  const selected = selectChecks(checks)
+  const live = selected.filter((check) => !invalidated.has(check.name))
+  if (live.length === selected.length) return ciLevel(selected)
+  const liveLevel = ciLevel(live)
+  if (liveLevel === 'red' || liveLevel === 'yellow') return liveLevel
+  return 'invalidated'
+}
+
+const DISPLAY_SEVERITY: CiDisplay[] = ['red', 'yellow', 'invalidated', 'pending', 'green', 'none']
+
+export function worstDisplay(levels: CiDisplay[]): CiDisplay {
+  return DISPLAY_SEVERITY.find((level) => levels.includes(level)) ?? 'none'
+}
+
+export function ciLabel(level: CiDisplay): string {
   switch (level) {
     case 'red':
       return 'Failed'
     case 'yellow':
       return 'Optional failed'
+    case 'invalidated':
+      return 'Invalidated'
     case 'pending':
       return 'Running'
     case 'green':
@@ -110,12 +198,14 @@ export function compareChecks(a: Check, b: Check): number {
   return a.name.localeCompare(b.name)
 }
 
-export function ciDetail(level: CiLevel): string {
+export function ciDetail(level: CiDisplay): string {
   switch (level) {
     case 'red':
       return 'A required check failed.'
     case 'yellow':
       return 'Required checks passed, or none apply. An optional check failed.'
+    case 'invalidated':
+      return 'Rerun requested. The previous result stays hidden until a refresh reports the new run.'
     case 'pending':
       return 'A check is still running.'
     case 'green':

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { collectHolds, mergeHolds, reconcileHolds, withoutHolds, type CheckHold } from '../shared/ci.ts'
 import { rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
@@ -20,6 +21,7 @@ export function App() {
   const [status, setStatus] = useState('Idle')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
   const [page, setPage] = useState<'list' | 'queue'>('list')
   const [queue, setQueue] = useState<QueueSnapshot | null>(null)
   const applyId = useRef(0)
@@ -32,6 +34,23 @@ export function App() {
   }
 
   useEffect(() => savePreferences(prefs), [prefs])
+
+  useEffect(() => {
+    setHolds((current) => {
+      if (current.size === 0) return current
+      const byKey = new Map((data?.pullRequests ?? []).map((pr) => [pr.key, pr]))
+      let changed = false
+      const next = new Map<string, CheckHold[]>()
+      for (const [key, list] of current) {
+        const pr = byKey.get(key)
+        const kept = pr ? reconcileHolds(list, pr.checks) : []
+        if (kept.length !== list.length) changed = true
+        if (kept.length > 0) next.set(key, kept)
+      }
+      if (!changed && next.size === current.size) return current
+      return next
+    })
+  }, [data])
 
   async function refresh() {
     const id = ++applyId.current
@@ -340,14 +359,27 @@ export function App() {
               onStackMerge={async (key) => {
                 setQueue(await api.enqueue(key, 'downstack'))
               }}
+              holds={holds}
               onRerun={async (keys, mode) => {
-                const result = await api.rerun(keys, mode)
-                const text = result.errors.length
-                  ? `Reran ${result.reran}. ${result.errors[0]}`
-                  : `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}.`
-                setNotice(text)
-                void refresh()
-                return text
+                const keySet = new Set(keys)
+                const targeted = prs.filter((pr) => keySet.has(pr.key))
+                const optimistic = collectHolds(targeted, mode, null)
+                setHolds((current) => mergeHolds(current, optimistic))
+                try {
+                  const result = await api.rerun(keys, mode)
+                  const restarted = new Set(result.runs.map((run) => `${run.repo}#${run.runId}`))
+                  const confirmed = collectHolds(targeted, mode, restarted)
+                  setHolds((current) => mergeHolds(withoutHolds(current, optimistic), confirmed))
+                  const text = result.errors.length
+                    ? `Reran ${result.reran}. ${result.errors[0]}`
+                    : `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}.`
+                  setNotice(text)
+                  void refresh()
+                  return text
+                } catch (caught) {
+                  setHolds((current) => withoutHolds(current, optimistic))
+                  throw caught
+                }
               }}
               onResolveConflictWithCursor={async (key) => {
                 const snap = await api.resolveConflictWithCursor(key)

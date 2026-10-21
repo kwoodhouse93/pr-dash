@@ -234,10 +234,11 @@ export async function rerunWorkflows(
   token: string,
   runs: { repo: string; runId: number }[],
   mode: 'failed' | 'all',
-): Promise<{ reran: number; errors: string[] }> {
+): Promise<{ reran: number; errors: string[]; runs: { repo: string; runId: number }[] }> {
   const seen = new Set<string>()
   let reran = 0
   const errors: string[] = []
+  const restarted: { repo: string; runId: number }[] = []
   for (const run of runs) {
     const key = `${run.repo}#${run.runId}`
     if (seen.has(key)) continue
@@ -246,12 +247,13 @@ export async function rerunWorkflows(
     const response = await rest(token, `/repos/${run.repo}/actions/runs/${run.runId}/${suffix}`, 'POST')
     if (response.ok) {
       reran += 1
+      restarted.push(run)
       continue
     }
     const text = await response.text()
     errors.push(`${run.repo} run ${run.runId}: ${text.slice(0, 180) || response.status}`)
   }
-  return { reran, errors }
+  return { reran, errors, runs: restarted }
 }
 
 const LIVE_QUERY = `

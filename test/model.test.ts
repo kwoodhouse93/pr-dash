@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { mergeReview, summarizeReviews } from '../src/shared/approval.ts'
 import { canSquashMerge } from '../src/shared/merge.ts'
-import { applyRequired, ciLevel, compareChecks, selectChecks } from '../src/shared/ci.ts'
+import {
+  activeHoldNames,
+  applyRequired,
+  ciLabel,
+  ciLevel,
+  compareChecks,
+  displayCi,
+  holdsFor,
+  mergeHolds,
+  reconcileHolds,
+  selectChecks,
+  withoutHolds,
+} from '../src/shared/ci.ts'
 import { summarizeThreads } from '../src/shared/feedback.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
@@ -107,6 +119,66 @@ describe('ci', () => {
       check({ name: 'Check', conclusion: 'SUCCESS', required: true, workflowName: 'Lint & Types' }),
     ]
     expect([...checks].sort(compareChecks).map((item) => item.name)).toEqual(['Run', 'Unit (1/2)', 'Check', 'Scan'])
+  })
+
+  it('hides a rerun until a refresh reports a different run', () => {
+    const failed = check({ name: 'Check', conclusion: 'FAILURE', required: true, workflowRunId: 7 })
+    const holds = holdsFor([failed], 'failed', null, 'acme/app')
+    expect(displayCi([failed], activeHoldNames([failed], holds))).toBe('invalidated')
+    expect(ciLabel('invalidated')).toBe('Invalidated')
+
+    const stale = check({ name: 'Check', conclusion: 'FAILURE', required: true, workflowRunId: 7 })
+    expect(reconcileHolds(holds, [stale])).toEqual(holds)
+
+    const running = check({
+      name: 'Check',
+      conclusion: null,
+      status: 'IN_PROGRESS',
+      required: true,
+      workflowRunId: 7,
+      completedAt: null,
+      startedAt: '2026-10-21T09:25:50Z',
+    })
+    expect(reconcileHolds(holds, [running])).toEqual([])
+    expect(displayCi([running], activeHoldNames([running], holds))).toBe('pending')
+  })
+
+  it('keeps a failure that the rerun did not touch', () => {
+    const checks = [
+      check({ name: 'Check', conclusion: 'FAILURE', required: true, workflowRunId: 7 }),
+      check({ name: 'Lint', conclusion: 'FAILURE', required: true }),
+    ]
+    const holds = holdsFor(checks, 'failed', null, 'acme/app')
+    expect(holds.map((hold) => hold.name)).toEqual(['Check'])
+    expect(displayCi(checks, activeHoldNames(checks, holds))).toBe('red')
+  })
+
+  it('reruns failed workflow checks, and every workflow check when rerunning all', () => {
+    const checks = [
+      check({ name: 'Check', conclusion: 'SUCCESS', required: true, workflowRunId: 7 }),
+      check({ name: 'Preview', conclusion: 'FAILURE', workflowRunId: 8 }),
+    ]
+    expect(holdsFor(checks, 'failed', null, 'acme/app').map((hold) => hold.name)).toEqual(['Preview'])
+    expect(holdsFor(checks, 'all', null, 'acme/app').map((hold) => hold.name).sort()).toEqual(['Check', 'Preview'])
+    const confirmed = holdsFor(checks, 'failed', new Set(['acme/app#7']), 'acme/app')
+    expect(confirmed).toEqual([])
+    const restarted = holdsFor(checks, 'all', new Set(['acme/app#7']), 'acme/app')
+    expect(restarted.map((hold) => hold.name)).toEqual(['Check'])
+    expect(displayCi(checks, activeHoldNames(checks, restarted))).toBe('yellow')
+  })
+
+  it('drops optimistic holds that GitHub did not restart', () => {
+    const optimistic = new Map([
+      ['acme/app#1', [
+        { name: 'Check', stamp: 'a' },
+        { name: 'Preview', stamp: 'b' },
+      ]],
+    ])
+    const confirmed = new Map([['acme/app#1', [{ name: 'Check', stamp: 'a' }]]])
+    expect([...(mergeHolds(withoutHolds(new Map(), optimistic), confirmed).get('acme/app#1') ?? [])]).toEqual([
+      { name: 'Check', stamp: 'a' },
+    ])
+    expect(withoutHolds(optimistic, optimistic).size).toBe(0)
   })
 
   it('marks ruleset check names required even when GitHub says otherwise', () => {

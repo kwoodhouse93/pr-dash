@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { checkPhase, ciDetail, ciLabel, compareChecks, worstCi } from '../shared/ci.ts'
+import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { cursorLinks, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
 import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
@@ -13,6 +13,17 @@ import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
 import { ClickCard, HoverCard } from './menus.tsx'
 
 const COLUMNS = 13
+
+const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
+const EMPTY_HOLDS: CheckHold[] = []
+
+function useHolds(): Map<string, CheckHold[]> {
+  return useContext(HoldContext)
+}
+
+function shownLevel(prs: PullRequest[], holds: Map<string, CheckHold[]>): CiDisplay {
+  return worstDisplay(prs.map((pr) => displayCi(pr.checks, activeHoldNames(pr.checks, holds.get(pr.key) ?? EMPTY_HOLDS))))
+}
 
 export function PrTable({
   outline,
@@ -29,6 +40,7 @@ export function PrTable({
   onQueue,
   onStackMerge,
   queueByKey,
+  holds,
   onRerun,
   onResolveConflictWithCursor,
   linearConfigured,
@@ -48,6 +60,7 @@ export function PrTable({
   onQueue: (key: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   queueByKey: Map<string, RowMark>
+  holds: Map<string, CheckHold[]>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   linearConfigured: boolean
@@ -73,6 +86,7 @@ export function PrTable({
     onUpdateIssue,
   }
   return (
+    <HoldContext.Provider value={holds}>
     <table className="prs">
       <thead>
         <tr>
@@ -112,6 +126,7 @@ export function PrTable({
         ) : null}
       </tbody>
     </table>
+    </HoldContext.Provider>
   )
 }
 
@@ -364,10 +379,12 @@ function DataRow({
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
+  const holds = useHolds()
   const mark = queueByKey.get(pr.key) ?? null
+  const ci = shownLevel([pr], holds)
   return (
     <tr
-      className={`${child ? 'child' : ''} ${pr.ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
+      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
         if (!toggle) return
         if ((event.target as HTMLElement).closest('button, a, input, label')) return
@@ -484,14 +501,16 @@ function SummaryRow({
   onStackMerge: (key: string) => Promise<void>
   queueByKey: Map<string, RowMark>
 }) {
+  const holds = useHolds()
   const summary = block.summary
+  const ci = shownLevel(visible, holds)
   const issues = sharedIssues(visible, hideIssue)
   const ordered = orderedStack(block, prByKey)
   const mark = foremost(block.stackKeys, queueByKey)
   const top = ordered[0] ?? null
   return (
     <tr
-      className={`stack ${summary.ci === 'red' ? 'fail' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
+      className={`stack ${ci === 'red' ? 'fail' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button, a, input, label')) return
         onToggle(openId)
@@ -1052,17 +1071,31 @@ function Feedback({
 }
 
 function CiControl({ id, prs, onRerun }: { id: string; prs: PullRequest[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
-  const level = worstCi(prs.map((pr) => pr.ci))
+  const level = shownLevel(prs, useHolds())
   return (
     <ClickCard id={id} className={`ci ${level}`} label={ciLabel(level)}>
-      <CiPanel prs={prs} onRerun={onRerun} />
+      <CiPanel prs={prs} level={level} onRerun={onRerun} />
     </ClickCard>
   )
 }
 
-function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
+function CiPanel({
+  prs,
+  level,
+  onRerun,
+}: {
+  prs: PullRequest[]
+  level: CiDisplay
+  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+}) {
+  const holds = useHolds()
+  const invalidated = (pr: PullRequest, check: Check) =>
+    (holds.get(pr.key) ?? EMPTY_HOLDS).some((hold) => hold.name === check.name && hold.stamp === checkStamp(check))
   const checks = prs.flatMap((pr) => pr.checks.map((check) => ({ pr, check })))
-  checks.sort((a, b) => compareChecks(a.check, b.check) || a.pr.number - b.pr.number)
+  checks.sort((a, b) => {
+    const rank = Number(invalidated(b.pr, b.check)) - Number(invalidated(a.pr, a.check))
+    return rank || compareChecks(a.check, b.check) || a.pr.number - b.pr.number
+  })
   const grouped = new Map<string, { pr: PullRequest; check: Check }[]>()
   for (const item of checks) {
     const name = item.check.workflowName ?? 'Other'
@@ -1070,18 +1103,22 @@ function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[
     list.push(item)
     grouped.set(name, list)
   }
+  const heading = level === 'invalidated' ? ciDetail(level) : prs.length === 1 ? ciDetail(prs[0]!.ci) : 'Checks across this stack'
   return (
     <div>
-      <h3>{prs.length === 1 ? ciDetail(prs[0]!.ci) : 'Checks across this stack'}</h3>
+      <h3>{heading}</h3>
       <RerunActions keys={prs.map((pr) => pr.key)} onRerun={onRerun} />
       {[...grouped.entries()].map(([workflow, items]) => (
         <div key={workflow} className="check-group">
           <h4>{workflow}</h4>
           {items.map(({ pr, check }) => {
             const phase = checkPhase(check)
+            const stale = invalidated(pr, check)
+            const tone = stale ? 'invalidated' : phase === 'fail' ? 'fail' : phase === 'pending' ? 'pending' : 'success'
+            const state = stale ? 'Invalidated' : phase === 'fail' ? 'Failed' : phase === 'pending' ? 'Running' : null
             return (
               <div key={`${pr.id}:${check.name}`} className="check">
-                <i className={phase === 'fail' ? 'fail' : phase === 'pending' ? 'pending' : 'success'} />
+                <i className={tone} />
                 <span>
                   {prs.length > 1 ? `#${pr.number} ` : ''}
                   {check.url ? (
@@ -1093,8 +1130,8 @@ function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[
                   )}
                 </span>
                 <span className="req">
-                  {phase === 'fail' || phase === 'pending' ? <em className={phase}>{phase === 'fail' ? 'Failed' : 'Running'}</em> : null}
-                  {phase === 'fail' || phase === 'pending' ? ' · ' : ''}
+                  {state ? <em className={tone}>{state}</em> : null}
+                  {state ? ' · ' : ''}
                   {check.required ? 'Required' : 'Optional'}
                 </span>
               </div>
@@ -1109,26 +1146,26 @@ function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[
 
 function RerunActions({ keys, onRerun }: { keys: string[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
   const [message, setMessage] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<'failed' | 'all' | null>(null)
   async function run(mode: 'failed' | 'all') {
-    setBusy(true)
+    setPending(mode)
     setMessage(null)
     try {
       setMessage(await onRerun(keys, mode))
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Rerun failed')
     } finally {
-      setBusy(false)
+      setPending(null)
     }
   }
   return (
     <>
       <div className="popover-actions">
-        <button type="button" disabled={busy} onClick={() => void run('failed')}>
-          Rerun failed
+        <button type="button" disabled={pending !== null} aria-busy={pending === 'failed'} onClick={() => void run('failed')}>
+          {pending === 'failed' ? 'Rerunning…' : 'Rerun failed'}
         </button>
-        <button type="button" disabled={busy} onClick={() => void run('all')}>
-          Rerun all
+        <button type="button" disabled={pending !== null} aria-busy={pending === 'all'} onClick={() => void run('all')}>
+          {pending === 'all' ? 'Rerunning…' : 'Rerun all'}
         </button>
       </div>
       {message ? <p>{message}</p> : null}

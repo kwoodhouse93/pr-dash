@@ -495,6 +495,7 @@ td.conflict { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
 }
 .ci.red { background: var(--red-dim); color: var(--red); }
 .ci.yellow { background: var(--yellow-dim); color: var(--yellow); }
+.ci.invalidated { background: #2c2418; color: var(--accent); }
 .ci.pending { background: var(--blue-dim); color: var(--blue); }
 .ci.green { background: var(--green-dim); color: var(--green); }
 .ci.none { color: var(--faint); }
@@ -566,11 +567,13 @@ td.conflict { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
 }
 .check i { width: 8px; height: 8px; border-radius: 99px; display: block; margin-top: 4px; }
 .check i.fail { background: var(--red); }
+.check i.invalidated { background: var(--accent); }
 .check i.pending { background: var(--blue); }
 .check i.success { background: var(--green); }
 .check .req { color: var(--faint); font-size: 11px; }
 .check .req em { font-style: normal; font-weight: 600; }
 .check .req em.fail { color: var(--red); }
+.check .req em.invalidated { color: var(--accent); }
 .check .req em.pending { color: var(--blue); }
 .popover-actions { display: flex; gap: 8px; margin: 2px 0 12px; }
 .popover-actions button, .stack-opt {
