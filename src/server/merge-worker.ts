@@ -93,13 +93,6 @@ export function cancelEntry(db: DashboardDb, id: string) {
   }
 }
 
-export function removeEntry(db: DashboardDb, id: string) {
-  const entry = db.queue.get(id)
-  db.queue.remove(id)
-  if (entry) settle(db, entry)
-  kickMergeWorker()
-}
-
 export function moveEntry(db: DashboardDb, id: string, direction: 'up' | 'down') {
   db.queue.move(id, direction)
 }

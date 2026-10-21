@@ -4,12 +4,10 @@ import { formatExact } from './format.ts'
 export function MergeQueuePage({
   queue,
   onCancel,
-  onRemove,
   onMove,
 }: {
   queue: QueueSnapshot | null
   onCancel: (id: string) => Promise<void>
-  onRemove: (id: string) => Promise<void>
   onMove: (id: string, direction: 'up' | 'down') => Promise<void>
 }) {
   if (!queue) {
@@ -39,7 +37,6 @@ export function MergeQueuePage({
               canUp={entry.status === 'queued' && queue.entries.slice(0, index).some((item) => item.status === 'queued')}
               canDown={entry.status === 'queued' && queue.entries.slice(index + 1).some((item) => item.status === 'queued')}
               onCancel={onCancel}
-              onRemove={onRemove}
               onMove={onMove}
             />
           ))}
@@ -49,7 +46,7 @@ export function MergeQueuePage({
         <section className="queue-history">
           <h2>History</h2>
           {queue.history.map((entry) => (
-            <QueueCard key={entry.id} entry={entry} interactive={false} canUp={false} canDown={false} onCancel={onCancel} onRemove={onRemove} onMove={onMove} />
+            <QueueCard key={entry.id} entry={entry} interactive={false} canUp={false} canDown={false} onCancel={onCancel} onMove={onMove} />
           ))}
         </section>
       ) : null}
@@ -63,7 +60,6 @@ function QueueCard({
   canUp,
   canDown,
   onCancel,
-  onRemove,
   onMove,
 }: {
   entry: MergeEntry
@@ -71,7 +67,6 @@ function QueueCard({
   canUp: boolean
   canDown: boolean
   onCancel: (id: string) => Promise<void>
-  onRemove: (id: string) => Promise<void>
   onMove: (id: string, direction: 'up' | 'down') => Promise<void>
 }) {
   const open = interactive && (entry.status === 'queued' || entry.status === 'active' || entry.status === 'failed')
@@ -100,16 +95,9 @@ function QueueCard({
                 Down
               </button>
             ) : null}
-            {entry.status === 'queued' || entry.status === 'active' || entry.status === 'failed' ? (
-              <button type="button" className="ghost" onClick={() => void onCancel(entry.id)}>
-                Cancel
-              </button>
-            ) : null}
-            {entry.status !== 'active' ? (
-              <button type="button" className="ghost" onClick={() => void onRemove(entry.id)}>
-                Remove
-              </button>
-            ) : null}
+            <button type="button" className="ghost" onClick={() => void onCancel(entry.id)}>
+              Cancel
+            </button>
           </div>
         ) : null}
       </header>

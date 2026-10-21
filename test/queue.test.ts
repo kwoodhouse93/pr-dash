@@ -264,7 +264,7 @@ describe('restart', () => {
 })
 
 describe('queue store', () => {
-  it('pauses on failure and resumes when that entry is removed or cancelled', () => {
+  it('pauses on failure and resumes when that entry is cancelled', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-queue-'))
     const db = openDatabase(path.join(dir, 'dash.sqlite'))
     const first = db.queue.enqueue({
@@ -284,7 +284,7 @@ describe('queue store', () => {
     db.queue.fail(first.id, first.steps[0]!.id, 'Check failed.')
     expect(db.queue.isPaused()).toBe(true)
     expect(db.queue.nextRunnable()).toBeNull()
-    db.queue.remove(first.id)
+    expect(db.queue.requestCancel(first.id)).toBe('now')
     expect(db.queue.isPaused()).toBe(false)
     expect(db.queue.nextRunnable()?.id).toBe(second.id)
 
@@ -292,7 +292,7 @@ describe('queue store', () => {
     expect(db.queue.requestCancel(second.id)).toBe('now')
     expect(db.queue.isPaused()).toBe(false)
     expect(db.queue.snapshot().entries).toEqual([])
-    expect(db.queue.snapshot().history.map((entry) => entry.status).sort()).toEqual(['cancelled', 'failed'])
+    expect(db.queue.snapshot().history.map((entry) => entry.status).sort()).toEqual(['cancelled', 'cancelled'])
     rmSync(dir, { recursive: true, force: true })
   })
 

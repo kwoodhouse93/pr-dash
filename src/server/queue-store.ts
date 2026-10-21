@@ -383,15 +383,6 @@ export function attachQueue(db: DatabaseSync) {
       touch(id)
     },
 
-    remove(id: string) {
-      const entry = load(id)
-      if (!entry) throw new Error('That merge is no longer in the queue.')
-      if (entry.status === 'active') throw new Error('Cancel the in-progress merge before removing it.')
-      db.prepare('UPDATE merge_entries SET archived = 1, updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
-      store.clearPause(id)
-      store.log(id, 'info', 'Removed from the queue.')
-    },
-
     move(id: string, direction: 'up' | 'down') {
       const entry = load(id)
       if (!entry) throw new Error('That merge is no longer in the queue.')

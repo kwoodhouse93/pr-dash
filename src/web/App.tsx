@@ -88,7 +88,9 @@ export function App() {
       if (document.visibilityState !== 'visible') return
       void api.mergeQueue().then((next) => {
         if (cancel) return
-        const done = new Set(next.history.filter((entry) => entry.status === 'done').map((entry) => entry.id))
+        const done = new Set(
+          next.history.filter((entry) => entry.status === 'done' || entry.status === 'cancelled').map((entry) => entry.id),
+        )
         const finished = [...seenQueue.current].some((id) => done.has(id))
         seenQueue.current = new Set(next.entries.map((entry) => entry.id))
         setQueue(next)
@@ -278,8 +280,7 @@ export function App() {
           {page === 'queue' ? (
             <MergeQueuePage
               queue={queue}
-              onCancel={(id) => changeQueue(() => api.cancelMerge(id))}
-              onRemove={(id) => changeQueue(() => api.removeMerge(id), true)}
+              onCancel={(id) => changeQueue(() => api.cancelMerge(id), true)}
               onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
             />
           ) : null}

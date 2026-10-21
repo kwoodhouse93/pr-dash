@@ -12,7 +12,6 @@ import {
   enqueuePull,
   MergeRejected,
   moveEntry,
-  removeEntry,
   startMergeWorker,
 } from './merge-worker.ts'
 import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
@@ -173,15 +172,6 @@ app.post('/api/merge-queue', async (c) => {
 app.post('/api/merge-queue/:id/cancel', (c) => {
   try {
     cancelEntry(db, c.req.param('id'))
-    return c.json(db.queue.snapshot())
-  } catch (error) {
-    return c.json({ error: messageOf(error) }, 400)
-  }
-})
-
-app.post('/api/merge-queue/:id/remove', (c) => {
-  try {
-    removeEntry(db, c.req.param('id'))
     return c.json(db.queue.snapshot())
   } catch (error) {
     return c.json({ error: messageOf(error) }, 400)
