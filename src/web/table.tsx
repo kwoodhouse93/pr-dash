@@ -1073,6 +1073,7 @@ function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[
   return (
     <div>
       <h3>{prs.length === 1 ? ciDetail(prs[0]!.ci) : 'Checks across this stack'}</h3>
+      <RerunActions keys={prs.map((pr) => pr.key)} onRerun={onRerun} />
       {[...grouped.entries()].map(([workflow, items]) => (
         <div key={workflow} className="check-group">
           <h4>{workflow}</h4>
@@ -1102,7 +1103,6 @@ function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[
         </div>
       ))}
       {checks.length === 0 ? <p>No checks on the latest commit.</p> : null}
-      <RerunActions keys={prs.map((pr) => pr.key)} onRerun={onRerun} />
     </div>
   )
 }
