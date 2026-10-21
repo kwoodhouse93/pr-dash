@@ -1054,9 +1054,9 @@ function Feedback({
 function CiControl({ id, prs, onRerun }: { id: string; prs: PullRequest[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
   const level = worstCi(prs.map((pr) => pr.ci))
   return (
-    <HoverCard id={id} className={`ci ${level}`} label={ciLabel(level)}>
+    <ClickCard id={id} className={`ci ${level}`} label={ciLabel(level)}>
       <CiPanel prs={prs} onRerun={onRerun} />
-    </HoverCard>
+    </ClickCard>
   )
 }
 

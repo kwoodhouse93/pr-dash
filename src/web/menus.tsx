@@ -71,7 +71,11 @@ export function MenuProvider({ children }: { children: ReactNode }) {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setActive(null)
     }
-    const onScroll = () => setActive(null)
+    const onScroll = (event: Event) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('.popover')) return
+      setActive(null)
+    }
     window.addEventListener('keydown', onKey)
     window.addEventListener('scroll', onScroll, true)
     return () => {

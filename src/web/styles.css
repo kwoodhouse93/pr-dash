@@ -521,6 +521,7 @@ td.conflict { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
   width: min(380px, calc(100vw - 24px));
   max-height: min(420px, calc(100vh - 24px));
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--bg-raised);
   border: 1px solid var(--line-strong);
   border-radius: 10px;
