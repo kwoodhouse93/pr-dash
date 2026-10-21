@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mergeReview, summarizeReviews } from '../src/shared/approval.ts'
 import { canSquashMerge } from '../src/shared/merge.ts'
-import { applyRequired, ciLevel, selectChecks } from '../src/shared/ci.ts'
+import { applyRequired, ciLevel, compareChecks, selectChecks } from '../src/shared/ci.ts'
 import { summarizeThreads } from '../src/shared/feedback.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
@@ -97,6 +97,16 @@ describe('ci', () => {
     expect(selected).toHaveLength(1)
     expect(selected[0]?.conclusion).toBe('SUCCESS')
     expect(ciLevel(selected)).toBe('green')
+  })
+
+  it('orders failing checks ahead of passing ones', () => {
+    const checks = [
+      check({ name: 'Scan', conclusion: 'SUCCESS' }),
+      check({ name: 'Run', conclusion: 'FAILURE', required: true, workflowName: 'E2E Tests (Staging)' }),
+      check({ name: 'Unit (1/2)', conclusion: 'FAILURE', workflowName: 'Vitest Tests' }),
+      check({ name: 'Check', conclusion: 'SUCCESS', required: true, workflowName: 'Lint & Types' }),
+    ]
+    expect([...checks].sort(compareChecks).map((item) => item.name)).toEqual(['Run', 'Unit (1/2)', 'Check', 'Scan'])
   })
 
   it('marks ruleset check names required even when GitHub says otherwise', () => {

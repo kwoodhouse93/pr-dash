@@ -568,6 +568,9 @@ td.conflict { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
 .check i.pending { background: var(--blue); }
 .check i.success { background: var(--green); }
 .check .req { color: var(--faint); font-size: 11px; }
+.check .req em { font-style: normal; font-weight: 600; }
+.check .req em.fail { color: var(--red); }
+.check .req em.pending { color: var(--blue); }
 .popover-actions { display: flex; gap: 8px; margin-top: 10px; }
 .popover-actions button, .stack-opt {
   border: 1px solid var(--line-strong);

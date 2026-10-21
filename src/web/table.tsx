@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { checkPhase, ciDetail, ciLabel, worstCi } from '../shared/ci.ts'
+import { checkPhase, ciDetail, ciLabel, compareChecks, worstCi } from '../shared/ci.ts'
 import { cursorLinks, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
 import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
@@ -1062,6 +1062,7 @@ function CiControl({ id, prs, onRerun }: { id: string; prs: PullRequest[]; onRer
 
 function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
   const checks = prs.flatMap((pr) => pr.checks.map((check) => ({ pr, check })))
+  checks.sort((a, b) => compareChecks(a.check, b.check) || a.pr.number - b.pr.number)
   const grouped = new Map<string, { pr: PullRequest; check: Check }[]>()
   for (const item of checks) {
     const name = item.check.workflowName ?? 'Other'
@@ -1090,7 +1091,11 @@ function CiPanel({ prs, onRerun }: { prs: PullRequest[]; onRerun: (keys: string[
                     check.name
                   )}
                 </span>
-                <span className="req">{check.required ? 'Required' : 'Optional'}</span>
+                <span className="req">
+                  {phase === 'fail' || phase === 'pending' ? <em className={phase}>{phase === 'fail' ? 'Failed' : 'Running'}</em> : null}
+                  {phase === 'fail' || phase === 'pending' ? ' · ' : ''}
+                  {check.required ? 'Required' : 'Optional'}
+                </span>
               </div>
             )
           })}

@@ -98,6 +98,18 @@ export function ciLabel(level: CiLevel): string {
   }
 }
 
+const PHASE_ORDER: Record<CheckPhase, number> = { fail: 0, pending: 1, success: 2, skip: 3 }
+
+/** Failing checks first, so a short tooltip shows why CI is not green. */
+export function compareChecks(a: Check, b: Check): number {
+  const phase = PHASE_ORDER[checkPhase(a)] - PHASE_ORDER[checkPhase(b)]
+  if (phase !== 0) return phase
+  if (a.required !== b.required) return a.required ? -1 : 1
+  const workflow = (a.workflowName ?? '').localeCompare(b.workflowName ?? '')
+  if (workflow !== 0) return workflow
+  return a.name.localeCompare(b.name)
+}
+
 export function ciDetail(level: CiLevel): string {
   switch (level) {
     case 'red':
