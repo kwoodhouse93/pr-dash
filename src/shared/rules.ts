@@ -16,6 +16,14 @@ export type ReviewPolicy = {
   dismissStale: boolean
 }
 
+export const RULES_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+export function rulesFresh(fetchedAt: string | null | undefined, now: number, maxAge = RULES_MAX_AGE_MS): boolean {
+  if (!fetchedAt) return false
+  const at = Date.parse(fetchedAt)
+  return !Number.isNaN(at) && now < at + maxAge
+}
+
 export function requiredCheckNames(rulesets: Ruleset[]): string[] {
   const names = new Set<string>()
   for (const ruleset of rulesets) {

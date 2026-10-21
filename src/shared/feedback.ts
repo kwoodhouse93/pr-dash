@@ -1,3 +1,5 @@
+import type { PullRequest } from './types.ts'
+
 type Comment = {
   author: { __typename: string; login: string } | null
   createdAt: string
@@ -92,6 +94,24 @@ export function summarizeThreads(threads: Thread[], viewerLogin: string): Feedba
     unresolvedUrl,
     unreadUrl,
     resolvedUnreadUrl,
+  }
+}
+
+/** Keep reply counts when a list refresh did not load thread comments and the pull request is unchanged. */
+export function carryThreadFeedback(previous: PullRequest | undefined, next: PullRequest): PullRequest {
+  if (!previous?.feedbackAt || previous.feedbackAt !== next.updatedAt) return next
+  return {
+    ...next,
+    awaitingYouCount: previous.awaitingYouCount,
+    unreadCount: previous.unreadCount,
+    resolvedUnreadCount: previous.resolvedUnreadCount,
+    awaitingThreadUrl: previous.awaitingThreadUrl,
+    unresolvedThreadUrl: previous.unresolvedThreadUrl,
+    unreadThreadUrl: previous.unreadThreadUrl,
+    resolvedUnreadThreadUrl: previous.resolvedUnreadThreadUrl,
+    commentAwaitingCount: previous.commentAwaitingCount,
+    reviewCommentAwaitingCount: previous.reviewCommentAwaitingCount,
+    feedbackAt: previous.feedbackAt,
   }
 }
 

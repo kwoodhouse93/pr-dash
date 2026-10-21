@@ -1,6 +1,6 @@
 import { mergeReview, summarizeReviews, type ReviewDecision } from './approval.ts'
 import { applyRequired, ciLevel, selectChecks } from './ci.ts'
-import { summarizeNotes, summarizeThreads, threadPermalink, type Note } from './feedback.ts'
+import { summarizeNotes, summarizeThreads, threadPermalink, type Note, type Thread } from './feedback.ts'
 import { parseLinear } from './linear.ts'
 import type { Check, Mergeable, PullRequest } from './types.ts'
 
@@ -48,7 +48,7 @@ export type GitHubPull = {
       isResolved: boolean
       isOutdated: boolean
       resolvedBy?: { login: string } | null
-      comments: { nodes: Array<GitHubComment | null> | null }
+      comments?: { nodes: Array<GitHubComment | null> | null }
     } | null> | null
   }
   comments: { nodes: Array<GitHubComment | null> | null }
@@ -128,21 +128,9 @@ export function mapPullRequest(
   },
 ): PullRequest {
   const reviews = summarizeReviews((node.reviews.nodes ?? []).filter(present))
-  const threads = (node.reviewThreads.nodes ?? []).filter(present).map((thread) => {
-    const comments = (thread.comments.nodes ?? []).filter(present)
-    return {
-      isResolved: thread.isResolved,
-      resolvedBy: thread.resolvedBy?.login ?? null,
-      url: threadPermalink(comments),
-      comments: comments.map((comment) => ({
-        author: comment.author,
-        createdAt: comment.createdAt ?? '',
-      })),
-    }
-  })
-  const feedback = summarizeThreads(threads, extras.viewer)
-  const notes = conversationNotes(node)
-  const commentsAwaiting = summarizeNotes(threads, notes, extras.viewer)
+  const threadNodes = (node.reviewThreads.nodes ?? []).filter(present)
+  const commentsLoaded = threadNodes.every((thread) => thread.comments !== undefined)
+  const detail = feedbackFrom(threadNodes, node, extras.viewer)
   const comments = (node.comments.nodes ?? []).filter(present)
   const merge = mergeReview(node.reviewDecision, node.isDraft)
   const checks = checksFromRaw(extras.checks, extras.requiredNames)
@@ -183,19 +171,20 @@ export function mapPullRequest(
     behind: node.mergeStateStatus === 'BEHIND',
     checks,
     ci: ciLevel(checks),
-    threadCount: feedback.threadCount,
-    unresolvedCount: feedback.unresolvedCount,
-    awaitingYouCount: feedback.awaitingYouCount,
-    unreadCount: feedback.unreadCount,
-    resolvedUnreadCount: feedback.resolvedUnreadCount,
-    awaitingThreadUrl: feedback.awaitingUrl,
-    unresolvedThreadUrl: feedback.unresolvedUrl,
-    unreadThreadUrl: feedback.unreadUrl,
-    resolvedUnreadThreadUrl: feedback.resolvedUnreadUrl,
-    commentAwaitingCount: commentsAwaiting.author,
-    reviewCommentAwaitingCount: commentsAwaiting.reviewer,
+    threadCount: detail.feedback.threadCount,
+    unresolvedCount: detail.feedback.unresolvedCount,
+    awaitingYouCount: detail.feedback.awaitingYouCount,
+    unreadCount: detail.feedback.unreadCount,
+    resolvedUnreadCount: detail.feedback.resolvedUnreadCount,
+    awaitingThreadUrl: detail.feedback.awaitingUrl,
+    unresolvedThreadUrl: detail.feedback.unresolvedUrl,
+    unreadThreadUrl: detail.feedback.unreadUrl,
+    resolvedUnreadThreadUrl: detail.feedback.resolvedUnreadUrl,
+    commentAwaitingCount: detail.commentsAwaiting.author,
+    reviewCommentAwaitingCount: detail.commentsAwaiting.reviewer,
     reviewPending: reviewPending(node, extras.viewer, new Set(extras.teams ?? [])),
     threadsTruncated: node.reviewThreads.pageInfo?.hasNextPage === true,
+    feedbackAt: commentsLoaded ? node.updatedAt : null,
     linearIssues: parseLinear({
       title: node.title,
       headRef: node.headRefName,
@@ -207,7 +196,80 @@ export function mapPullRequest(
 
 const SKIPPED_REVIEW = new Set(['PENDING', 'DISMISSED'])
 
-function conversationNotes(node: GitHubPull): Note[] {
+export type ThreadDetail = {
+  updatedAt: string
+  reviews: GitHubPull['reviews']
+  reviewThreads: GitHubPull['reviewThreads']
+  latestComments?: GitHubPull['latestComments']
+}
+
+export function applyThreadDetails(pr: PullRequest, detail: ThreadDetail, viewer: string): PullRequest {
+  const at = Date.parse(detail.updatedAt)
+  const current = Date.parse(pr.updatedAt)
+  if (Number.isFinite(at) && Number.isFinite(current) && at < current) return pr
+  const threads = threadsFrom(detail.reviewThreads.nodes)
+  const feedback = summarizeThreads(threads, viewer)
+  const commentsAwaiting = summarizeNotes(threads, conversationNotes(detail), viewer)
+  return {
+    ...pr,
+    updatedAt: Number.isFinite(at) && (!Number.isFinite(current) || at > current) ? detail.updatedAt : pr.updatedAt,
+    threadCount: feedback.threadCount,
+    unresolvedCount: feedback.unresolvedCount,
+    awaitingYouCount: feedback.awaitingYouCount,
+    unreadCount: feedback.unreadCount,
+    resolvedUnreadCount: feedback.resolvedUnreadCount,
+    awaitingThreadUrl: feedback.awaitingUrl,
+    unresolvedThreadUrl: feedback.unresolvedUrl,
+    unreadThreadUrl: feedback.unreadUrl,
+    resolvedUnreadThreadUrl: feedback.resolvedUnreadUrl,
+    commentAwaitingCount: commentsAwaiting.author,
+    reviewCommentAwaitingCount: commentsAwaiting.reviewer,
+    threadsTruncated: detail.reviewThreads.pageInfo?.hasNextPage === true,
+    feedbackAt: detail.updatedAt,
+  }
+}
+
+function feedbackFrom(
+  threadNodes: Array<{
+    isResolved: boolean
+    resolvedBy?: { login: string } | null
+    comments?: { nodes: Array<GitHubComment | null> | null }
+  }>,
+  node: GitHubPull,
+  viewer: string,
+) {
+  const threads = threadsFrom(threadNodes)
+  return {
+    feedback: summarizeThreads(threads, viewer),
+    commentsAwaiting: summarizeNotes(threads, conversationNotes(node), viewer),
+  }
+}
+
+function threadsFrom(
+  nodes:
+    | Array<{
+        isResolved: boolean
+        resolvedBy?: { login: string } | null
+        comments?: { nodes: Array<GitHubComment | null> | null }
+      } | null>
+    | null
+    | undefined,
+): Thread[] {
+  return (nodes ?? []).filter(present).map((thread) => {
+    const comments = (thread.comments?.nodes ?? []).filter(present)
+    return {
+      isResolved: thread.isResolved,
+      resolvedBy: thread.resolvedBy?.login ?? null,
+      url: threadPermalink(comments),
+      comments: comments.map((comment) => ({
+        author: comment.author,
+        createdAt: comment.createdAt ?? '',
+      })),
+    }
+  })
+}
+
+function conversationNotes(node: { latestComments?: GitHubPull['latestComments']; reviews: GitHubPull['reviews'] }): Note[] {
   const comments = (node.latestComments?.nodes ?? []).filter(present).map((comment) => ({
     author: comment.author,
     createdAt: comment.createdAt ?? '',

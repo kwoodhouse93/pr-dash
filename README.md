@@ -13,7 +13,7 @@ npm run dev
 
 Open http://127.0.0.1:5173. The API listens on http://127.0.0.1:4317.
 
-The server uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise `gh auth token`. A refresh pulls your open pull requests, then keeps that snapshot in `data/pr-dash.sqlite`. The page refreshes itself about once a minute while the tab is visible. Sort, filters, and which stacks are expanded are remembered in this browser.
+The server uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise `gh auth token`. A refresh pulls the open list you are looking at, then keeps that snapshot in `data/pr-dash.sqlite`. That list refreshes about every 3 minutes while the tab is visible, and pauses when few GraphQL points remain. Thread replies load after the list, and again when a pull request changes. The row menu can refresh one pull request. Required checks are cached for a day. Settings has a full sync that reloads both lists and reads rulesets again. Sort, filters, and which stacks are expanded are remembered in this browser.
 
 `LINEAR_API_KEY` is optional. Without it, issue titles still come from the Linear link on the pull request. Project names need the key.
 

@@ -97,6 +97,8 @@ export type PullRequest = {
   reviewCommentAwaitingCount: number
   reviewPending: boolean
   threadsTruncated: boolean
+  /** `updatedAt` the reply counts were loaded for. Missing means thread comments have not been read. */
+  feedbackAt?: string | null
   linearIssues: LinearIssue[]
   initiativeIds: string[]
   cursorSession?: CursorSession | null
@@ -123,6 +125,8 @@ export type Initiative = {
 export type Snapshot = {
   viewer: string | null
   syncedAt: string | null
+  mineSyncedAt: string | null
+  reviewSyncedAt: string | null
   pullRequests: PullRequest[]
   reviewPullRequests: PullRequest[]
   initiatives: Initiative[]

@@ -11,7 +11,11 @@ import { formatExact, repoColors } from './format.ts'
 import { ClickCard, MenuProvider } from './menus.tsx'
 import { loadPreferences, savePreferences, type DashboardPage } from './prefs.ts'
 import { MergeQueuePage } from './queue.tsx'
+import { SettingsPage } from './settings.tsx'
 import { PrTable } from './table.tsx'
+import type { SyncStatus } from './api.ts'
+
+const REFRESH_MS = 3 * 60 * 1000
 
 export function App() {
   const [prefs, setPrefs] = useState(loadPreferences)
@@ -19,6 +23,7 @@ export function App() {
   const [booting, setBooting] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [status, setStatus] = useState('Idle')
+  const [sync, setSync] = useState<SyncStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
@@ -28,6 +33,8 @@ export function App() {
   const seenQueue = useRef(new Set<string>())
   const pageRef = useRef<DashboardPage>(prefs.page)
   pageRef.current = prefs.page
+  const refreshedAt = useRef<{ mine: number; review: number }>({ mine: 0, review: 0 })
+  const previousPage = useRef(prefs.page)
 
   function adopt(snap: Snapshot): Snapshot {
     const reviewPullRequests = snap.reviewPullRequests ?? []
@@ -61,24 +68,48 @@ export function App() {
     })
   }, [data])
 
-  async function refresh() {
+  async function refresh(options: { force?: boolean; focus?: 'mine' | 'review'; full?: boolean } = {}) {
+    const page = pageRef.current
+    const focus = options.focus ?? (page === 'review' ? 'review' : 'mine')
+    const listed = page === 'mine' || page === 'review'
+    if (!options.full && !listed && !options.force) return false
+    if (!options.force && !options.full && Date.now() - refreshedAt.current[focus] < REFRESH_MS) return false
     const id = ++applyId.current
     setRefreshing(true)
     setError(null)
-    const focus = pageRef.current === 'review' ? 'review' : 'mine'
+    const started = Date.now()
     const poll = window.setInterval(() => {
       void api.snapshot().then((snap) => {
         if (id === applyId.current) setData(adopt(snap))
       }).catch(() => undefined)
     }, 800)
     try {
-      const snap = await api.refresh(focus)
+      const snap = await api.refresh(focus, options.full === true)
+      if (options.full) {
+        refreshedAt.current.mine = started
+        refreshedAt.current.review = started
+      } else {
+        refreshedAt.current[focus] = started
+      }
       if (id === applyId.current) setData(adopt(snap))
+      return true
     } catch (caught) {
+      if (!options.full) refreshedAt.current[focus] = 0
       if (id === applyId.current) setError(caught instanceof Error ? caught.message : 'Refresh failed')
+      return false
     } finally {
       window.clearInterval(poll)
       if (id === applyId.current) setRefreshing(false)
+    }
+  }
+
+  async function loadFeedback(which: 'mine' | 'review') {
+    const id = applyId.current
+    for (let step = 0; step < 30; step += 1) {
+      const result = await api.feedback(which)
+      if (id !== applyId.current) return
+      setData(adopt(result.snapshot))
+      if (result.pending === 0 || result.paused) return
     }
   }
 
@@ -107,16 +138,33 @@ export function App() {
       } finally {
         if (!cancel) setBooting(false)
       }
-      await refresh()
+      const page = pageRef.current
+      if (page === 'mine' || page === 'review') {
+        await refresh({ force: true })
+        await loadFeedback(page)
+      }
     })()
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refresh()
-    }, 60_000)
+      if (document.visibilityState !== 'visible') return
+      const page = pageRef.current
+      if (page !== 'mine' && page !== 'review') return
+      void refresh().then((ran) => {
+        if (ran) return loadFeedback(page)
+      })
+    }, 30_000)
     return () => {
       cancel = true
       window.clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    if (previousPage.current === prefs.page) return
+    previousPage.current = prefs.page
+    if (prefs.page !== 'mine' && prefs.page !== 'review') return
+    const page = prefs.page
+    void refresh().then(() => loadFeedback(page))
+  }, [prefs.page])
 
   useEffect(() => {
     let cancel = false
@@ -130,7 +178,7 @@ export function App() {
         const finished = [...seenQueue.current].some((id) => done.has(id))
         seenQueue.current = new Set(next.entries.map((entry) => entry.id))
         setQueue(next)
-        if (finished) void refresh()
+        if (finished) void refresh({ force: true, focus: 'mine' })
       }).catch(() => undefined)
     }
     tick()
@@ -142,9 +190,28 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (prefs.page !== 'settings') return
+    let cancel = false
+    const tick = () => {
+      void api.status().then((next) => {
+        if (!cancel) setSync(next)
+      }).catch(() => undefined)
+    }
+    tick()
+    const timer = window.setInterval(tick, 2000)
+    return () => {
+      cancel = true
+      window.clearInterval(timer)
+    }
+  }, [prefs.page])
+
+  useEffect(() => {
     if (!refreshing) return
     const timer = window.setInterval(() => {
-      void api.status().then((next) => setStatus(next.message)).catch(() => undefined)
+      void api.status().then((next) => {
+        setStatus(next.message)
+        setSync(next)
+      }).catch(() => undefined)
     }, 400)
     return () => window.clearInterval(timer)
   }, [refreshing])
@@ -168,6 +235,7 @@ export function App() {
   const visible = !outlineEmpty(outline)
   const reviewBadge = review.filter((pr) => pr.reviewPending || needsAttention(pr, 'reviewer')).length
   const listPage = page === 'mine' || page === 'review'
+  const listSyncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt) : (data?.mineSyncedAt ?? data?.syncedAt)
   const filtersOn = JSON.stringify(prefs.filters) !== JSON.stringify(DEFAULT_FILTERS)
 
   function patchFilters(patch: Partial<Filters>) {
@@ -178,7 +246,7 @@ export function App() {
     setError(null)
     try {
       setQueue(await work())
-      if (refreshAfter) void refresh()
+      if (refreshAfter) void refresh({ force: true, focus: 'mine' })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not update the merge queue')
     }
@@ -200,7 +268,7 @@ export function App() {
         <header className="top">
           <div className="top-row">
             <div className="brand">
-              <h1>{page === 'queue' ? 'Merge queue' : page === 'review' ? 'Review' : 'My PRs'}</h1>
+              <h1>{page === 'queue' ? 'Merge queue' : page === 'review' ? 'Review' : page === 'settings' ? 'Settings' : 'My PRs'}</h1>
               <nav className="nav">
                 <button type="button" className="text-btn" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
                   My PRs
@@ -213,19 +281,30 @@ export function App() {
                   Merge queue
                   {queue && queue.entries.length > 0 ? <span className="nav-count">{queue.entries.length}</span> : null}
                 </button>
+                <button type="button" className="text-btn" aria-pressed={page === 'settings'} onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}>
+                  Settings
+                </button>
               </nav>
               <p className="meta">
-                {data?.viewer ? <strong>{data.viewer}</strong> : page === 'review' ? 'Pull requests for you to review' : 'Your open changes'}
-                {listPage && prs.length ? ` · ${prs.length} ${page === 'review' ? 'to review' : 'open'}` : ''}
-                {data?.syncedAt ? ` · updated ${formatExact(data.syncedAt)}` : ''}
-                {refreshing ? ` · ${status}` : ''}
+                {page === 'settings' ? (
+                  'How this dashboard calls GitHub'
+                ) : (
+                  <>
+                    {data?.viewer ? <strong>{data.viewer}</strong> : page === 'review' ? 'Pull requests for you to review' : 'Your open changes'}
+                    {listPage && prs.length ? ` · ${prs.length} ${page === 'review' ? 'to review' : 'open'}` : ''}
+                    {listPage && listSyncedAt ? ` · updated ${formatExact(listSyncedAt)}` : ''}
+                    {refreshing ? ` · ${status}` : ''}
+                  </>
+                )}
               </p>
             </div>
-            <button type="button" className="primary" onClick={() => void refresh()} disabled={refreshing}>
-              {refreshing ? 'Refreshing' : 'Refresh'}
-            </button>
+            {page === 'settings' ? null : (
+              <button type="button" className="primary" onClick={() => void refresh({ force: true })} disabled={refreshing}>
+                {refreshing ? 'Refreshing' : 'Refresh'}
+              </button>
+            )}
           </div>
-          <div className="filters" hidden={page === 'queue'}>
+          <div className="filters" hidden={!listPage}>
             <input
               className="search"
               value={prefs.filters.query}
@@ -335,6 +414,22 @@ export function App() {
           </div>
         ) : null}
         <div className="scroll">
+          {page === 'settings' ? (
+            <SettingsPage
+              status={sync}
+              mineSyncedAt={data?.mineSyncedAt ?? null}
+              reviewSyncedAt={data?.reviewSyncedAt ?? null}
+              syncing={refreshing}
+              onFullSync={() => {
+                const page = pageRef.current === 'review' ? 'review' : 'mine'
+                void refresh({ force: true, full: true, focus: page }).then(async () => {
+                  await loadFeedback('mine')
+                  await loadFeedback('review')
+                  setSync(await api.status().catch(() => null))
+                })
+              }}
+            />
+          ) : null}
           {page === 'queue' ? (
             <MergeQueuePage
               queue={queue}
@@ -429,7 +524,7 @@ export function App() {
                     ? `Reran ${result.reran}. ${result.errors[0]}`
                     : `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}.`
                   setNotice(text)
-                  void refresh()
+                  void refresh({ force: true })
                   return text
                 } catch (caught) {
                   setHolds((current) => withoutHolds(current, optimistic))
@@ -442,8 +537,13 @@ export function App() {
                   ++applyId.current
                   setData(adopt(snap))
                 } finally {
-                  void refresh()
+                  void refresh({ force: true })
                 }
+              }}
+              onRefreshPr={async (key) => {
+                const snap = await api.refreshPull(key)
+                ++applyId.current
+                setData(adopt(snap))
               }}
               onResolveConflictWithCursor={async (key) => {
                 const snap = await api.resolveConflictWithCursor(key)

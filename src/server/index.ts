@@ -5,7 +5,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { loadEnv } from './env.ts'
 import { openDatabase } from './db.ts'
-import { loadGithubToken, rerunWorkflows, squashMergePullRequest } from './github.ts'
+import { graphqlStatus, loadGithubToken, rerunWorkflows, squashMergePullRequest } from './github.ts'
 import {
   cancelEntry,
   enqueueDownstack,
@@ -16,7 +16,8 @@ import {
 } from './merge-worker.ts'
 import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
 import { canSquashMerge } from '../shared/merge.ts'
-import { markMerged, refreshSnapshot, syncStatus } from './sync.ts'
+import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
+import { markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, syncStatus } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
 import { startCursorConflictResolver } from './cursor.ts'
@@ -29,15 +30,43 @@ const app = new Hono()
 
 app.get('/api/snapshot', (c) => c.json(db.snapshot()))
 
-app.get('/api/status', (c) => c.json(syncStatus))
+app.get('/api/status', (c) =>
+  c.json({
+    running: syncStatus.running,
+    message: syncStatus.message,
+    graphql: graphqlStatus(GRAPHQL_PAUSE_BELOW),
+    rules: db.ruleCache().map((rule) => ({ repo: rule.repo, fetchedAt: rule.fetchedAt })),
+  }),
+)
 
 app.post('/api/refresh', async (c) => {
   try {
-    const body = await c.req.json<{ focus?: string }>().catch(() => ({ focus: undefined }))
+    const body = await c.req.json<{ focus?: string; full?: boolean }>().catch(() => ({ focus: undefined, full: undefined }))
     const focus = body.focus === 'review' ? 'review' : 'mine'
-    return c.json(await refreshSnapshot(db, focus))
+    return c.json(await refreshSnapshot(db, focus, { full: body.full === true }))
   } catch (error) {
     return c.json({ error: messageOf(error) }, 500)
+  }
+})
+
+app.post('/api/feedback', async (c) => {
+  try {
+    const body = await c.req.json<{ focus?: string }>().catch(() => ({ focus: undefined }))
+    const focus = body.focus === 'review' ? 'review' : 'mine'
+    return c.json(await loadThreadFeedback(db, focus))
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 500)
+  }
+})
+
+app.post('/api/pulls/refresh', async (c) => {
+  try {
+    const body = await c.req.json<{ key?: string }>()
+    const key = body.key ?? ''
+    if (!key) return c.json({ error: 'A pull request is required.' }, 400)
+    return c.json(await refreshPull(db, key))
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
   }
 })
 

@@ -4,6 +4,14 @@ import { DatabaseSync } from 'node:sqlite'
 import type { CursorSession, Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
+export type CachedRules = {
+  repo: string
+  checks: string[]
+  requiredApprovals: number
+  dismissStale: boolean
+  fetchedAt: string
+}
+
 export type DashboardDb = {
   snapshot(): Snapshot
   saveSnapshot(input: {
@@ -13,7 +21,11 @@ export type DashboardDb = {
     reviewPullRequests?: PullRequest[]
     linearConfigured: boolean
     warning: string | null
+    mineSyncedAt?: string | null
+    reviewSyncedAt?: string | null
   }): Snapshot
+  ruleCache(): CachedRules[]
+  saveRules(repo: string, rules: { checks: string[]; requiredApprovals: number; dismissStale: boolean }, fetchedAt: string): void
   createInitiative(name: string): Initiative
   renameInitiative(id: string, name: string): Initiative
   deleteInitiative(id: string): void
@@ -27,6 +39,8 @@ export type DashboardDb = {
 type SnapshotRow = {
   viewer: string | null
   synced_at: string | null
+  mine_synced_at: string | null
+  review_synced_at: string | null
   linear_configured: number
   warning: string | null
   pull_requests: string
@@ -60,6 +74,13 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       created_at TEXT NOT NULL,
       PRIMARY KEY (initiative_id, pr_key)
     );
+    CREATE TABLE IF NOT EXISTS repo_rules (
+      repo TEXT PRIMARY KEY,
+      checks TEXT NOT NULL,
+      required_approvals INTEGER NOT NULL,
+      dismiss_stale INTEGER NOT NULL,
+      fetched_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS cursor_sessions (
       pr_key TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -75,10 +96,16 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   if (!columns.some((column) => column.name === 'review_pull_requests')) {
     db.exec(`ALTER TABLE snapshot ADD COLUMN review_pull_requests TEXT NOT NULL DEFAULT '[]'`)
   }
+  if (!columns.some((column) => column.name === 'mine_synced_at')) {
+    db.exec('ALTER TABLE snapshot ADD COLUMN mine_synced_at TEXT')
+  }
+  if (!columns.some((column) => column.name === 'review_synced_at')) {
+    db.exec('ALTER TABLE snapshot ADD COLUMN review_synced_at TEXT')
+  }
 
   const queue = attachQueue(db)
   const readSnapshotRow = db.prepare(
-    'SELECT viewer, synced_at, linear_configured, warning, pull_requests, review_pull_requests FROM snapshot WHERE id = 1',
+    'SELECT viewer, synced_at, mine_synced_at, review_synced_at, linear_configured, warning, pull_requests, review_pull_requests FROM snapshot WHERE id = 1',
   )
   const readInitiatives = db.prepare('SELECT id, name, created_at, updated_at FROM initiatives ORDER BY created_at ASC')
   const readAssignments = db.prepare('SELECT initiative_id, pr_key FROM initiative_pull_requests')
@@ -158,6 +185,8 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     return {
       viewer: row?.viewer ?? null,
       syncedAt: row?.synced_at ?? null,
+      mineSyncedAt: row?.mine_synced_at ?? null,
+      reviewSyncedAt: row?.review_synced_at ?? null,
       pullRequests: row ? decorate(parseList(row.pull_requests), tags, sessions) : [],
       reviewPullRequests: row ? decorate(parseList(row.review_pull_requests), tags, sessions) : [],
       initiatives: initiatives(),
@@ -181,12 +210,16 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       const strip = (list: PullRequest[]) => list.map(({ cursorSession: _session, ...pr }) => ({ ...pr, initiativeIds: [] }))
       const existing = readSnapshotRow.get() as SnapshotRow | undefined
       const review = input.reviewPullRequests ?? parseList(existing?.review_pull_requests)
+      const mineSyncedAt = input.mineSyncedAt === undefined ? (existing?.mine_synced_at ?? null) : input.mineSyncedAt
+      const reviewSyncedAt = input.reviewSyncedAt === undefined ? (existing?.review_synced_at ?? null) : input.reviewSyncedAt
       db.prepare(
-        `INSERT INTO snapshot (id, viewer, synced_at, linear_configured, warning, pull_requests, review_pull_requests)
-         VALUES (1, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO snapshot (id, viewer, synced_at, mine_synced_at, review_synced_at, linear_configured, warning, pull_requests, review_pull_requests)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            viewer = excluded.viewer,
            synced_at = excluded.synced_at,
+           mine_synced_at = excluded.mine_synced_at,
+           review_synced_at = excluded.review_synced_at,
            linear_configured = excluded.linear_configured,
            warning = excluded.warning,
            pull_requests = excluded.pull_requests,
@@ -194,12 +227,42 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       ).run(
         input.viewer,
         input.syncedAt,
+        mineSyncedAt,
+        reviewSyncedAt,
         input.linearConfigured ? 1 : 0,
         input.warning,
         JSON.stringify(strip(input.pullRequests)),
         JSON.stringify(strip(review)),
       )
       return snapshot()
+    },
+    ruleCache() {
+      return (
+        db.prepare('SELECT repo, checks, required_approvals, dismiss_stale, fetched_at FROM repo_rules ORDER BY repo').all() as {
+          repo: string
+          checks: string
+          required_approvals: number
+          dismiss_stale: number
+          fetched_at: string
+        }[]
+      ).map((row) => ({
+        repo: row.repo,
+        checks: JSON.parse(row.checks) as string[],
+        requiredApprovals: row.required_approvals,
+        dismissStale: row.dismiss_stale === 1,
+        fetchedAt: row.fetched_at,
+      }))
+    },
+    saveRules(repo, rules, fetchedAt) {
+      db.prepare(
+        `INSERT INTO repo_rules (repo, checks, required_approvals, dismiss_stale, fetched_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(repo) DO UPDATE SET
+           checks = excluded.checks,
+           required_approvals = excluded.required_approvals,
+           dismiss_stale = excluded.dismiss_stale,
+           fetched_at = excluded.fetched_at`,
+      ).run(repo, JSON.stringify(rules.checks), rules.requiredApprovals, rules.dismissStale ? 1 : 0, fetchedAt)
     },
     createInitiative(name) {
       const trimmed = name.trim()

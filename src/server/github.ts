@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck } from '../shared/map.ts'
-import type { LivePull } from '../shared/queue.ts'
-import { requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
-import type { PullRequest } from '../shared/types.ts'
 import { summarizeReviews } from '../shared/approval.ts'
+import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
+import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type ThreadDetail } from '../shared/map.ts'
+import type { LivePull } from '../shared/queue.ts'
+import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
+import type { PullRequest } from '../shared/types.ts'
 
 export function loadGithubToken(): string {
   const fromEnv = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
@@ -17,7 +18,39 @@ export function loadGithubToken(): string {
   throw new Error('No GitHub token. Set GITHUB_TOKEN, or run gh auth login.')
 }
 
+export class GraphqlPaused extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GraphqlPaused'
+  }
+}
+
+let graphqlBudget: GraphqlBudget | null = null
+
+export function graphqlStatus(floor = GRAPHQL_SINGLE_FLOOR, now = Date.now()): GraphqlView {
+  return graphqlView(graphqlBudget, now, floor)
+}
+
+export function assertGraphql(floor = GRAPHQL_SINGLE_FLOOR, now = Date.now()) {
+  const view = graphqlStatus(floor, now)
+  if (view.paused && view.message) throw new GraphqlPaused(view.message)
+}
+
+function rememberGraphql(response: Response) {
+  const next = budgetFromHeaders(response.headers)
+  if (next) graphqlBudget = next
+}
+
+function markGraphqlSpent(resetAt = Date.now() + 60_000) {
+  graphqlBudget = {
+    limit: graphqlBudget?.limit ?? 5000,
+    remaining: 0,
+    resetAt: graphqlBudget && graphqlBudget.resetAt > Date.now() ? graphqlBudget.resetAt : resetAt,
+  }
+}
+
 async function graphql<T>(token: string, query: string, variables?: Record<string, unknown>): Promise<T> {
+  assertGraphql()
   const response = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: {
@@ -28,10 +61,17 @@ async function graphql<T>(token: string, query: string, variables?: Record<strin
     body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(60_000),
   })
+  rememberGraphql(response)
   const text = await response.text()
   if (!response.ok) throw new Error(`GitHub ${response.status}: ${text.slice(0, 280)}`)
   const body = JSON.parse(text) as { data?: T; errors?: { message: string }[] }
-  if (body.errors?.length) throw new Error(body.errors.map((error) => error.message).join('; '))
+  if (body.errors?.length) {
+    if (body.errors.some((error) => /rate limit/i.test(error.message))) {
+      markGraphqlSpent()
+      throw new GraphqlPaused(graphqlStatus().message ?? body.errors.map((error) => error.message).join('; '))
+    }
+    throw new Error(body.errors.map((error) => error.message).join('; '))
+  }
   if (!body.data) throw new Error('GitHub query failed')
   return body.data
 }
@@ -51,7 +91,11 @@ async function rest(token: string, path: string, method = 'GET', body?: unknown)
   })
 }
 
-const PULL_FIELDS = `
+function pullFields(threadComments: boolean): string {
+  const comments = threadComments
+    ? 'comments(last: 30) { nodes { author { __typename login } createdAt url } }'
+    : ''
+  return `
   id number title url isDraft createdAt updatedAt additions deletions changedFiles
   baseRefName headRefName reviewDecision mergeStateStatus mergeable
   author { login avatarUrl }
@@ -63,7 +107,7 @@ const PULL_FIELDS = `
       isResolved
       isOutdated
       resolvedBy { login }
-      comments(last: 30) { nodes { author { __typename login } createdAt url } }
+      ${comments}
     }
   }
   comments(first: 12) { nodes { author { __typename login } body } }
@@ -78,6 +122,9 @@ const PULL_FIELDS = `
     }
   }
 `
+}
+
+const PULL_FIELDS = pullFields(false)
 
 const LIST_QUERY = `
   query Authored($cursor: String) {
@@ -165,7 +212,16 @@ type TeamsData = {
   }
 }
 
+let viewerCache: { login: string; teams: string[]; at: number } | null = null
+
+export function forgetViewerContext() {
+  viewerCache = null
+}
+
 async function viewerContext(token: string): Promise<{ login: string; teams: string[]; warning: string | null }> {
+  if (viewerCache && Date.now() - viewerCache.at < RULES_MAX_AGE_MS) {
+    return { login: viewerCache.login, teams: viewerCache.teams, warning: null }
+  }
   const viewer = await graphql<{ viewer: { login: string } }>(token, VIEWER_QUERY)
   const login = viewer.viewer.login
   try {
@@ -173,9 +229,10 @@ async function viewerContext(token: string): Promise<{ login: string; teams: str
     const teams = (data.viewer.organizations?.nodes ?? []).flatMap((org) =>
       (org?.teams.nodes ?? []).flatMap((team) => (team?.combinedSlug ? [team.combinedSlug] : [])),
     )
-    return { login, teams: [...new Set(teams)], warning: null }
+    viewerCache = { login, teams: [...new Set(teams)], at: Date.now() }
+    return { login, teams: viewerCache.teams, warning: null }
   } catch {
-    return { login, teams: [], warning: 'Team review requests were not loaded.' }
+    return { login, teams: viewerCache?.login === login ? viewerCache.teams : [], warning: 'Team review requests were not loaded.' }
   }
 }
 
@@ -257,9 +314,11 @@ async function fetchChecks(token: string, ids: string[], onProgress: (message: s
   return bundles
 }
 
-type RepoRules = { checks: string[]; requiredApprovals: number; dismissStale: boolean }
+export type RepoRules = { checks: string[]; requiredApprovals: number; dismissStale: boolean }
 
-async function fetchRepoRules(token: string, repos: string[], onProgress: (message: string) => void) {
+export type RulesLoader = (repos: string[]) => Promise<Map<string, RepoRules>>
+
+export async function fetchRepoRules(token: string, repos: string[], onProgress: (message: string) => void) {
   const rules = new Map<string, RepoRules>()
   for (const repo of repos) {
     onProgress(`Reading required checks for ${repo}`)
@@ -290,11 +349,12 @@ async function hydrate(
   nodes: GitHubPull[],
   onProgress: (message: string) => void,
   extraWarning: string | null,
+  loadRules: RulesLoader,
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   const repos = [...new Set(nodes.map((node) => node.repository.nameWithOwner))]
   const [bundles, required] = await Promise.all([
     fetchChecks(token, nodes.map((node) => node.id), onProgress),
-    fetchRepoRules(token, repos, onProgress),
+    loadRules(repos),
   ])
   const warnings: string[] = extraWarning ? [extraWarning] : []
   const pullRequests = nodes.map((node) => {
@@ -321,17 +381,114 @@ async function hydrate(
 export async function fetchAuthoredPullRequests(
   token: string,
   onProgress: (message: string) => void,
+  loadRules: RulesLoader = (repos) => fetchRepoRules(token, repos, onProgress),
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   const { viewer, nodes } = await fetchNodes(token, onProgress)
-  return hydrate(token, viewer, [], nodes, onProgress, null)
+  return hydrate(token, viewer, [], nodes, onProgress, null, loadRules)
 }
 
 export async function fetchReviewPullRequests(
   token: string,
   onProgress: (message: string) => void,
+  loadRules: RulesLoader = (repos) => fetchRepoRules(token, repos, onProgress),
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   const { viewer, teams, nodes, warning } = await fetchReviewNodes(token, onProgress)
-  return hydrate(token, viewer, teams, nodes, onProgress, warning)
+  return hydrate(token, viewer, teams, nodes, onProgress, warning, loadRules)
+}
+
+const CHECK_NODES = `
+  __typename
+  ... on CheckRun {
+    name conclusion status detailsUrl startedAt completedAt
+    isRequired(pullRequestId: $id)
+    checkSuite { workflowRun { databaseId workflow { name } } }
+  }
+  ... on StatusContext { context state targetUrl createdAt }
+`
+
+const ONE_QUERY = `
+  query One($id: ID!) {
+    node(id: $id) {
+      ... on PullRequest {
+        state
+        ${pullFields(true)}
+        commits(last: 1) {
+          nodes {
+            commit {
+              committedDate
+              statusCheckRollup { contexts(first: 80) { nodes { ${CHECK_NODES} } } }
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
+type OneCommit = {
+  committedDate: string | null
+  statusCheckRollup: { contexts: { nodes: Array<RawCheck | null> } } | null
+} | null
+
+type OneData = {
+  node: (GitHubPull & {
+    state?: 'OPEN' | 'CLOSED' | 'MERGED'
+    commits?: { nodes: Array<{ commit: OneCommit } | null> }
+  }) | null
+}
+
+export async function fetchOnePull(
+  token: string,
+  id: string,
+): Promise<{ pull: GitHubPull; open: boolean; committedAt: string | null; checks: RawCheck[] } | null> {
+  const data = await graphql<OneData>(token, ONE_QUERY, { id })
+  const node = data.node
+  if (!node) return null
+  const commit = node.commits?.nodes?.[0]?.commit
+  const checks = (commit?.statusCheckRollup?.contexts.nodes ?? []).filter((item): item is RawCheck => item != null)
+  return { pull: node, open: node.state == null || node.state === 'OPEN', committedAt: commit?.committedDate ?? null, checks }
+}
+
+const THREAD_QUERY = `
+  query Threads($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on PullRequest {
+        id
+        updatedAt
+        reviews(last: 40) { nodes { state submittedAt body author { __typename login } } }
+        reviewThreads(first: 60) {
+          pageInfo { hasNextPage }
+          nodes {
+            isResolved
+            isOutdated
+            resolvedBy { login }
+            comments(last: 30) { nodes { author { __typename login } createdAt url } }
+          }
+        }
+        latestComments: comments(last: 20) { nodes { author { __typename login } createdAt body } }
+      }
+    }
+  }
+`
+
+type ThreadNode = ThreadDetail & { id?: string }
+
+export async function fetchThreadDetails(token: string, ids: string[]): Promise<Map<string, ThreadDetail>> {
+  const found = new Map<string, ThreadDetail>()
+  for (let index = 0; index < ids.length; index += 4) {
+    const batch = ids.slice(index, index + 4)
+    const data = await graphql<{ nodes: Array<ThreadNode | null> | null }>(token, THREAD_QUERY, { ids: batch })
+    for (const node of data.nodes ?? []) {
+      if (!node?.id) continue
+      found.set(node.id, node)
+    }
+  }
+  return found
+}
+
+export async function viewerFor(token: string): Promise<{ login: string; teams: string[] }> {
+  const viewer = await viewerContext(token)
+  return { login: viewer.login, teams: viewer.teams }
 }
 
 export async function squashMergePullRequest(token: string, repo: string, number: number): Promise<void> {

@@ -21,10 +21,31 @@ function post<T>(path: string, payload: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 }
 
+export type SyncStatus = {
+  running: boolean
+  message: string
+  graphql: {
+    paused: boolean
+    limit: number | null
+    remaining: number | null
+    resetAt: string | null
+    message: string | null
+  }
+  rules: { repo: string; fetchedAt: string }[]
+}
+
+export type FeedbackLoad = {
+  snapshot: Snapshot
+  pending: number
+  paused: boolean
+}
+
 export const api = {
   snapshot: () => request<Snapshot>('/api/snapshot'),
-  status: () => request<{ running: boolean; message: string }>('/api/status'),
-  refresh: (focus: 'mine' | 'review' = 'mine') => post<Snapshot>('/api/refresh', { focus }),
+  status: () => request<SyncStatus>('/api/status'),
+  refresh: (focus: 'mine' | 'review' = 'mine', full = false) => post<Snapshot>('/api/refresh', { focus, full }),
+  feedback: (focus: 'mine' | 'review') => post<FeedbackLoad>('/api/feedback', { focus }),
+  refreshPull: (key: string) => post<Snapshot>('/api/pulls/refresh', { key }),
   createInitiative: (name: string) => post<Snapshot>('/api/initiatives', { name }),
   renameInitiative: (id: string, name: string) =>
     request<Snapshot>(`/api/initiatives/${id}`, {

@@ -443,6 +443,16 @@ tr.held .stack-mark::after { opacity: 0.35; }
   padding: 8px 6px;
 }
 .menu-item:hover { background: var(--bg-hover); }
+.menu-item:disabled { opacity: 0.45; cursor: default; }
+.menu-item:disabled:hover { background: transparent; }
+.settings { padding: 8px 22px 40px; max-width: 680px; }
+.settings section { margin-top: 28px; }
+.settings h2 { margin: 0 0 8px; font-family: "Source Serif 4", Georgia, serif; font-weight: 500; font-size: 22px; }
+.settings p, .settings li { color: var(--muted); }
+.settings strong { color: var(--text); font-weight: 400; }
+.settings ul { list-style: none; padding: 0; margin: 0; }
+.settings li { padding: 3px 0; }
+.settings .primary { margin-top: 8px; }
 
 .title-block { white-space: normal; min-width: 280px; }
 .title-line { line-height: 1.4; }

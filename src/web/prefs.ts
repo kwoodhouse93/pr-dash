@@ -3,7 +3,7 @@ import { DEFAULT_FILTERS, DEFAULT_SORT, type Filters, type Sort, type SortKey } 
 const KEY = 'pr-dash.preferences.v1'
 const SORT_KEYS = new Set<SortKey>(['updated', 'created', 'size', 'title', 'repo', 'ci'])
 
-export type DashboardPage = 'mine' | 'review' | 'queue'
+export type DashboardPage = 'mine' | 'review' | 'queue' | 'settings'
 
 export type Preferences = {
   sort: Sort
@@ -20,7 +20,7 @@ export function loadPreferences(): Preferences {
     if (!raw) return fresh()
     const key = SORT_KEYS.has(raw.sort?.key as SortKey) ? (raw.sort!.key as SortKey) : DEFAULT_SORT.key
     const dir = raw.sort?.dir === 'asc' || raw.sort?.dir === 'desc' ? raw.sort.dir : DEFAULT_SORT.dir
-    const page: DashboardPage = raw.page === 'review' || raw.page === 'queue' ? raw.page : 'mine'
+    const page: DashboardPage = raw.page === 'review' || raw.page === 'queue' || raw.page === 'settings' ? raw.page : 'mine'
     return {
       sort: { key, dir },
       filters: { ...DEFAULT_FILTERS, ...(raw.filters ?? {}) },

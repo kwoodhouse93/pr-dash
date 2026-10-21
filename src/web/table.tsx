@@ -66,6 +66,7 @@ export function PrTable({
   onResolveConflictWithCursor,
   onRebase,
   byIssue,
+  onRefreshPr,
   linearConfigured,
   onUpdateIssue,
 }: {
@@ -91,6 +92,7 @@ export function PrTable({
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
   byIssue: boolean
+  onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
@@ -114,6 +116,7 @@ export function PrTable({
     onRerun,
     onResolveConflictWithCursor,
     onRebase,
+    onRefreshPr,
     linearConfigured,
     onUpdateIssue,
   }
@@ -225,6 +228,7 @@ type RowShared = {
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
+  onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }
@@ -435,6 +439,7 @@ function BlockRows({
           onRerun={shared.onRerun}
           onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
           onRebase={shared.onRebase}
+          onRefreshPr={shared.onRefreshPr}
           onUpdateIssue={shared.onUpdateIssue}
         />
       )
@@ -459,6 +464,7 @@ function BlockRows({
       onRerun={shared.onRerun}
       onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
       onRebase={shared.onRebase}
+      onRefreshPr={shared.onRefreshPr}
       onUpdateIssue={shared.onUpdateIssue}
       onMerge={shared.onMerge}
       onQueue={shared.onQueue}
@@ -491,6 +497,7 @@ function DataRow({
   onRerun,
   onResolveConflictWithCursor,
   onRebase,
+  onRefreshPr,
   onUpdateIssue,
 }: {
   mode: 'mine' | 'review'
@@ -514,6 +521,7 @@ function DataRow({
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
+  onRefreshPr: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
   const holds = useHolds()
@@ -581,6 +589,7 @@ function DataRow({
           comments={pr.commentAwaitingCount ?? 0}
           reviewComments={pr.reviewCommentAwaitingCount ?? 0}
           truncated={pr.threadsTruncated}
+          detailsPending={pr.threadCount > 0 && pr.feedbackAt !== pr.updatedAt}
           awaitingUrl={pr.awaitingThreadUrl}
           unresolvedUrl={pr.unresolvedThreadUrl}
           unreadUrl={pr.unreadThreadUrl}
@@ -608,6 +617,7 @@ function DataRow({
         prByKey={prByKey}
         onAssign={onAssign}
         onCreate={onCreateAssigned}
+        onRefresh={onRefreshPr}
       />
     </tr>
   )
@@ -631,6 +641,7 @@ function SummaryRow({
   onRerun,
   onResolveConflictWithCursor,
   onRebase,
+  onRefreshPr,
   onUpdateIssue,
   onMerge,
   onQueue,
@@ -654,6 +665,7 @@ function SummaryRow({
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
+  onRefreshPr: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
@@ -738,6 +750,7 @@ function SummaryRow({
           comments={summary.commentAwaitingCount ?? 0}
           reviewComments={summary.reviewCommentAwaitingCount ?? 0}
           truncated={false}
+          detailsPending={visible.some((item) => item.threadCount > 0 && item.feedbackAt !== item.updatedAt)}
           awaitingUrl={summary.awaitingThreadUrl}
           unresolvedUrl={summary.unresolvedThreadUrl}
           unreadUrl={summary.unreadThreadUrl}
@@ -770,6 +783,7 @@ function SummaryRow({
         prByKey={prByKey}
         onAssign={onAssign}
         onCreate={onCreateAssigned}
+        onRefresh={onRefreshPr}
       />
     </tr>
   )
@@ -1160,9 +1174,14 @@ function RowMenu(props: {
   prByKey: Map<string, PullRequest>
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreate: (name: string, keys: string[]) => Promise<void>
+  onRefresh: (key: string) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const { locked } = useStackLock()
+  const close = useMenuClose()
+  const pr = props.prByKey.get(props.primaryKey)
   return (
     <td className="row-actions">
       <ClickCard
@@ -1188,9 +1207,31 @@ function RowMenu(props: {
             onCreate={props.onCreate}
           />
         ) : (
-          <button type="button" className="menu-item" onClick={() => setEditing(true)}>
-            Set initiative
-          </button>
+          <>
+            {pr ? (
+              <button
+                type="button"
+                className="menu-item"
+                disabled={pending}
+                onClick={() => {
+                  setPending(true)
+                  setError(null)
+                  void props.onRefresh(props.primaryKey)
+                    .then(() => close())
+                    .catch((caught: unknown) => {
+                      setError(caught instanceof Error ? caught.message : 'Could not refresh that pull request')
+                    })
+                    .finally(() => setPending(false))
+                }}
+              >
+                {pending ? 'Refreshing…' : `Refresh #${pr.number}`}
+              </button>
+            ) : null}
+            <button type="button" className="menu-item" onClick={() => setEditing(true)}>
+              Set initiative
+            </button>
+            {error ? <p>{error}</p> : null}
+          </>
         )}
       </ClickCard>
     </td>
@@ -1425,6 +1466,7 @@ function Feedback({
   comments,
   reviewComments,
   truncated,
+  detailsPending = false,
   awaitingUrl,
   unresolvedUrl,
   unreadUrl,
@@ -1440,6 +1482,7 @@ function Feedback({
   comments: number
   reviewComments: number
   truncated: boolean
+  detailsPending?: boolean
   awaitingUrl?: string | null
   unresolvedUrl?: string | null
   unreadUrl?: string | null
@@ -1483,9 +1526,9 @@ function Feedback({
       title: 'Open the pull request',
     })
   }
-  const title = mode === 'review'
+  const title = `${mode === 'review'
     ? 'Unread is an open thread you joined that has a newer reply. A highlighted comment is a review message, or a conversation you joined, that you have not answered. Other comments are conversation notes you have not joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
-    : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'
+    : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'}${detailsPending ? ' Reply details are still loading.' : ''}`
   return (
     <span className="feedback" title={title}>
       {parts.map((part, index) => (
