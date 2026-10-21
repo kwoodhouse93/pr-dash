@@ -67,6 +67,9 @@ export type PullRequest = {
   headRef: string
   defaultBranch: string
   squashMergeAllowed: boolean
+  requiredApprovals: number
+  dismissStale: boolean
+  requiredCheckNames: string[]
   mergeable: Mergeable | null
   mergeStateStatus: string | null
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null

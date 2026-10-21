@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { mapPullRequest, type GitHubPull, type RawCheck } from '../shared/map.ts'
-import { requiredCheckNames } from '../shared/rules.ts'
+import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck } from '../shared/map.ts'
+import type { LivePull } from '../shared/queue.ts'
+import { requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
 import type { PullRequest } from '../shared/types.ts'
+import { summarizeReviews } from '../shared/approval.ts'
 
 export function loadGithubToken(): string {
   const fromEnv = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
@@ -155,27 +157,30 @@ async function fetchChecks(token: string, ids: string[], onProgress: (message: s
   return bundles
 }
 
-async function fetchRequiredNames(token: string, repos: string[], onProgress: (message: string) => void) {
-  const names = new Map<string, string[]>()
+type RepoRules = { checks: string[]; requiredApprovals: number; dismissStale: boolean }
+
+async function fetchRepoRules(token: string, repos: string[], onProgress: (message: string) => void) {
+  const rules = new Map<string, RepoRules>()
   for (const repo of repos) {
     onProgress(`Reading required checks for ${repo}`)
-    const listResponse = await rest(token, `/repos/${repo}/rulesets?per_page=100`)
-    if (!listResponse.ok) {
-      names.set(repo, [])
-      continue
-    }
-    const list = (await listResponse.json()) as { id: number }[]
-    const rulesets = (
-      await Promise.all(
-        list.map(async (item) => {
-          const response = await rest(token, `/repos/${repo}/rulesets/${item.id}`)
-          return response.ok ? response.json() : null
-        }),
-      )
-    ).filter((ruleset) => ruleset != null)
-    names.set(repo, requiredCheckNames(rulesets))
+    const rulesets = await readRulesets(token, repo)
+    const policy = reviewPolicy(rulesets)
+    rules.set(repo, { checks: requiredCheckNames(rulesets), ...policy })
   }
-  return names
+  return rules
+}
+
+async function readRulesets(token: string, repo: string): Promise<Parameters<typeof reviewPolicy>[0]> {
+  const listResponse = await rest(token, `/repos/${repo}/rulesets?per_page=100`)
+  if (!listResponse.ok) return []
+  const list = (await listResponse.json()) as { id: number }[]
+  const rulesets = await Promise.all(
+    list.map(async (item) => {
+      const response = await rest(token, `/repos/${repo}/rulesets/${item.id}`)
+      return response.ok ? response.json() : null
+    }),
+  )
+  return rulesets.filter((ruleset) => ruleset != null) as Parameters<typeof reviewPolicy>[0]
 }
 
 export async function fetchAuthoredPullRequests(
@@ -186,15 +191,18 @@ export async function fetchAuthoredPullRequests(
   const repos = [...new Set(nodes.map((node) => node.repository.nameWithOwner))]
   const [bundles, required] = await Promise.all([
     fetchChecks(token, nodes.map((node) => node.id), onProgress),
-    fetchRequiredNames(token, repos, onProgress),
+    fetchRepoRules(token, repos, onProgress),
   ])
   const warnings: string[] = []
   const pullRequests = nodes.map((node) => {
     const bundle = bundles.get(node.id)
+    const rules = required.get(node.repository.nameWithOwner)
     if (!bundle) warnings.push(`${node.repository.nameWithOwner}#${node.number} is missing checks`)
     return mapPullRequest(node, {
       viewer,
-      requiredNames: required.get(node.repository.nameWithOwner) ?? [],
+      requiredNames: rules?.checks ?? [],
+      requiredApprovals: rules?.requiredApprovals ?? 0,
+      dismissStale: rules?.dismissStale ?? false,
       committedAt: bundle?.committedAt ?? null,
       checks: bundle?.checks ?? [],
     })
@@ -244,4 +252,122 @@ export async function rerunWorkflows(
     errors.push(`${run.repo} run ${run.runId}: ${text.slice(0, 180) || response.status}`)
   }
   return { reran, errors }
+}
+
+const LIVE_QUERY = `
+  query Live($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        number state isDraft mergeable mergeStateStatus reviewDecision
+        baseRefName headRefName headRefOid
+        commits(last: 1) {
+          nodes {
+            commit {
+              oid
+              committedDate
+              statusCheckRollup {
+                contexts(first: 80) {
+                  nodes {
+                    __typename
+                    ... on CheckRun { name conclusion status detailsUrl startedAt completedAt }
+                    ... on StatusContext { context state targetUrl createdAt }
+                  }
+                }
+              }
+            }
+          }
+        }
+        reviews(last: 40) { nodes { state submittedAt author { __typename login } } }
+        reviewThreads(first: 60) {
+          pageInfo { hasNextPage }
+          nodes { isResolved }
+        }
+      }
+    }
+  }
+`
+
+type LiveData = {
+  repository: {
+    pullRequest: {
+      number: number
+      state: 'OPEN' | 'CLOSED' | 'MERGED'
+      isDraft: boolean
+      mergeable: string | null
+      mergeStateStatus: string | null
+      reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+      baseRefName: string
+      headRefName: string
+      headRefOid: string
+      commits: {
+        nodes: Array<{
+          commit: {
+            oid: string
+            committedDate: string | null
+            statusCheckRollup: { contexts: { nodes: Array<RawCheck | null> } } | null
+          } | null
+        } | null>
+      }
+      reviews: { nodes: Array<{ state: string; submittedAt: string | null; author: { __typename: string; login: string } | null } | null> | null }
+      reviewThreads: {
+        pageInfo: { hasNextPage: boolean }
+        nodes: Array<{ isResolved: boolean } | null> | null
+      }
+    } | null
+  } | null
+}
+
+export async function fetchLivePull(token: string, repo: string, number: number, requiredNames: string[]): Promise<LivePull> {
+  const [owner, name] = repo.split('/')
+  if (!owner || !name) throw new Error(`Unknown repository ${repo}.`)
+  const data = await graphql<LiveData>(token, LIVE_QUERY, { owner, name, number })
+  const pull = data.repository?.pullRequest
+  if (!pull) throw new Error(`Pull request ${repo}#${number} was not found.`)
+  const commit = pull.commits.nodes?.[0]?.commit
+  const nodes = (commit?.statusCheckRollup?.contexts.nodes ?? []).filter((node): node is RawCheck => node != null)
+  const threads = (pull.reviewThreads.nodes ?? []).filter((thread): thread is { isResolved: boolean } => thread != null)
+  const reviews = summarizeReviews((pull.reviews.nodes ?? []).filter((review): review is NonNullable<typeof review> => review != null))
+  return {
+    number: pull.number,
+    state: pull.state,
+    isDraft: pull.isDraft,
+    mergeable: pull.mergeable === 'MERGEABLE' || pull.mergeable === 'CONFLICTING' || pull.mergeable === 'UNKNOWN' ? pull.mergeable : null,
+    mergeStateStatus: pull.mergeStateStatus,
+    reviewDecision: pull.reviewDecision,
+    baseRef: pull.baseRefName,
+    headRef: pull.headRefName,
+    headOid: (commit?.oid ?? pull.headRefOid).toLowerCase(),
+    unresolvedCount: threads.filter((thread) => !thread.isResolved).length,
+    threadsTruncated: pull.reviewThreads.pageInfo.hasNextPage,
+    committedAt: commit?.committedDate ?? null,
+    reviewers: reviews.reviewers,
+    changesRequested: reviews.changesRequested,
+    checks: checksFromRaw(nodes, requiredNames),
+  }
+}
+
+export async function updatePullBase(token: string, repo: string, number: number, base: string): Promise<void> {
+  const response = await rest(token, `/repos/${repo}/pulls/${number}`, 'PATCH', { base })
+  if (response.ok) return
+  const text = await response.text()
+  throw new Error(messageFrom(text, response.status))
+}
+
+export async function updatePullBranch(token: string, repo: string, number: number, expectedHeadSha: string): Promise<void> {
+  const response = await rest(token, `/repos/${repo}/pulls/${number}/update-branch`, 'PUT', {
+    expected_head_sha: expectedHeadSha,
+  })
+  if (response.ok || response.status === 202) return
+  const text = await response.text()
+  throw new Error(messageFrom(text, response.status))
+}
+
+function messageFrom(text: string, status: number): string {
+  try {
+    const payload = JSON.parse(text) as { message?: string }
+    if (payload.message) return payload.message
+  } catch {
+    // Use the raw body below.
+  }
+  return text.slice(0, 280) || `GitHub ${status}`
 }

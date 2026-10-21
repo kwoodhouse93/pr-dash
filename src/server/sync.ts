@@ -53,7 +53,7 @@ async function run(db: DashboardDb): Promise<Snapshot> {
   return db.saveSnapshot({
     viewer: fetched.viewer,
     syncedAt: new Date().toISOString(),
-    pullRequests: omitMerged(fetched.pullRequests),
+    pullRequests: db.queue.overlay(omitMerged(fetched.pullRequests)),
     linearConfigured: Boolean(linearKey),
     warning,
   })

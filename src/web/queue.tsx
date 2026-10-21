@@ -1,0 +1,142 @@
+import { stepLabel, type MergeEntry, type QueueSnapshot } from '../shared/queue.ts'
+import { formatExact } from './format.ts'
+
+export function MergeQueuePage({
+  queue,
+  onCancel,
+  onRemove,
+  onMove,
+}: {
+  queue: QueueSnapshot | null
+  onCancel: (id: string) => Promise<void>
+  onRemove: (id: string) => Promise<void>
+  onMove: (id: string, direction: 'up' | 'down') => Promise<void>
+}) {
+  if (!queue) {
+    return (
+      <div className="empty">
+        <h2>Loading the queue</h2>
+      </div>
+    )
+  }
+  return (
+    <div className="queue-page">
+      {queue.paused && queue.pauseReason ? (
+        <p className="banner error">Queue paused. {queue.pauseReason}</p>
+      ) : null}
+      {queue.entries.length === 0 ? (
+        <div className="empty">
+          <h2>Nothing queued</h2>
+          <p>Queue a pull request, or merge a stack, and it will show up here.</p>
+        </div>
+      ) : (
+        <ol className="queue-list">
+          {queue.entries.map((entry, index) => (
+            <QueueCard
+              key={entry.id}
+              entry={entry}
+              interactive
+              canUp={entry.status === 'queued' && queue.entries.slice(0, index).some((item) => item.status === 'queued')}
+              canDown={entry.status === 'queued' && queue.entries.slice(index + 1).some((item) => item.status === 'queued')}
+              onCancel={onCancel}
+              onRemove={onRemove}
+              onMove={onMove}
+            />
+          ))}
+        </ol>
+      )}
+      {queue.history.length > 0 ? (
+        <section className="queue-history">
+          <h2>History</h2>
+          {queue.history.map((entry) => (
+            <QueueCard key={entry.id} entry={entry} interactive={false} canUp={false} canDown={false} onCancel={onCancel} onRemove={onRemove} onMove={onMove} />
+          ))}
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
+function QueueCard({
+  entry,
+  interactive,
+  canUp,
+  canDown,
+  onCancel,
+  onRemove,
+  onMove,
+}: {
+  entry: MergeEntry
+  interactive: boolean
+  canUp: boolean
+  canDown: boolean
+  onCancel: (id: string) => Promise<void>
+  onRemove: (id: string) => Promise<void>
+  onMove: (id: string, direction: 'up' | 'down') => Promise<void>
+}) {
+  const open = interactive && (entry.status === 'queued' || entry.status === 'active' || entry.status === 'failed')
+  return (
+    <article className={`queue-card ${entry.status}`}>
+      <header>
+        <div>
+          <h3>
+            <span className={`pill queue ${entry.status}`}>{entry.status === 'active' ? 'Merging' : titleCase(entry.status)}</span>
+            {entry.title}
+          </h3>
+          <p>
+            {entry.repo} · {entry.kind === 'stack' ? 'Stack' : 'Pull request'} · {entry.trunk}
+            {entry.startedAt ? ` · started ${formatExact(entry.startedAt)}` : ''}
+          </p>
+        </div>
+        {open ? (
+          <div className="queue-actions">
+            {canUp ? (
+              <button type="button" className="ghost" onClick={() => void onMove(entry.id, 'up')}>
+                Up
+              </button>
+            ) : null}
+            {canDown ? (
+              <button type="button" className="ghost" onClick={() => void onMove(entry.id, 'down')}>
+                Down
+              </button>
+            ) : null}
+            {entry.status === 'queued' || entry.status === 'active' || entry.status === 'failed' ? (
+              <button type="button" className="ghost" onClick={() => void onCancel(entry.id)}>
+                Cancel
+              </button>
+            ) : null}
+            {entry.status !== 'active' ? (
+              <button type="button" className="ghost" onClick={() => void onRemove(entry.id)}>
+                Remove
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </header>
+      {entry.error ? <p className="merge-error">{entry.error}</p> : null}
+      <ol className="queue-steps">
+        {entry.steps.map((step) => (
+          <li key={step.id}>
+            <span className={`pill queue ${step.status}`}>{stepLabel(step.status)}</span>
+            <a href={step.url} target="_blank" rel="noreferrer">
+              #{step.number} {step.title}
+            </a>
+            <span className="meta">
+              {step.role === 'restack' ? 'rebase only' : step.headRef}
+              {step.detail ? ` · ${step.detail}` : ''}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {entry.logs.length > 0 ? (
+        <pre className="queue-log">
+          {entry.logs.map((line) => `${line.at.slice(11, 19)}  ${line.message}`).join('\n')}
+        </pre>
+      ) : null}
+    </article>
+  )
+}
+
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}

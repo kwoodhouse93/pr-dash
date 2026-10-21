@@ -6,6 +6,15 @@ import { Hono } from 'hono'
 import { loadEnv } from './env.ts'
 import { openDatabase } from './db.ts'
 import { loadGithubToken, rerunWorkflows, squashMergePullRequest } from './github.ts'
+import {
+  cancelEntry,
+  enqueueDownstack,
+  enqueuePull,
+  MergeRejected,
+  moveEntry,
+  removeEntry,
+  startMergeWorker,
+} from './merge-worker.ts'
 import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
 import { canSquashMerge } from '../shared/merge.ts'
 import { markMerged, refreshSnapshot, syncStatus } from './sync.ts'
@@ -119,6 +128,12 @@ app.post('/api/merge', async (c) => {
     const snap = db.snapshot()
     const pr = snap.pullRequests.find((item) => item.key === key)
     if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
+    if (db.queue.repoActive(pr.repo)) {
+      return c.json({ error: 'A merge is in progress for this repo. Queue this pull request instead.' }, 409)
+    }
+    if (db.queue.blocksKey(pr.key)) {
+      return c.json({ error: 'This pull request is already in the merge queue.' }, 409)
+    }
     if (!canSquashMerge(pr)) {
       return c.json({ error: 'This pull request is not ready to squash into the default branch.' }, 409)
     }
@@ -135,6 +150,53 @@ app.post('/api/merge', async (c) => {
     )
   } catch (error) {
     return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.get('/api/merge-queue', (c) => c.json(db.queue.snapshot()))
+
+app.post('/api/merge-queue', async (c) => {
+  try {
+    const body = await c.req.json<{ key?: string; scope?: 'pr' | 'downstack' }>()
+    const key = body.key ?? ''
+    if (!key) return c.json({ error: 'A pull request is required.' }, 400)
+    if (body.scope === 'downstack') await enqueueDownstack(db, key)
+    else await enqueuePull(db, key)
+    return c.json(db.queue.snapshot())
+  } catch (error) {
+    const status = error instanceof MergeRejected ? 409 : 502
+    return c.json({ error: messageOf(error) }, status)
+  }
+})
+
+app.post('/api/merge-queue/:id/cancel', (c) => {
+  try {
+    cancelEntry(db, c.req.param('id'))
+    return c.json(db.queue.snapshot())
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 400)
+  }
+})
+
+app.post('/api/merge-queue/:id/remove', (c) => {
+  try {
+    removeEntry(db, c.req.param('id'))
+    return c.json(db.queue.snapshot())
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 400)
+  }
+})
+
+app.post('/api/merge-queue/:id/move', async (c) => {
+  try {
+    const body = await c.req.json<{ direction?: 'up' | 'down' }>()
+    if (body.direction !== 'up' && body.direction !== 'down') {
+      return c.json({ error: 'direction must be up or down.' }, 400)
+    }
+    moveEntry(db, c.req.param('id'), body.direction)
+    return c.json(db.queue.snapshot())
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 400)
   }
 })
 
@@ -164,6 +226,8 @@ if (existsSync(path.join(webRoot, 'index.html'))) {
   app.use('/assets/*', serveStatic({ root: webRoot }))
   app.get('*', (c) => c.html(readFileSync(path.join(webRoot, 'index.html'), 'utf8')))
 }
+
+startMergeWorker(db)
 
 const port = Number(process.env.PORT ?? 4317)
 const hostname = process.env.HOST ?? '127.0.0.1'

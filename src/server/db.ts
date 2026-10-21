@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
+import { attachQueue, type QueueStore } from './queue-store.ts'
 
 export type DashboardDb = {
   snapshot(): Snapshot
@@ -17,6 +18,7 @@ export type DashboardDb = {
   deleteInitiative(id: string): void
   setAssignments(initiativeId: string, prKeys: string[], action: 'add' | 'remove'): void
   updateLinearIssue(identifier: string, patch: LinearIssue): Snapshot
+  queue: QueueStore
 }
 
 type SnapshotRow = {
@@ -55,6 +57,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     );
   `)
 
+  const queue = attachQueue(db)
   const readSnapshotRow = db.prepare('SELECT viewer, synced_at, linear_configured, warning, pull_requests FROM snapshot WHERE id = 1')
   const readInitiatives = db.prepare('SELECT id, name, created_at, updated_at FROM initiatives ORDER BY created_at ASC')
   const readAssignments = db.prepare('SELECT initiative_id, pr_key FROM initiative_pull_requests')
@@ -168,6 +171,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         throw error
       }
     },
+    queue,
     updateLinearIssue(identifier, patch) {
       const row = readSnapshotRow.get() as SnapshotRow | undefined
       if (!row) throw new Error('Refresh pull requests before updating a Linear issue.')

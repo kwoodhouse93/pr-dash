@@ -65,6 +65,10 @@ function present<T>(value: T | null | undefined): value is T {
   return value != null
 }
 
+export function checksFromRaw(nodes: RawCheck[], requiredNames: string[]): Check[] {
+  return selectChecks(applyRequired(nodes.map(mapRawCheck).filter(present), requiredNames))
+}
+
 function mapRawCheck(node: RawCheck): Check | null {
   if (node.__typename === 'StatusContext' || node.context) {
     const name = node.context
@@ -98,7 +102,14 @@ function mapRawCheck(node: RawCheck): Check | null {
 
 export function mapPullRequest(
   node: GitHubPull,
-  extras: { viewer: string; requiredNames: string[]; committedAt: string | null; checks: RawCheck[] },
+  extras: {
+    viewer: string
+    requiredNames: string[]
+    requiredApprovals: number
+    dismissStale: boolean
+    committedAt: string | null
+    checks: RawCheck[]
+  },
 ): PullRequest {
   const reviews = summarizeReviews((node.reviews.nodes ?? []).filter(present))
   const threads = (node.reviewThreads.nodes ?? []).filter(present).map((thread) => ({
@@ -111,9 +122,7 @@ export function mapPullRequest(
   const feedback = summarizeThreads(threads, extras.viewer)
   const comments = (node.comments.nodes ?? []).filter(present)
   const merge = mergeReview(node.reviewDecision, node.isDraft)
-  const checks = selectChecks(
-    applyRequired(extras.checks.map(mapRawCheck).filter(present), extras.requiredNames),
-  )
+  const checks = checksFromRaw(extras.checks, extras.requiredNames)
   return {
     id: node.id,
     key: `${node.repository.nameWithOwner}#${node.number}`,
@@ -134,6 +143,9 @@ export function mapPullRequest(
     headRef: node.headRefName,
     defaultBranch: node.repository.defaultBranchRef?.name ?? '',
     squashMergeAllowed: node.repository.squashMergeAllowed,
+    requiredApprovals: extras.requiredApprovals,
+    dismissStale: extras.dismissStale,
+    requiredCheckNames: extras.requiredNames,
     mergeable: mergeableOf(node.mergeable),
     mergeStateStatus: node.mergeStateStatus,
     reviewDecision: node.reviewDecision,

@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { checkPhase, ciDetail, ciLabel, worstCi } from '../shared/ci.ts'
-import { canSquashMerge } from '../shared/merge.ts'
+import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
+import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { StackSummary } from '../shared/stacks.ts'
 import type { Check, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, StackBlock } from '../shared/view.ts'
@@ -23,6 +25,9 @@ export function PrTable({
   onAssign,
   onCreateAssigned,
   onMerge,
+  onQueue,
+  onStackMerge,
+  queueByKey,
   onRerun,
   linearConfigured,
   onUpdateIssue,
@@ -38,6 +43,9 @@ export function PrTable({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
+  onQueue: (key: string) => Promise<void>
+  onStackMerge: (key: string) => Promise<void>
+  queueByKey: Map<string, RowMark>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
@@ -53,6 +61,9 @@ export function PrTable({
     onAssign,
     onCreateAssigned,
     onMerge,
+    onQueue,
+    onStackMerge,
+    queueByKey,
     onRerun,
     linearConfigured,
     onUpdateIssue,
@@ -140,6 +151,9 @@ type RowShared = {
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
+  onQueue: (key: string) => Promise<void>
+  onStackMerge: (key: string) => Promise<void>
+  queueByKey: Map<string, RowMark>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
@@ -265,6 +279,9 @@ function BlockRows({
           onAssign={shared.onAssign}
           onCreateAssigned={shared.onCreateAssigned}
           onMerge={shared.onMerge}
+          onQueue={shared.onQueue}
+          onStackMerge={shared.onStackMerge}
+          queueByKey={shared.queueByKey}
           onRerun={shared.onRerun}
           onUpdateIssue={shared.onUpdateIssue}
         />
@@ -289,6 +306,10 @@ function BlockRows({
       onCreateAssigned={shared.onCreateAssigned}
       onRerun={shared.onRerun}
       onUpdateIssue={shared.onUpdateIssue}
+      onMerge={shared.onMerge}
+      onQueue={shared.onQueue}
+      onStackMerge={shared.onStackMerge}
+      queueByKey={shared.queueByKey}
     />
   )
 }
@@ -308,6 +329,9 @@ function DataRow({
   onAssign,
   onCreateAssigned,
   onMerge,
+  onQueue,
+  onStackMerge,
+  queueByKey,
   onRerun,
   onUpdateIssue,
 }: {
@@ -325,12 +349,16 @@ function DataRow({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
+  onQueue: (key: string) => Promise<void>
+  onStackMerge: (key: string) => Promise<void>
+  queueByKey: Map<string, RowMark>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
 }) {
+  const mark = queueByKey.get(pr.key) ?? null
   return (
     <tr
-      className={`${child ? 'child' : ''} ${pr.ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${spineClass(spine, tone)}`}
+      className={`${child ? 'child' : ''} ${pr.ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
         if (!toggle) return
         if ((event.target as HTMLElement).closest('button, a, input, label')) return
@@ -381,7 +409,14 @@ function DataRow({
         />
       </td>
       <td className="merge">
-        <MergeButton pr={pr} onMerge={onMerge} />
+        <MergeControls
+          pr={pr}
+          ordered={orderedStack(block, prByKey)}
+          mark={mark}
+          onMerge={onMerge}
+          onQueue={onQueue}
+          onStackMerge={onStackMerge}
+        />
       </td>
       <RowMenu
         id={`menu:${pr.id}`}
@@ -413,6 +448,10 @@ function SummaryRow({
   onCreateAssigned,
   onRerun,
   onUpdateIssue,
+  onMerge,
+  onQueue,
+  onStackMerge,
+  queueByKey,
 }: {
   block: StackBlock
   visible: PullRequest[]
@@ -429,12 +468,19 @@ function SummaryRow({
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+  onMerge: (key: string) => Promise<void>
+  onQueue: (key: string) => Promise<void>
+  onStackMerge: (key: string) => Promise<void>
+  queueByKey: Map<string, RowMark>
 }) {
   const summary = block.summary
   const issues = sharedIssues(visible, hideIssue)
+  const ordered = orderedStack(block, prByKey)
+  const mark = foremost(block.stackKeys, queueByKey)
+  const top = ordered[0] ?? null
   return (
     <tr
-      className={`stack ${summary.ci === 'red' ? 'fail' : ''}${spineClass(spine, tone)}`}
+      className={`stack ${summary.ci === 'red' ? 'fail' : ''}${mark ? ' held' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button, a, input, label')) return
         onToggle(openId)
@@ -482,7 +528,21 @@ function SummaryRow({
       <td>
         <Feedback threads={summary.threadCount} unresolved={summary.unresolvedCount} awaiting={summary.awaitingYouCount} truncated={false} />
       </td>
-      <td className="merge" />
+      <td className="merge">
+        {top && !summary.partial ? (
+          <MergeControls
+            pr={top}
+            ordered={ordered}
+            mark={mark}
+            progress
+            onMerge={onMerge}
+            onQueue={onQueue}
+            onStackMerge={onStackMerge}
+          />
+        ) : mark ? (
+          <QueueStatus mark={mark} progress />
+        ) : null}
+      </td>
       <RowMenu
         id={`menu:${block.id}`}
         primaryKey={summary.topKey}
@@ -653,11 +713,66 @@ function When({ iso }: { iso: string }) {
   )
 }
 
-function MergeButton({ pr, onMerge }: { pr: PullRequest; onMerge: (key: string) => Promise<void> }) {
+function orderedStack(block: StackBlock, prByKey: Map<string, PullRequest>): PullRequest[] {
+  const prs = block.stackKeys.map((key) => prByKey.get(key)).filter((pr): pr is PullRequest => pr != null)
+  return prs.length === block.stackKeys.length ? prs : []
+}
+
+const MARK_RANK: StepStatus[] = ['failed', 'merging', 'rebasing', 'waiting', 'queued', 'restacked', 'merged', 'cancelled']
+
+function foremost(keys: string[], marks: Map<string, RowMark>): RowMark | null {
+  const found = keys.map((key) => marks.get(key)).filter((mark): mark is RowMark => mark != null)
+  found.sort((a, b) => MARK_RANK.indexOf(a.status) - MARK_RANK.indexOf(b.status))
+  return found[0] ?? null
+}
+
+function MergeControls({
+  pr,
+  ordered,
+  mark,
+  progress = false,
+  onMerge,
+  onQueue,
+  onStackMerge,
+}: {
+  pr: PullRequest
+  ordered: PullRequest[]
+  mark: RowMark | null
+  progress?: boolean
+  onMerge: (key: string) => Promise<void>
+  onQueue: (key: string) => Promise<void>
+  onStackMerge: (key: string) => Promise<void>
+}) {
+  if (mark) return <QueueStatus mark={mark} progress={progress} />
+  const count = canMergeSlice(ordered, pr.key)
+  if (count != null) return <StackMergeButton count={count} pr={pr} onStackMerge={onStackMerge} />
+  if (canSquashMerge(pr)) return <SplitMerge pr={pr} onMerge={onMerge} onQueue={onQueue} />
+  return null
+}
+
+function QueueStatus({ mark, progress }: { mark: RowMark; progress: boolean }) {
+  const text = progress && mark.total > 1 ? `${stepLabel(mark.status)} · ${mark.done} of ${mark.total}` : stepLabel(mark.status)
+  return (
+    <div className="merge-action">
+      <span className={`pill queue ${mark.status}`}>{text}</span>
+      {mark.status === 'failed' && mark.detail ? <p className="merge-error">{mark.detail}</p> : null}
+    </div>
+  )
+}
+
+function StackMergeButton({
+  count,
+  pr,
+  onStackMerge,
+}: {
+  count: number
+  pr: PullRequest
+  onStackMerge: (key: string) => Promise<void>
+}) {
   const pendingRef = useRef(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (!canSquashMerge(pr)) return null
+  const label = `Merge ${count} PRs`
   return (
     <div className="merge-action">
       <button
@@ -665,23 +780,126 @@ function MergeButton({ pr, onMerge }: { pr: PullRequest; onMerge: (key: string) 
         className="primary merge"
         disabled={pending}
         aria-busy={pending}
-        aria-label={pending ? `Merging #${pr.number}` : `Squash and merge #${pr.number}`}
+        aria-label={pending ? `Queuing #${pr.number} and ${count - 1} below` : `Squash and merge #${pr.number} and ${count - 1} below`}
         onClick={() => {
           if (pendingRef.current) return
           pendingRef.current = true
           setPending(true)
           setError(null)
-          void onMerge(pr.key).catch((caught: unknown) => {
-            pendingRef.current = false
-            setPending(false)
-            setError(caught instanceof Error ? caught.message : 'Merge failed')
-          })
+          void onStackMerge(pr.key)
+            .then(() => {
+              pendingRef.current = false
+              setPending(false)
+            })
+            .catch((caught: unknown) => {
+              pendingRef.current = false
+              setPending(false)
+              setError(caught instanceof Error ? caught.message : 'Could not queue that stack')
+            })
         }}
       >
-        {pending ? 'Merging' : 'Merge'}
+        {pending ? 'Queuing' : label}
       </button>
       {error ? <p className="merge-error">{error}</p> : null}
     </div>
+  )
+}
+
+function SplitMerge({
+  pr,
+  onMerge,
+  onQueue,
+}: {
+  pr: PullRequest
+  onMerge: (key: string) => Promise<void>
+  onQueue: (key: string) => Promise<void>
+}) {
+  const pendingRef = useRef(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLButtonElement>(null)
+  return (
+    <div className="merge-action">
+      <div className="split-merge">
+        <button
+          type="button"
+          className="primary merge"
+          disabled={pending}
+          aria-busy={pending}
+          aria-label={pending ? `Merging #${pr.number}` : `Squash and merge #${pr.number}`}
+          onClick={() => {
+            if (pendingRef.current) return
+            pendingRef.current = true
+            setPending(true)
+            setError(null)
+            void onMerge(pr.key).catch((caught: unknown) => {
+              pendingRef.current = false
+              setPending(false)
+              setError(caught instanceof Error ? caught.message : 'Merge failed')
+            })
+          }}
+        >
+          {pending ? 'Merging' : 'Merge'}
+        </button>
+        <button
+          ref={anchor}
+          type="button"
+          className="primary merge caret"
+          aria-expanded={open}
+          aria-label={`More merge actions for #${pr.number}`}
+          disabled={pending}
+          onClick={() => setOpen((current) => !current)}
+        >
+          ▾
+        </button>
+      </div>
+      {open && anchor.current ? (
+        <QueueMenu
+          anchor={anchor.current}
+          onClose={() => setOpen(false)}
+          onQueue={() => {
+            setOpen(false)
+            setError(null)
+            void onQueue(pr.key).catch((caught: unknown) => {
+              setError(caught instanceof Error ? caught.message : 'Could not queue that pull request')
+            })
+          }}
+        />
+      ) : null}
+      {error ? <p className="merge-error">{error}</p> : null}
+    </div>
+  )
+}
+
+function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue: () => void; onClose: () => void }) {
+  const rect = anchor.getBoundingClientRect()
+  const menuHeight = 44
+  const below = rect.bottom + 6
+  const top = below + menuHeight > window.innerHeight - 8 ? Math.max(8, rect.top - menuHeight - 6) : below
+  useEffect(() => {
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target
+      if (target instanceof Node && anchor.contains(target)) return
+      onClose()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', onDoc)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDoc)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [anchor, onClose])
+  return createPortal(
+    <div className="popover merge-menu" style={{ top, left: Math.max(12, rect.right - 168) }} role="menu">
+      <button type="button" className="menu-item" role="menuitem" onClick={onQueue}>
+        Queue
+      </button>
+    </div>,
+    document.body,
   )
 }
 

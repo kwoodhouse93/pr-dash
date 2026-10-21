@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { rowMarks } from '../shared/queue.ts'
+import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
 import { buildOutline, outlineEmpty } from '../shared/view.ts'
 import { api } from './api.ts'
@@ -6,6 +8,7 @@ import { ManageInitiatives } from './editors.tsx'
 import { formatExact, repoColors } from './format.ts'
 import { ClickCard, MenuProvider } from './menus.tsx'
 import { loadPreferences, savePreferences } from './prefs.ts'
+import { MergeQueuePage } from './queue.tsx'
 import { PrTable } from './table.tsx'
 
 export function App() {
@@ -16,8 +19,11 @@ export function App() {
   const [status, setStatus] = useState('Idle')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [page, setPage] = useState<'list' | 'queue'>('list')
+  const [queue, setQueue] = useState<QueueSnapshot | null>(null)
   const applyId = useRef(0)
   const mergedKeys = useRef(new Set<string>())
+  const seenQueue = useRef(new Set<string>())
 
   function adopt(snap: Snapshot): Snapshot {
     if (mergedKeys.current.size === 0) return snap
@@ -77,6 +83,27 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    let cancel = false
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return
+      void api.mergeQueue().then((next) => {
+        if (cancel) return
+        const done = new Set(next.history.filter((entry) => entry.status === 'done').map((entry) => entry.id))
+        const finished = [...seenQueue.current].some((id) => done.has(id))
+        seenQueue.current = new Set(next.entries.map((entry) => entry.id))
+        setQueue(next)
+        if (finished) void refresh()
+      }).catch(() => undefined)
+    }
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => {
+      cancel = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!refreshing) return
     const timer = window.setInterval(() => {
       void api.status().then((next) => setStatus(next.message)).catch(() => undefined)
@@ -100,6 +127,16 @@ export function App() {
     setPrefs((current) => ({ ...current, filters: { ...current.filters, ...patch } }))
   }
 
+  async function changeQueue(work: () => Promise<QueueSnapshot>, refreshAfter = false) {
+    setError(null)
+    try {
+      setQueue(await work())
+      if (refreshAfter) void refresh()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not update the merge queue')
+    }
+  }
+
   function chooseSort(key: SortKey) {
     setPrefs((current) => {
       if (current.sort.key === key) {
@@ -116,7 +153,16 @@ export function App() {
         <header className="top">
           <div className="top-row">
             <div className="brand">
-              <h1>Pull requests</h1>
+              <h1>{page === 'queue' ? 'Merge queue' : 'Pull requests'}</h1>
+              <nav className="nav">
+                <button type="button" className="text-btn" aria-pressed={page === 'list'} onClick={() => setPage('list')}>
+                  Pull requests
+                </button>
+                <button type="button" className="text-btn" aria-pressed={page === 'queue'} onClick={() => setPage('queue')}>
+                  Merge queue
+                  {queue && queue.entries.length > 0 ? <span className="nav-count">{queue.entries.length}</span> : null}
+                </button>
+              </nav>
               <p className="meta">
                 {data?.viewer ? <strong>{data.viewer}</strong> : 'Your open changes'}
                 {prs.length ? ` · ${prs.length} open` : ''}
@@ -128,7 +174,7 @@ export function App() {
               {refreshing ? 'Refreshing' : 'Refresh'}
             </button>
           </div>
-          <div className="filters">
+          <div className="filters" hidden={page === 'queue'}>
             <input
               className="search"
               value={prefs.filters.query}
@@ -229,21 +275,29 @@ export function App() {
           </div>
         ) : null}
         <div className="scroll">
-          {booting && prs.length === 0 ? <div className="empty">Loading saved pull requests…</div> : null}
-          {!booting && prs.length === 0 && refreshing ? <div className="empty">{status}</div> : null}
-          {!booting && prs.length === 0 && !refreshing ? (
+          {page === 'queue' ? (
+            <MergeQueuePage
+              queue={queue}
+              onCancel={(id) => changeQueue(() => api.cancelMerge(id))}
+              onRemove={(id) => changeQueue(() => api.removeMerge(id), true)}
+              onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
+            />
+          ) : null}
+          {page === 'list' && booting && prs.length === 0 ? <div className="empty">Loading saved pull requests…</div> : null}
+          {page === 'list' && !booting && prs.length === 0 && refreshing ? <div className="empty">{status}</div> : null}
+          {page === 'list' && !booting && prs.length === 0 && !refreshing ? (
             <div className="empty">
               <h2>No open pull requests</h2>
               <p>This view is pull requests you authored. Refresh again after the next one is open.</p>
             </div>
           ) : null}
-          {prs.length > 0 && !visible ? (
+          {page === 'list' && prs.length > 0 && !visible ? (
             <div className="empty">
               <h2>Nothing matches</h2>
               <p>Clear a filter to see the rest of the outline.</p>
             </div>
           ) : null}
-          {prs.length > 0 && visible ? (
+          {page === 'list' && prs.length > 0 && visible ? (
             <PrTable
               outline={outline}
               sort={prefs.sort}
@@ -251,6 +305,7 @@ export function App() {
               prByKey={prByKey}
               repoColor={colors}
               expanded={new Set(prefs.expanded)}
+              queueByKey={rowMarks(queue?.entries ?? [])}
               onSort={chooseSort}
               onToggle={(id) =>
                 setPrefs((current) => ({
@@ -276,6 +331,12 @@ export function App() {
                 await api.merge(key)
                 mergedKeys.current.add(key)
                 setData((current) => (current ? adopt(current) : current))
+              }}
+              onQueue={async (key) => {
+                setQueue(await api.enqueue(key, 'pr'))
+              }}
+              onStackMerge={async (key) => {
+                setQueue(await api.enqueue(key, 'downstack'))
               }}
               onRerun={async (keys, mode) => {
                 const result = await api.rerun(keys, mode)

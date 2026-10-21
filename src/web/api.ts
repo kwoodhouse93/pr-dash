@@ -1,3 +1,4 @@
+import type { QueueSnapshot } from '../shared/queue.ts'
 import type { LinearAssignee, LinearStatus, Snapshot } from '../shared/types.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -36,6 +37,11 @@ export const api = {
     post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
   rerun: (keys: string[], mode: 'failed' | 'all') => post<{ reran: number; errors: string[] }>('/api/rerun', { keys, mode }),
   merge: (key: string) => post<Snapshot>('/api/merge', { key }),
+  mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),
+  enqueue: (key: string, scope: 'pr' | 'downstack') => post<QueueSnapshot>('/api/merge-queue', { key, scope }),
+  cancelMerge: (id: string) => post<QueueSnapshot>(`/api/merge-queue/${id}/cancel`, {}),
+  removeMerge: (id: string) => post<QueueSnapshot>(`/api/merge-queue/${id}/remove`, {}),
+  moveMerge: (id: string, direction: 'up' | 'down') => post<QueueSnapshot>(`/api/merge-queue/${id}/move`, { direction }),
   linearStatuses: (query: { teamId?: string | null; issue: string }) => {
     const key = query.teamId || query.issue
     return cached(statusRequests, key, () => {
