@@ -273,8 +273,8 @@ td.merge { white-space: normal; width: 148px; vertical-align: middle; }
 .merge-action { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .primary.merge { padding: 4px 12px; font-size: 14px; white-space: nowrap; }
 .split-merge { display: inline-flex; }
-.split-merge .primary.merge { border-radius: 8px 0 0 8px; }
-.split-merge .caret { border-radius: 0 8px 8px 0; border-left: 1px solid #9a6d3b; padding: 4px 8px; }
+.split-merge .primary.merge:not(.caret) { border-radius: 8px 0 0 8px; }
+.split-merge .primary.merge.caret { border-radius: 0 8px 8px 0; border-left: 1px solid #9a6d3b; padding: 4px 8px; }
 .merge-error { margin: 0; max-width: 280px; color: var(--red); font-size: 12px; line-height: 1.35; }
 .popover.merge-menu { width: 160px; padding: 6px; }
 tr.held > td { box-shadow: inset 3px 0 0 var(--accent); }

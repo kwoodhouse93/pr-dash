@@ -66,8 +66,8 @@ export function worstCi(levels: CiLevel[]): CiLevel {
 /**
  * Red: a required check failed.
  * Yellow: required checks are not failing, and an optional check failed.
- * Pending: nothing has failed, and a check is still running.
- * Green: every selected check succeeded.
+ * Pending: a required check is still running. With no required checks, any running check counts.
+ * Green: every required check succeeded. A running optional check does not hold this back.
  */
 export function ciLevel(checks: Check[]): CiLevel {
   const selected = selectChecks(checks)
@@ -76,7 +76,9 @@ export function ciLevel(checks: Check[]): CiLevel {
   const optional = selected.filter((check) => !check.required)
   if (required.some((check) => checkPhase(check) === 'fail')) return 'red'
   if (optional.some((check) => checkPhase(check) === 'fail')) return 'yellow'
-  if (selected.some((check) => checkPhase(check) === 'pending')) return 'pending'
+  if (required.some((check) => checkPhase(check) === 'pending')) return 'pending'
+  if (required.length === 0 && optional.some((check) => checkPhase(check) === 'pending')) return 'pending'
+  if (required.length > 0 && required.every((check) => checkPhase(check) === 'success')) return 'green'
   if (selected.every((check) => checkPhase(check) === 'success')) return 'green'
   return 'pending'
 }
@@ -105,7 +107,7 @@ export function ciDetail(level: CiLevel): string {
     case 'pending':
       return 'A check is still running.'
     case 'green':
-      return 'Every check passed.'
+      return 'Required checks passed.'
     case 'none':
       return 'No checks on the latest commit.'
   }

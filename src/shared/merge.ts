@@ -3,6 +3,42 @@ import type { PullRequest } from './types.ts'
 
 const READY: ReadonlySet<string> = new Set(['CLEAN', 'UNSTABLE', 'HAS_HOOKS'])
 
+export function mergeStateReady(mergeable: string | null, mergeStateStatus: string | null): boolean {
+  return mergeable === 'MERGEABLE' && READY.has(mergeStateStatus ?? '')
+}
+
+/**
+ * Required checks that have reported must pass.
+ * A ruleset check that never reported does not block once GitHub already calls the pull request mergeable
+ * and some other check has reported. An empty rollup still waits, so a merge does not race CI startup.
+ */
+export function requiredCheckGate(
+  checks: PullRequest['checks'],
+  requiredNames: string[],
+  mergeable: string | null,
+  mergeStateStatus: string | null,
+): { action: 'fail' | 'wait'; names: string[] } | null {
+  const failing: string[] = []
+  const waiting: string[] = []
+  const missing: string[] = []
+  for (const name of requiredNames) {
+    const check = checks.find((item) => item.name === name)
+    if (!check) missing.push(name)
+    else if (checkPhase(check) === 'fail') failing.push(name)
+    else if (checkPhase(check) !== 'success') waiting.push(name)
+  }
+  if (failing.length > 0) return { action: 'fail', names: failing }
+  if (waiting.length > 0) return { action: 'wait', names: waiting }
+  const extraFailing = checks.filter((check) => check.required && !requiredNames.includes(check.name) && checkPhase(check) === 'fail')
+  if (extraFailing.length > 0) return { action: 'fail', names: extraFailing.map((check) => check.name) }
+  const extraWaiting = checks.filter((check) => check.required && !requiredNames.includes(check.name) && checkPhase(check) !== 'success')
+  if (extraWaiting.length > 0) return { action: 'wait', names: extraWaiting.map((check) => check.name) }
+  if (missing.length > 0 && (checks.length === 0 || !mergeStateReady(mergeable, mergeStateStatus))) {
+    return { action: 'wait', names: missing }
+  }
+  return null
+}
+
 export type ReviewBar = {
   requiredApprovals: number
   dismissStale: boolean
@@ -15,8 +51,7 @@ export function canSquashMerge(pr: PullRequest): boolean {
     pr.defaultBranch.length > 0 &&
     pr.baseRef === pr.defaultBranch &&
     !pr.isDraft &&
-    pr.mergeable === 'MERGEABLE' &&
-    READY.has(pr.mergeStateStatus ?? '') &&
+    mergeStateReady(pr.mergeable, pr.mergeStateStatus) &&
     pr.unresolvedCount === 0
   )
 }
@@ -50,15 +85,9 @@ export function upstackBlock(pr: PullRequest, bar: ReviewBar): string | null {
   } else if (approved.length < bar.requiredApprovals) {
     return `#${pr.number} is missing a required approval.`
   }
-  const names = pr.requiredCheckNames ?? []
-  for (const name of names) {
-    const check = pr.checks.find((item) => item.name === name)
-    if (!check || checkPhase(check) !== 'success') return `#${pr.number} is waiting on required checks.`
-  }
-  if (pr.ci === 'red') return `#${pr.number} has a required check failing.`
-  if (pr.checks.some((check) => check.required && checkPhase(check) !== 'success')) {
-    return `#${pr.number} is waiting on required checks.`
-  }
+  const gate = requiredCheckGate(pr.checks, pr.requiredCheckNames ?? [], pr.mergeable, pr.mergeStateStatus)
+  if (gate?.action === 'fail') return `#${pr.number} has a required check failing: ${gate.names.join(', ')}.`
+  if (gate?.action === 'wait') return `#${pr.number} is waiting on required checks: ${gate.names.join(', ')}.`
   return null
 }
 

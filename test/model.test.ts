@@ -59,6 +59,14 @@ describe('ci', () => {
     expect(level).toBe('pending')
   })
 
+  it('stays green when required checks passed and an optional check is still running', () => {
+    const level = ciLevel([
+      check({ name: 'Check', conclusion: 'SUCCESS', required: true }),
+      check({ name: 'Graphite / mergeability_check', conclusion: null, status: 'IN_PROGRESS', completedAt: null }),
+    ])
+    expect(level).toBe('green')
+  })
+
   it('is green when every check passed and ignores skips', () => {
     const level = ciLevel([
       check({ name: 'Check', conclusion: 'SUCCESS', required: true }),

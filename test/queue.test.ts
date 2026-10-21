@@ -81,6 +81,26 @@ describe('stack merge eligibility', () => {
     expect(canMergeSlice(stack, stack[2]!.key)).toBeNull()
   })
 
+  it('ignores a running optional check and a ruleset check that never reported', () => {
+    const graphite = check({ name: 'Graphite / mergeability_check', conclusion: null, status: 'IN_PROGRESS', completedAt: null })
+    const ready = stack.map((item) =>
+      item.baseRef === 'main'
+        ? item
+        : {
+            ...item,
+            mergeStateStatus: 'UNSTABLE' as const,
+            ci: 'green' as const,
+            requiredCheckNames: ['Check', 'Check & Fail'],
+            checks: [check({ name: 'Check', conclusion: 'SUCCESS', required: true }), graphite],
+          },
+    )
+    expect(canMergeSlice(ready, ready[0]!.key)).toBe(3)
+    const blocked = ready.map((item) =>
+      item.number === 3 ? { ...item, mergeStateStatus: 'BLOCKED' as const, checks: [graphite] } : item,
+    )
+    expect(canMergeSlice(blocked, blocked[0]!.key)).toBeNull()
+  })
+
   it('hides the action when an upstack pull request is missing an approval or a required check', () => {
     expect(canMergeSlice(stack.map((item) => (item.number === 3 ? { ...item, reviewers: [] } : item)), stack[0]!.key)).toBeNull()
     expect(
@@ -186,6 +206,28 @@ describe('wait decisions', () => {
   it('merges a clean pull request and waits for checks that have not finished', () => {
     expect(interpretWait(live(), 'main', ['Check']).action).toBe('ready')
     expect(interpretWait(live({ checks: [] }), 'main', ['Check'])).toMatchObject({ action: 'wait' })
+    expect(
+      interpretWait(
+        live({
+          mergeStateStatus: 'UNSTABLE',
+          checks: [
+            check({ name: 'Check', conclusion: 'SUCCESS', required: true }),
+            check({ name: 'Graphite / mergeability_check', conclusion: null, status: 'IN_PROGRESS', completedAt: null }),
+          ],
+        }),
+        'main',
+        ['Check', 'Check & Fail'],
+      ).action,
+    ).toBe('ready')
+    expect(
+      interpretWait(
+        live({
+          checks: [check({ name: 'Check', conclusion: null, status: 'IN_PROGRESS', required: true, completedAt: null })],
+        }),
+        'main',
+        ['Check'],
+      ).action,
+    ).toBe('wait')
     expect(interpretWait(live({ mergeStateStatus: 'BEHIND' }), 'main', ['Check'])).toMatchObject({ action: 'behind' })
   })
 

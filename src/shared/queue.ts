@@ -1,4 +1,4 @@
-import { checkPhase } from './ci.ts'
+import { requiredCheckGate } from './merge.ts'
 import type { Check, Mergeable, Reviewer } from './types.ts'
 import type { ReviewDecision } from './approval.ts'
 
@@ -216,19 +216,12 @@ export function interpretWait(live: LivePull, trunk: string, requiredNames: stri
   }
   if (live.mergeStateStatus === 'BEHIND') return { action: 'behind', headOid: live.headOid }
 
-  const failing = requiredNames.filter((name) => {
-    const check = live.checks.find((item) => item.name === name)
-    return check != null && checkPhase(check) === 'fail'
-  })
-  if (failing.length > 0) {
-    return { action: 'fail', reason: `#${live.number} required check failed: ${failing.join(', ')}.` }
+  const gate = requiredCheckGate(live.checks, requiredNames, live.mergeable, live.mergeStateStatus)
+  if (gate?.action === 'fail') {
+    return { action: 'fail', reason: `#${live.number} required check failed: ${gate.names.join(', ')}.` }
   }
-  const pending = requiredNames.filter((name) => {
-    const check = live.checks.find((item) => item.name === name)
-    return !check || checkPhase(check) !== 'success'
-  })
-  if (pending.length > 0) {
-    return { action: 'wait', reason: `Waiting on ${pending.join(', ')} for #${live.number}.` }
+  if (gate?.action === 'wait') {
+    return { action: 'wait', reason: `Waiting on ${gate.names.join(', ')} for #${live.number}.` }
   }
   if (live.mergeable === 'UNKNOWN' || live.mergeStateStatus === 'UNKNOWN' || live.mergeStateStatus == null) {
     return { action: 'wait', reason: `Waiting for GitHub to finish checking #${live.number}.` }
