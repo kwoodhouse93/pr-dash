@@ -1,10 +1,64 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
+import { agentBlocker, parseAgentRequest } from '../src/shared/agents.ts'
 import { cursorLinks, cursorPushedBranch, cursorSessionStatus, cursorStatusLabel, leadingCursorStatus } from '../src/shared/cursor.ts'
-import type { PullRequest } from '../src/shared/types.ts'
+import type { Check, CursorSession, PullRequest } from '../src/shared/types.ts'
+import { agentTask } from '../src/server/agent-tasks.ts'
 import { openDatabase } from '../src/server/db.ts'
+
+function session(patch: Partial<CursorSession> = {}): CursorSession {
+  return {
+    agentId: 'bc-123',
+    runId: 'run-1',
+    kind: 'conflict',
+    prompt: null,
+    status: 'running',
+    result: null,
+    branch: null,
+    createdAt: '2026-10-21T00:01:00Z',
+    updatedAt: '2026-10-21T00:01:00Z',
+    ...patch,
+  }
+}
+
+function failed(name: string): Check {
+  return {
+    name,
+    status: 'COMPLETED',
+    conclusion: 'FAILURE',
+    required: true,
+    url: `https://github.com/acme/app/actions/runs/9/job/${name}`,
+    workflowName: 'CI',
+    workflowRunId: 9,
+    startedAt: '2026-10-21T00:00:00Z',
+    completedAt: '2026-10-21T00:05:00Z',
+  }
+}
+
+function pull(patch: Partial<PullRequest> = {}): PullRequest {
+  return {
+    key: 'acme/app#1',
+    number: 1,
+    repo: 'acme/app',
+    title: 'One',
+    url: 'https://github.com/acme/app/pull/1',
+    headRef: 'feature',
+    baseRef: 'main',
+    conflict: false,
+    checks: [],
+    linearIssues: [],
+    cursorSessions: [],
+    ...patch,
+  } as PullRequest
+}
+
+function tempDb() {
+  const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-cursor-'))
+  return path.join(dir, 'dash.sqlite')
+}
 
 describe('cursor sessions', () => {
   it('maps Cursor run statuses and keeps an unknown status active', () => {
@@ -22,8 +76,8 @@ describe('cursor sessions', () => {
     expect(leadingCursorStatus([])).toBeNull()
   })
 
-  it('labels an in-progress conflict session as resolving', () => {
-    expect(cursorStatusLabel('running')).toBe('Resolving')
+  it('labels statuses without naming the task', () => {
+    expect(cursorStatusLabel('running')).toBe('Running')
     expect(cursorStatusLabel('finished')).toBe('Finished')
   })
 
@@ -36,9 +90,8 @@ describe('cursor sessions', () => {
     })
   })
 
-  it('keeps a session attached to a pull request across snapshot saves', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-cursor-'))
-    const db = openDatabase(path.join(dir, 'dash.sqlite'))
+  it('keeps every session attached to a pull request across snapshot saves, newest first', () => {
+    const db = openDatabase(tempDb())
     const pullRequest = { key: 'acme/app#1', title: 'One' } as PullRequest
     db.saveSnapshot({
       viewer: 'k',
@@ -47,25 +100,27 @@ describe('cursor sessions', () => {
       linearConfigured: false,
       warning: null,
     })
-    db.saveCursorSession('acme/app#1', {
-      agentId: 'bc-123',
-      runId: 'run-1',
-      status: 'running',
-      result: null,
-      branch: null,
-      updatedAt: '2026-10-21T00:01:00Z',
-    })
+    db.saveCursorSession('acme/app#1', session())
+    db.saveCursorSession(
+      'acme/app#1',
+      session({ agentId: 'bc-456', kind: 'prompt', prompt: 'Tidy the tests', createdAt: '2026-10-21T00:05:00Z' }),
+    )
 
-    expect(db.snapshot().pullRequests[0]?.cursorSession).toMatchObject({ agentId: 'bc-123', status: 'running' })
+    expect(db.snapshot().pullRequests[0]?.cursorSessions?.map((item) => item.agentId)).toEqual(['bc-456', 'bc-123'])
+    expect(db.snapshot().pullRequests[0]?.cursorSessions?.[0]).toMatchObject({ kind: 'prompt', prompt: 'Tidy the tests' })
+
+    db.saveCursorSession('acme/app#1', session({ status: 'finished', result: 'Done', updatedAt: '2026-10-21T00:06:00Z' }))
+    const saved = db.snapshot().pullRequests[0]?.cursorSessions?.find((item) => item.agentId === 'bc-123')
+    expect(saved).toMatchObject({ status: 'finished', result: 'Done', kind: 'conflict', createdAt: '2026-10-21T00:01:00Z' })
 
     db.saveSnapshot({
       viewer: 'k',
       syncedAt: '2026-10-21T00:02:00Z',
-      pullRequests: [pullRequest],
+      pullRequests: db.snapshot().pullRequests,
       linearConfigured: false,
       warning: null,
     })
-    expect(db.snapshot().pullRequests[0]?.cursorSession?.status).toBe('running')
+    expect(db.snapshot().pullRequests[0]?.cursorSessions).toHaveLength(2)
 
     const review = { key: 'acme/app#2', title: 'Theirs', author: 'ada' } as PullRequest
     db.saveSnapshot({
@@ -77,6 +132,7 @@ describe('cursor sessions', () => {
       warning: null,
     })
     expect(db.snapshot().reviewPullRequests.map((item) => item.key)).toEqual(['acme/app#2'])
+    expect(db.snapshot().reviewPullRequests[0]?.cursorSessions).toEqual([])
     db.saveSnapshot({
       viewer: 'k',
       syncedAt: '2026-10-21T00:04:00Z',
@@ -85,5 +141,84 @@ describe('cursor sessions', () => {
       warning: null,
     })
     expect(db.snapshot().reviewPullRequests.map((item) => item.key)).toEqual(['acme/app#2'])
+  })
+
+  it('moves sessions from the one-per-pull-request table as conflict sessions', () => {
+    const file = tempDb()
+    const legacy = new DatabaseSync(file)
+    legacy.exec(`
+      CREATE TABLE cursor_sessions (
+        pr_key TEXT PRIMARY KEY, agent_id TEXT NOT NULL, run_id TEXT NOT NULL, status TEXT NOT NULL,
+        result TEXT, branch TEXT, updated_at TEXT NOT NULL
+      );
+      INSERT INTO cursor_sessions VALUES ('acme/app#1', 'bc-old', 'run-1', 'finished', 'Resolved', 'feature', '2026-10-20T00:00:00Z');
+    `)
+    legacy.close()
+
+    const db = openDatabase(file)
+    expect(db.cursorSessions()).toEqual([
+      {
+        prKey: 'acme/app#1',
+        session: session({
+          agentId: 'bc-old',
+          status: 'finished',
+          result: 'Resolved',
+          branch: 'feature',
+          createdAt: '2026-10-20T00:00:00Z',
+          updatedAt: '2026-10-20T00:00:00Z',
+        }),
+      },
+    ])
+    expect(() => openDatabase(file)).not.toThrow()
+  })
+})
+
+describe('agent shortcuts', () => {
+  it('reads a request body', () => {
+    expect(parseAgentRequest({ kind: 'ci' })).toEqual({ kind: 'ci' })
+    expect(parseAgentRequest({ kind: 'prompt', prompt: 'Rename it' })).toEqual({ kind: 'prompt', prompt: 'Rename it' })
+    expect(parseAgentRequest({ kind: 'prompt' })).toBeNull()
+    expect(parseAgentRequest({ kind: 'deploy' })).toBeNull()
+    expect(parseAgentRequest(null)).toBeNull()
+  })
+
+  it('runs one shortcut of a kind at a time, and prompts side by side', () => {
+    expect(agentBlocker(pull(), { kind: 'conflict' })).toMatch(/no longer has a merge conflict/)
+    expect(agentBlocker(pull({ conflict: true }), { kind: 'conflict' })).toBeNull()
+    expect(agentBlocker(pull({ conflict: true, cursorSessions: [session()] }), { kind: 'conflict' })).toMatch(/already resolving/)
+    expect(agentBlocker(pull({ conflict: true, cursorSessions: [session({ status: 'finished' })] }), { kind: 'conflict' })).toBeNull()
+
+    expect(agentBlocker(pull(), { kind: 'ci' })).toMatch(/no failing checks/)
+    expect(agentBlocker(pull({ checks: [failed('test')] }), { kind: 'ci' })).toBeNull()
+    expect(agentBlocker(pull({ checks: [failed('test')], cursorSessions: [session({ kind: 'ci' })] }), { kind: 'ci' })).toMatch(
+      /already investigating/,
+    )
+
+    const busy = pull({ cursorSessions: [session({ kind: 'prompt', prompt: 'One' })] })
+    expect(agentBlocker(busy, { kind: 'prompt', prompt: 'Two' })).toBeNull()
+    expect(agentBlocker(busy, { kind: 'prompt', prompt: '   ' })).toMatch(/Write a prompt/)
+  })
+
+  it('attaches the pull request to every prompt', () => {
+    const pr = pull({
+      checks: [failed('lint'), failed('test')],
+      linearIssues: [{ identifier: 'ENG-7', title: 'Fix login', url: 'https://linear.app/x/ENG-7', projectId: null, projectName: null }],
+    })
+    const custom = agentTask(pr, { kind: 'prompt', prompt: '  Rename the helper to match the module.\nKeep exports.  ' })
+    expect(custom.name).toBe('#1: Rename the helper to match the module.')
+    expect(custom.prompt.startsWith('Rename the helper to match the module.\nKeep exports.\n')).toBe(true)
+    for (const task of [custom, agentTask(pr, { kind: 'conflict' }), agentTask(pr, { kind: 'ci' })]) {
+      expect(task.prompt).toContain('https://github.com/acme/app/pull/1')
+      expect(task.prompt).toContain('Head branch feature, base branch main')
+      expect(task.prompt).toContain('- ENG-7: Fix login (https://linear.app/x/ENG-7)')
+      expect(task.prompt).toContain('Do not create a separate pull request.')
+    }
+
+    const ci = agentTask(pr, { kind: 'ci' })
+    expect(ci.name).toBe('Investigate #1 CI failure')
+    expect(ci.prompt).toContain('- lint (workflow CI, required, run 9): https://github.com/acme/app/actions/runs/9/job/lint')
+    expect(ci.prompt).toContain('- test (workflow CI, required, run 9)')
+    expect(ci.prompt).toContain('gh run view <run> --repo acme/app --log-failed')
+    expect(ci.prompt).toContain('do not push. Report what you found instead.')
   })
 })

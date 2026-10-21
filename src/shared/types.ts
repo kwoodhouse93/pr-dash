@@ -103,17 +103,24 @@ export type PullRequest = {
   feedbackAt?: string | null
   linearIssues: LinearIssue[]
   initiativeIds: string[]
-  cursorSession?: CursorSession | null
+  /** Newest first. */
+  cursorSessions?: CursorSession[]
 }
 
 export type CursorSessionStatus = 'creating' | 'running' | 'finished' | 'failed' | 'cancelled' | 'expired'
 
+export type AgentKind = 'conflict' | 'ci' | 'prompt'
+
 export type CursorSession = {
   agentId: string
   runId: string
+  kind: AgentKind
+  /** The user's text, for a prompt session. */
+  prompt: string | null
   status: CursorSessionStatus
   result: string | null
   branch: string | null
+  createdAt: string
   updatedAt: string
 }
 

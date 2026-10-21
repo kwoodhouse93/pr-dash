@@ -31,7 +31,8 @@ import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
 import { markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, syncStatus } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
-import { startCursorConflictResolver } from './cursor.ts'
+import { agentBlocker, parseAgentRequest } from '../shared/agents.ts'
+import { startCursorAgent } from './cursor.ts'
 import { rebasePull, RebaseRejected } from './rebase.ts'
 
 loadEnv()
@@ -292,14 +293,18 @@ app.post('/api/feedback/resolve', async (c) => {
   return publishFeedback(c, body.key ?? '', (token, pr) => setReviewThreadResolved(token, pr.repo, pr.number, body.threadId ?? '', body.resolved === true))
 })
 
-app.post('/api/conflicts/:key/cursor', async (c) => {
-  const pr = listedPulls(db.snapshot()).find((item) => item.key === c.req.param('key'))
+app.post('/api/pulls/agents', async (c) => {
+  const body = await c.req.json<{ key?: string }>().catch(() => null)
+  const request = parseAgentRequest(body)
+  if (!body?.key || !request) return c.json({ error: 'A pull request and an agent kind are required.' }, 400)
+  const pr = listedPulls(db.snapshot()).find((item) => item.key === body.key)
   if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
-  if (!pr.conflict) return c.json({ error: 'That pull request no longer has a merge conflict.' }, 409)
+  const blocked = agentBlocker(pr, request)
+  if (blocked) return c.json({ error: blocked }, 409)
   try {
-    const session = await startCursorConflictResolver(pr)
+    const session = await startCursorAgent(pr, request)
     db.saveCursorSession(pr.key, session)
-    return c.json(db.snapshot())
+    return c.json({ snapshot: db.snapshot(), agentId: session.agentId })
   } catch (error) {
     return c.json({ error: messageOf(error) }, 502)
   }

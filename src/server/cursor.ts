@@ -1,5 +1,7 @@
+import type { AgentRequest } from '../shared/agents.ts'
 import { cursorPushedBranch, cursorSessionActive, cursorSessionStatus } from '../shared/cursor.ts'
 import type { CursorSession, PullRequest } from '../shared/types.ts'
+import { agentTask } from './agent-tasks.ts'
 
 const CURSOR_API = 'https://api.cursor.com/v1/agents'
 
@@ -22,21 +24,15 @@ type CursorRunResponse = CursorErrorBody & {
   git?: { branches?: { branch?: string | null }[] }
 }
 
-export async function startCursorConflictResolver(pr: PullRequest): Promise<CursorSession> {
+export async function startCursorAgent(pr: PullRequest, request: AgentRequest): Promise<CursorSession> {
   const apiKey = cursorKey()
+  const task = agentTask(pr, request)
   const body = await cursorPost<CursorCreateResponse>(
     apiKey,
     CURSOR_API,
     {
-      name: `Resolve #${pr.number} merge conflict`,
-      prompt: {
-        text: [
-          `Resolve the merge conflict on pull request #${pr.number}: ${pr.url}`,
-          `Work on the pull request's existing head branch (${pr.headRef}).`,
-          'Bring in its base branch, preserve the intended changes from both sides, run relevant checks, and push the resolution to that branch.',
-          'Do not create a separate pull request.',
-        ].join('\n'),
-      },
+      name: task.name,
+      prompt: { text: task.prompt },
       repos: [{ url: `https://github.com/${pr.repo}`, prUrl: pr.url }],
       workOnCurrentBranch: true,
       autoCreatePR: false,
@@ -45,13 +41,17 @@ export async function startCursorConflictResolver(pr: PullRequest): Promise<Curs
   const agentId = body.agent?.id ?? body.id
   const runId = body.run?.id ?? body.agent?.latestRunId
   if (!agentId || !runId) throw new Error('Cursor started without returning an agent link.')
+  const now = new Date().toISOString()
   return {
     agentId,
     runId,
+    kind: request.kind,
+    prompt: request.kind === 'prompt' ? request.prompt.trim() : null,
     status: cursorSessionStatus(body.run?.status),
     result: null,
     branch: null,
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   }
 }
 
@@ -81,7 +81,7 @@ async function readCursorSession(apiKey: string, session: CursorSession): Promis
     `${CURSOR_API}/${encodeURIComponent(session.agentId)}/runs/${encodeURIComponent(runId)}`,
   )
   return {
-    agentId: session.agentId,
+    ...session,
     runId: run.id || runId,
     status: cursorSessionStatus(run.status),
     result: run.result ?? session.result,
@@ -92,7 +92,7 @@ async function readCursorSession(apiKey: string, session: CursorSession): Promis
 
 function cursorKey(): string {
   const apiKey = process.env.CURSOR_API_KEY
-  if (!apiKey) throw new Error('Set CURSOR_API_KEY to resolve conflicts with Cursor.')
+  if (!apiKey) throw new Error('Set CURSOR_API_KEY to start Cursor agents.')
   return apiKey
 }
 

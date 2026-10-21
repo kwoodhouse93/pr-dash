@@ -622,13 +622,11 @@ export function App() {
                 ++applyId.current
                 setData(adopt(snap))
               }}
-              onResolveConflictWithCursor={async (key) => {
-                const snap = await api.resolveConflictWithCursor(key)
+              onStartAgent={async (key, request) => {
+                const result = await api.startAgent(key, request)
                 ++applyId.current
-                setData(adopt(snap))
-                const session = [...snap.pullRequests, ...(snap.reviewPullRequests ?? [])].find((item) => item.key === key)?.cursorSession
-                if (!session) throw new Error('Cursor started without a session link.')
-                return { url: cursorLinks(session.agentId).webUrl }
+                setData(adopt(result.snapshot))
+                return { url: cursorLinks(result.agentId).webUrl }
               }}
             />
           ) : null}

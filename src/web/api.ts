@@ -1,3 +1,4 @@
+import type { AgentRequest } from '../shared/agents.ts'
 import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import type { LinearAssignee, LinearStatus, Snapshot } from '../shared/types.ts'
@@ -61,7 +62,8 @@ export const api = {
     post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
   rerun: (keys: string[], mode: 'failed' | 'all') =>
     post<{ reran: number; errors: string[]; runs: { repo: string; runId: number }[] }>('/api/rerun', { keys, mode }),
-  resolveConflictWithCursor: (key: string) => post<Snapshot>(`/api/conflicts/${encodeURIComponent(key)}/cursor`, {}),
+  startAgent: (key: string, request: AgentRequest) =>
+    post<{ snapshot: Snapshot; agentId: string }>('/api/pulls/agents', { key, ...request }),
   rebase: (key: string) => post<Snapshot>('/api/rebase', { key }),
   merge: (key: string) => post<Snapshot>('/api/merge', { key }),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),

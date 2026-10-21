@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
+import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
 import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
 import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
@@ -32,7 +33,11 @@ function useStackLock(): StackLock {
   return useContext(StackLockContext)
 }
 
-const COLUMNS = 14
+const COLUMNS = 15
+
+type StartAgent = (key: string, request: AgentRequest) => Promise<{ url: string }>
+
+const AgentContext = createContext<StartAgent>(() => Promise.reject(new Error('Cursor agents are not available here.')))
 
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
 const EMPTY_HOLDS: CheckHold[] = []
@@ -65,7 +70,7 @@ export function PrTable({
   queueByKey,
   holds,
   onRerun,
-  onResolveConflictWithCursor,
+  onStartAgent,
   onRebase,
   byIssue,
   onRefreshPr,
@@ -93,7 +98,7 @@ export function PrTable({
   queueByKey: Map<string, RowMark>
   holds: Map<string, CheckHold[]>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
+  onStartAgent: StartAgent
   onRebase: (key: string) => Promise<void>
   byIssue: boolean
   onRefreshPr: (key: string) => Promise<void>
@@ -120,7 +125,6 @@ export function PrTable({
     onStackMerge,
     queueByKey,
     onRerun,
-    onResolveConflictWithCursor,
     onRebase,
     onRefreshPr,
     linearConfigured,
@@ -128,6 +132,7 @@ export function PrTable({
   }
   return (
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
+    <AgentContext.Provider value={onStartAgent}>
     <HoldContext.Provider value={holds}>
     <table className="prs">
       <thead>
@@ -145,6 +150,7 @@ export function PrTable({
           <th className="conflict">Conflict</th>
           <th>Review</th>
           <th>Feedback</th>
+          <th className="agents">Agents</th>
           {mode === 'mine' ? <th className="merge">Merge</th> : null}
           <th aria-label="Actions" />
         </tr>
@@ -183,6 +189,7 @@ export function PrTable({
       </tbody>
     </table>
     </HoldContext.Provider>
+    </AgentContext.Provider>
     </FeedbackProvider>
   )
 }
@@ -234,7 +241,6 @@ type RowShared = {
   onStackMerge: (key: string) => Promise<void>
   queueByKey: Map<string, RowMark>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
   onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
@@ -445,7 +451,6 @@ function BlockRows({
           onStackMerge={shared.onStackMerge}
           queueByKey={shared.queueByKey}
           onRerun={shared.onRerun}
-          onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
           onRebase={shared.onRebase}
           onRefreshPr={shared.onRefreshPr}
           onUpdateIssue={shared.onUpdateIssue}
@@ -470,7 +475,6 @@ function BlockRows({
       onAssign={shared.onAssign}
       onCreateAssigned={shared.onCreateAssigned}
       onRerun={shared.onRerun}
-      onResolveConflictWithCursor={shared.onResolveConflictWithCursor}
       onRebase={shared.onRebase}
       onRefreshPr={shared.onRefreshPr}
       onUpdateIssue={shared.onUpdateIssue}
@@ -503,7 +507,6 @@ function DataRow({
   onStackMerge,
   queueByKey,
   onRerun,
-  onResolveConflictWithCursor,
   onRebase,
   onRefreshPr,
   onUpdateIssue,
@@ -527,7 +530,6 @@ function DataRow({
   onStackMerge: (key: string) => Promise<void>
   queueByKey: Map<string, RowMark>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
   onRefreshPr: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
@@ -581,13 +583,14 @@ function DataRow({
         <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
       </td>
       <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} prByKey={prByKey} onRebase={onRebase} />
-      <Conflict id={`conflict:${pr.id}`} prs={[pr]} onResolveWithCursor={onResolveConflictWithCursor} />
+      <Conflict id={`conflict:${pr.id}`} prs={[pr]} />
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
       </td>
       <td>
         <Feedback mode={mode} targets={[feedbackTarget(pr)]} />
       </td>
+      <Agents id={`agents:${pr.id}`} prs={[pr]} />
       {mode === 'mine' ? (
         <td className="merge">
           <MergeControls
@@ -603,6 +606,7 @@ function DataRow({
       <RowMenu
         id={`menu:${pr.id}`}
         primaryKey={pr.key}
+        prs={[pr]}
         stackKeys={block.stackKeys}
         defaultWholeStack={false}
         initiatives={initiatives}
@@ -631,7 +635,6 @@ function SummaryRow({
   onAssign,
   onCreateAssigned,
   onRerun,
-  onResolveConflictWithCursor,
   onRebase,
   onRefreshPr,
   onUpdateIssue,
@@ -655,7 +658,6 @@ function SummaryRow({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-  onResolveConflictWithCursor: (key: string) => Promise<{ url: string }>
   onRebase: (key: string) => Promise<void>
   onRefreshPr: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
@@ -726,13 +728,14 @@ function SummaryRow({
         prByKey={prByKey}
         onRebase={onRebase}
       />
-      <Conflict id={`conflict:${block.id}`} prs={visible} onResolveWithCursor={onResolveConflictWithCursor} />
+      <Conflict id={`conflict:${block.id}`} prs={visible} />
       <td>
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
       <td>
         <Feedback mode={mode} targets={visible.map(feedbackTarget)} />
       </td>
+      <Agents id={`agents:${block.id}`} prs={visible} />
       {mode === 'mine' ? (
       <td className="merge">
         {top && !summary.partial ? (
@@ -753,6 +756,7 @@ function SummaryRow({
       <RowMenu
         id={`menu:${block.id}`}
         primaryKey={summary.topKey}
+        prs={visible}
         stackKeys={block.stackKeys}
         defaultWholeStack
         initiatives={initiatives}
@@ -844,32 +848,25 @@ function Subline({
   )
 }
 
-function Conflict({
-  id,
-  prs,
-  onResolveWithCursor,
-}: {
-  id: string
-  prs: PullRequest[]
-  onResolveWithCursor: (key: string) => Promise<{ url: string }>
-}) {
-  const conflicts = prs.filter((pr) => pr.conflict)
-  const sessions = prs.flatMap((pr) => (pr.cursorSession ? [{ pr, session: pr.cursorSession }] : []))
-  const started = conflicts.flatMap((pr) =>
-    pr.cursorSession && cursorSessionActive(pr.cursorSession.status) ? [{ pr, session: pr.cursorSession }] : [],
-  )
-  const [handoff, setHandoff] = useState<ReadonlySet<string>>(() => new Set())
-  const startedKeys = new Set(started.map((item) => item.pr.key))
-  const handoffOnly = conflicts.filter((pr) => handoff.has(pr.key) && !pr.cursorSession)
-  const covered = new Set([...startedKeys, ...handoffOnly.map((pr) => pr.key)])
-  const waiting = conflicts.filter((pr) => !covered.has(pr.key))
+type AgentLaunch = {
+  /** Resolves true once the agent's tab is showing its session. */
+  launch: (pr: PullRequest, request: AgentRequest) => Promise<boolean>
+  pending: string | null
+  error: string | null
+}
+
+function launchTag(pr: PullRequest, request: AgentRequest): string {
+  return `${pr.key}:${request.kind}`
+}
+
+function useAgentLaunch(): AgentLaunch {
+  const start = useContext(AgentContext)
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const { locked } = useStackLock()
 
-  async function resolve(pr: PullRequest) {
+  async function launch(pr: PullRequest, request: AgentRequest): Promise<boolean> {
     setError(null)
-    setPending(pr.key)
+    setPending(launchTag(pr, request))
     // Open during the click so the browser allows the tab. Paint the loading
     // page before any await, while this document can still write to it. Leave
     // opener set until the session URL is assigned; clearing it first keeps
@@ -877,22 +874,16 @@ function Conflict({
     const agent = window.open('', '_blank')
     if (agent) {
       try {
-        paintCursorLoading(agent)
+        paintCursorLoading(agent, agentWork(request.kind))
       } catch {
         // The tab still redirects when the session URL is ready.
       }
     }
     try {
-      const result = await onResolveWithCursor(pr.key)
-      setHandoff((current) => {
-        if (current.has(pr.key)) return current
-        const next = new Set(current)
-        next.add(pr.key)
-        return next
-      })
+      const result = await start(pr.key, request)
       if (!agent) {
-        setError('Cursor started, but the new tab was blocked. Allow pop-ups and try again.')
-        return
+        setError('Cursor started, but the new tab was blocked. Open the session from the Agents column.')
+        return false
       }
       agent.location.replace(result.url)
       try {
@@ -900,64 +891,126 @@ function Conflict({
       } catch {
         // Navigation can make the tab cross-origin before this runs.
       }
+      return true
     } catch (caught) {
       agent?.close()
       setError(caught instanceof Error ? caught.message : 'Could not start Cursor.')
+      return false
     } finally {
       setPending(null)
     }
   }
 
+  return { launch, pending, error }
+}
+
+function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
+  const conflicts = prs.filter((pr) => pr.conflict)
+  const { launch, pending, error } = useAgentLaunch()
+  const { locked } = useStackLock()
+
+  if (conflicts.length === 0) {
+    return (
+      <td className="conflict">
+        <span className="sr">No conflict</span>
+      </td>
+    )
+  }
+
   return (
     <td className="conflict">
       <span className="conflict-cell">
-        {conflicts.length ? (
-          <ClickCard
-            id={id}
-            className="conflict-x"
-            disabled={locked}
-            label={
-              <>
-                <span className="sr">Resolve merge conflict with Cursor</span>
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              </>
-            }
-          >
-            {started.length ? <CursorSessions sessions={started} /> : null}
-            {handoffOnly.map((pr) => (
-              <div key={pr.key} className="cursor-session">
-                <h3>{conflicts.length > 1 ? `#${pr.number} · ` : ''}Creating</h3>
-                <p>Cursor is starting a cloud agent for this conflict.</p>
+        <ClickCard
+          id={id}
+          className="conflict-x"
+          disabled={locked}
+          label={
+            <>
+              <span className="sr">Resolve merge conflict with Cursor</span>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </>
+          }
+        >
+          <h3>Resolve with Cursor</h3>
+          <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
+          {conflicts.map((pr) => {
+            const running = activeSession(pr, 'conflict')
+            const request: AgentRequest = { kind: 'conflict' }
+            return (
+              <div key={pr.key} className="resolve-action">
+                {conflicts.length > 1 ? <p>#{pr.number}</p> : null}
+                {running ? (
+                  <RunningNote session={running} />
+                ) : (
+                  <button
+                    type="button"
+                    className="primary resolve-cta"
+                    disabled={locked || pending !== null}
+                    aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with Cursor` : undefined}
+                    onClick={() => void launch(pr, request)}
+                  >
+                    {pending === launchTag(pr, request) ? 'Starting Cursor…' : 'Resolve with Cursor'}
+                  </button>
+                )}
               </div>
-            ))}
-            {waiting.length ? (
-              <>
-                <h3>Resolve with Cursor</h3>
-                <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
-                {waiting.map((pr) => (
-                  <div key={pr.key} className="resolve-action">
-                    {conflicts.length > 1 ? <p>#{pr.number}</p> : null}
-                    <button
-                      type="button"
-                      className="primary resolve-cta"
-                      disabled={locked || pending !== null}
-                      aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with Cursor` : undefined}
-                      onClick={() => void resolve(pr)}
-                    >
-                      {pending === pr.key ? 'Starting Cursor…' : 'Resolve with Cursor'}
-                    </button>
-                  </div>
-                ))}
-              </>
-            ) : null}
-            {error ? <p className="launch-error">{error}</p> : null}
-          </ClickCard>
-        ) : null}
-        {sessions.length ? <CursorChip id={`${id}:cursor`} sessions={sessions} /> : null}
-        {conflicts.length === 0 && sessions.length === 0 ? <span className="sr">No conflict</span> : null}
+            )
+          })}
+          {error ? <p className="launch-error">{error}</p> : null}
+        </ClickCard>
       </span>
+    </td>
+  )
+}
+
+function RunningNote({ session, prefix = null }: { session: CursorSession; prefix?: string | null }) {
+  const links = cursorLinks(session.agentId)
+  return (
+    <p>
+      {prefix ? `${prefix} · ` : ''}
+      {cursorStatusLabel(session.status)}. {agentWork(session.kind)}{' '}
+      <a href={links.webUrl} target="_blank" rel="noreferrer">
+        Open session
+      </a>
+    </p>
+  )
+}
+
+function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
+  const sessions = prs
+    .flatMap((pr) => (pr.cursorSessions ?? []).map((session) => ({ pr, session })))
+    .sort((left, right) => right.session.createdAt.localeCompare(left.session.createdAt))
+  const { locked } = useStackLock()
+  if (sessions.length === 0) {
+    return (
+      <td className="agents">
+        <span className="sr">No Cursor agents</span>
+      </td>
+    )
+  }
+  const lead = leadingCursorStatus(sessions.map((item) => item.session.status)) ?? 'running'
+  const active = sessions.filter((item) => cursorSessionActive(item.session.status)).length
+  const only = sessions.length === 1 ? sessions[0]!.session : null
+  const label = only ? cursorStatusLabel(only.status) : `${sessions.length} agents`
+  const spoken = only
+    ? `Cursor agent, ${agentKindLabel(only.kind)}, ${cursorStatusLabel(only.status)}`
+    : `${sessions.length} Cursor agents, ${active} active`
+  return (
+    <td className="agents">
+      <ClickCard
+        id={id}
+        disabled={locked}
+        className={`cursor-chip ${lead}`}
+        label={
+          <>
+            <span className="sr">{spoken}</span>
+            <span aria-hidden="true">{label}</span>
+          </>
+        }
+      >
+        <AgentSessions sessions={sessions} showPr={prs.length > 1} />
+      </ClickCard>
     </td>
   )
 }
@@ -1071,20 +1124,39 @@ function rebaseCopy(target: PullRequest, above: PullRequest[]): string {
   return `Rebase #${target.number} onto ${onto}. ${list} ${above.length === 1 ? 'is' : 'are'} restacked with it.`
 }
 
-function CursorSessions({ sessions }: { sessions: { pr: PullRequest; session: CursorSession }[] }) {
+function AgentSessions({ sessions, showPr }: { sessions: { pr: PullRequest; session: CursorSession }[]; showPr: boolean }) {
+  const single = sessions.length === 1
   return (
     <>
+      {single ? null : <h3>Cursor agents</h3>}
       {sessions.map(({ pr, session }) => {
         const links = cursorLinks(session.agentId)
         return (
-          <div key={pr.key} className="cursor-session">
+          <div key={session.agentId} className="cursor-session">
             <h3>
-              {sessions.length > 1 ? `#${pr.number} · ` : ''}
-              {cursorStatusLabel(session.status)}
+              {showPr ? `#${pr.number} · ` : ''}
+              {agentKindLabel(session.kind)} · <span className={`agent-status ${session.status}`}>{cursorStatusLabel(session.status)}</span>
             </h3>
-            <p>{cursorStatusDetail(session)}</p>
+            {session.prompt ? <p className="agent-prompt">{session.prompt}</p> : null}
+            <p>
+              {cursorStatusDetail(session)}{' '}
+              <span className="faint" title={formatExact(session.createdAt)}>
+                Started {startedWhen(session.createdAt)}.
+              </span>
+            </p>
             {session.branch ? <p>Pushed to {session.branch}.</p> : null}
-            {session.result ? <Markdown className="cursor-result" text={session.result} /> : null}
+            {session.result ? (
+              single ? (
+                <Markdown className="cursor-result" text={session.result} />
+              ) : (
+                <details className="md-details">
+                  <summary>Final reply</summary>
+                  <div className="md-details-body">
+                    <Markdown className="cursor-result" text={session.result} />
+                  </div>
+                </details>
+              )
+            ) : null}
             <div className="cursor-links">
               <a className="external" href={links.desktopUrl}>Open in Cursor</a>
               <a href={links.webUrl} target="_blank" rel="noreferrer">
@@ -1098,38 +1170,17 @@ function CursorSessions({ sessions }: { sessions: { pr: PullRequest; session: Cu
   )
 }
 
-function CursorChip({
-  id,
-  sessions,
-}: {
-  id: string
-  sessions: { pr: PullRequest; session: CursorSession }[]
-}) {
-  const lead = leadingCursorStatus(sessions.map((item) => item.session.status)) ?? 'running'
-  const { locked } = useStackLock()
-  return (
-    <ClickCard
-      id={id}
-      disabled={locked}
-      className={`cursor-chip ${lead}`}
-      label={
-        <>
-          <span className="sr">Cursor session {cursorStatusLabel(lead)}</span>
-          {cursorStatusLabel(lead)}
-        </>
-      }
-    >
-      <CursorSessions sessions={sessions} />
-    </ClickCard>
-  )
+function startedWhen(iso: string): string {
+  const when = formatWhen(iso)
+  return /^\d+[mhd]$/.test(when) ? `${when} ago` : when
 }
 
 function cursorStatusDetail(session: CursorSession): string {
   switch (session.status) {
     case 'creating':
-      return 'Cursor is starting a cloud agent for this conflict.'
+      return 'Cursor is starting a cloud agent.'
     case 'running':
-      return 'Cursor is resolving the conflict on this pull request.'
+      return agentWork(session.kind)
     case 'finished':
       return 'Cursor finished this run.'
     case 'failed':
@@ -1141,9 +1192,11 @@ function cursorStatusDetail(session: CursorSession): string {
   }
 }
 
-function RowMenu(props: {
+type RowMenuProps = {
   id: string
   primaryKey: string
+  /** Pull requests shown on this row. */
+  prs: PullRequest[]
   stackKeys: string[]
   defaultWholeStack: boolean
   initiatives: Initiative[]
@@ -1151,13 +1204,10 @@ function RowMenu(props: {
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreate: (name: string, keys: string[]) => Promise<void>
   onRefresh: (key: string) => Promise<void>
-}) {
-  const [editing, setEditing] = useState(false)
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+}
+
+function RowMenu(props: RowMenuProps) {
   const { locked } = useStackLock()
-  const close = useMenuClose()
-  const pr = props.prByKey.get(props.primaryKey)
   return (
     <td className="row-actions">
       <ClickCard
@@ -1172,45 +1222,150 @@ function RowMenu(props: {
           </>
         }
       >
-        {editing ? (
-          <TagEditor
-            primaryKey={props.primaryKey}
-            stackKeys={props.stackKeys}
-            defaultWholeStack={props.defaultWholeStack}
-            prByKey={props.prByKey}
-            initiatives={props.initiatives}
-            onAssign={props.onAssign}
-            onCreate={props.onCreate}
-          />
-        ) : (
-          <>
-            {pr ? (
-              <button
-                type="button"
-                className="menu-item"
-                disabled={pending}
-                onClick={() => {
-                  setPending(true)
-                  setError(null)
-                  void props.onRefresh(props.primaryKey)
-                    .then(() => close())
-                    .catch((caught: unknown) => {
-                      setError(caught instanceof Error ? caught.message : 'Could not refresh that pull request')
-                    })
-                    .finally(() => setPending(false))
-                }}
-              >
-                {pending ? 'Refreshing…' : `Refresh #${pr.number}`}
-              </button>
-            ) : null}
-            <button type="button" className="menu-item" onClick={() => setEditing(true)}>
-              Set initiative
-            </button>
-            {error ? <p>{error}</p> : null}
-          </>
-        )}
+        <RowMenuBody {...props} />
       </ClickCard>
     </td>
+  )
+}
+
+function RowMenuBody(props: RowMenuProps) {
+  const [view, setView] = useState<'menu' | 'initiative' | 'prompt'>('menu')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const close = useMenuClose()
+  const agents = useAgentLaunch()
+  const pr = props.prByKey.get(props.primaryKey)
+  const promptTargets = props.prs.length ? props.prs : pr ? [pr] : []
+  const failing = props.prs.filter((item) => failingChecks(item).length > 0)
+
+  if (view === 'initiative') {
+    return (
+      <TagEditor
+        primaryKey={props.primaryKey}
+        stackKeys={props.stackKeys}
+        defaultWholeStack={props.defaultWholeStack}
+        prByKey={props.prByKey}
+        initiatives={props.initiatives}
+        onAssign={props.onAssign}
+        onCreate={props.onCreate}
+      />
+    )
+  }
+  if (view === 'prompt') {
+    return <AgentPromptForm prs={promptTargets} initialKey={props.primaryKey} onStarted={close} />
+  }
+  return (
+    <>
+      {pr ? (
+        <button
+          type="button"
+          className="menu-item"
+          disabled={pending}
+          onClick={() => {
+            setPending(true)
+            setError(null)
+            void props.onRefresh(props.primaryKey)
+              .then(() => close())
+              .catch((caught: unknown) => {
+                setError(caught instanceof Error ? caught.message : 'Could not refresh that pull request')
+              })
+              .finally(() => setPending(false))
+          }}
+        >
+          {pending ? 'Refreshing…' : `Refresh #${pr.number}`}
+        </button>
+      ) : null}
+      {promptTargets.length ? (
+        <button type="button" className="menu-item" onClick={() => setView('prompt')}>
+          Work on {promptTargets.length > 1 ? 'a pull request' : `#${promptTargets[0]!.number}`} with Cursor…
+        </button>
+      ) : null}
+      {failing.map((item) => {
+        const request: AgentRequest = { kind: 'ci' }
+        const running = activeSession(item, 'ci')
+        return (
+          <button
+            key={item.key}
+            type="button"
+            className="menu-item"
+            disabled={running !== null || agents.pending !== null}
+            onClick={() => {
+              void agents.launch(item, request).then((opened) => {
+                if (opened) close()
+              })
+            }}
+          >
+            {agents.pending === launchTag(item, request)
+              ? 'Starting Cursor…'
+              : running
+                ? `Cursor is investigating CI on #${item.number}`
+                : `Investigate CI failure on #${item.number}`}
+          </button>
+        )
+      })}
+      <button type="button" className="menu-item" onClick={() => setView('initiative')}>
+        Set initiative
+      </button>
+      {error ? <p>{error}</p> : null}
+      {agents.error ? <p className="launch-error">{agents.error}</p> : null}
+    </>
+  )
+}
+
+function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; initialKey: string; onStarted: () => void }) {
+  const [key, setKey] = useState(prs.some((pr) => pr.key === initialKey) ? initialKey : prs[0]!.key)
+  const [text, setText] = useState('')
+  const { launch, pending, error } = useAgentLaunch()
+  const pr = prs.find((item) => item.key === key) ?? prs[0]!
+  const busy = pending !== null
+  const ready = text.trim().length > 0 && text.length <= PROMPT_LIMIT
+  return (
+    <form
+      className="agent-form"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!ready || busy) return
+        void launch(pr, { kind: 'prompt', prompt: text }).then((opened) => {
+          if (opened) onStarted()
+        })
+      }}
+    >
+      <h3>Work on #{pr.number} with Cursor</h3>
+      <p>Cursor gets this pull request’s link, branches, and linked issues, and pushes to its existing branch.</p>
+      {prs.length > 1 ? (
+        <label className="agent-target">
+          Pull request
+          <select className="select" value={key} disabled={busy} onChange={(event) => setKey(event.target.value)}>
+            {prs.map((item) => (
+              <option key={item.key} value={item.key}>
+                #{item.number} {item.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <textarea
+        aria-label="Prompt for Cursor"
+        placeholder="What should Cursor do?"
+        rows={5}
+        autoFocus
+        value={text}
+        disabled={busy}
+        maxLength={PROMPT_LIMIT}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault()
+            event.currentTarget.form?.requestSubmit()
+          }
+        }}
+      />
+      <p className="faint reply-hint">⌘↵ to start</p>
+      <button type="submit" className="primary resolve-cta" disabled={!ready || busy}>
+        {busy ? 'Starting Cursor…' : 'Start agent'}
+      </button>
+      {error ? <p className="launch-error">{error}</p> : null}
+    </form>
   )
 }
 
@@ -1504,6 +1659,7 @@ function CiPanel({
     <div>
       <h3>{heading}</h3>
       <RerunActions keys={prs.map((pr) => pr.key)} onRerun={onRerun} />
+      <CiAgentActions prs={prs} />
       {[...grouped.entries()].map(([workflow, items]) => (
         <div key={workflow} className="check-group">
           <h4>{workflow}</h4>
@@ -1574,6 +1730,43 @@ function RerunActions({ keys, onRerun }: { keys: string[]; onRerun: (keys: strin
       </div>
       {message ? <p>{message}</p> : null}
     </>
+  )
+}
+
+function CiAgentActions({ prs }: { prs: PullRequest[] }) {
+  const failing = prs.filter((pr) => failingChecks(pr).length > 0)
+  const { launch, pending, error } = useAgentLaunch()
+  if (failing.length === 0) return null
+  const request: AgentRequest = { kind: 'ci' }
+  const idle = failing.filter((pr) => !activeSession(pr, 'ci'))
+  return (
+    <div className="ci-agent">
+      {failing.map((pr) => {
+        const running = activeSession(pr, 'ci')
+        return running ? <RunningNote key={pr.key} session={running} prefix={failing.length > 1 ? `#${pr.number}` : null} /> : null
+      })}
+      {idle.length ? (
+        <>
+          <div className="popover-actions">
+            {idle.map((pr) => (
+              <button
+                key={pr.key}
+                type="button"
+                disabled={pending !== null}
+                aria-busy={pending === launchTag(pr, request)}
+                onClick={() => void launch(pr, request)}
+              >
+                {pending === launchTag(pr, request)
+                  ? 'Starting Cursor…'
+                  : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with Cursor`}
+              </button>
+            ))}
+          </div>
+          <p>Cursor reads the failing logs, pushes a fix if the cause is clear, and reports back if it is not.</p>
+        </>
+      ) : null}
+      {error ? <p className="launch-error">{error}</p> : null}
+    </div>
   )
 }
 

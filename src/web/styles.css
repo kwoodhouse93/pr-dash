@@ -628,7 +628,9 @@ tr.held .stack-mark::after { opacity: 0.35; }
 th.conflict,
 td.conflict,
 th.uptodate,
-td.uptodate { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px; }
+td.uptodate,
+th.agents,
+td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px; }
 .conflict-cell { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; }
 .conflict-x {
   border: 0;
@@ -674,7 +676,39 @@ td.uptodate { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
 .cursor-chip.failed { background: var(--red-dim); color: var(--red); }
 .cursor-chip.cancelled,
 .cursor-chip.expired { background: var(--chip); color: var(--muted); }
-.cursor-session + .cursor-session { margin-top: 12px; }
+.cursor-chip { white-space: nowrap; }
+.cursor-session + .cursor-session { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.agent-status { font-weight: 650; color: var(--blue); }
+.agent-status.finished { color: var(--green); }
+.agent-status.failed { color: var(--red); }
+.agent-status.cancelled,
+.agent-status.expired { color: var(--muted); }
+.popover p.agent-prompt {
+  max-height: 7.5em;
+  overflow: auto;
+  padding-left: 8px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cursor-session .md-details { margin-top: 4px; }
+.agent-form textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+}
+.agent-target { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+.agent-target select { width: 100%; }
+.ci-agent { margin: -4px 0 12px; }
+.ci-agent .popover-actions { margin-bottom: 6px; }
 .cursor-links { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
 .cursor-links a { display: block; padding: 6px 0; }
 .cursor-result { color: var(--text); font-size: 13px; }

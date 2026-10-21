@@ -143,7 +143,7 @@ describe('queue menu', () => {
             queueByKey={new Map()}
             holds={new Map()}
             onRerun={async () => ''}
-            onResolveConflictWithCursor={async () => ({ url: 'https://example.test' })}
+            onStartAgent={async () => ({ url: 'https://example.test' })}
             onRebase={async () => {}}
             byIssue={false}
             onRefreshPr={async () => {}}

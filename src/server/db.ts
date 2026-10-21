@@ -83,16 +83,36 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       dismiss_stale INTEGER NOT NULL,
       fetched_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS cursor_sessions (
-      pr_key TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      agent_id TEXT PRIMARY KEY,
+      pr_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      prompt TEXT,
       run_id TEXT NOT NULL,
       status TEXT NOT NULL,
       result TEXT,
       branch TEXT,
+      created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS agent_sessions_pr ON agent_sessions (pr_key, created_at);
   `)
+
+  const legacySessions = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cursor_sessions'").get()
+  if (legacySessions) {
+    db.exec('BEGIN')
+    try {
+      db.exec(`
+        INSERT OR IGNORE INTO agent_sessions (agent_id, pr_key, kind, prompt, run_id, status, result, branch, created_at, updated_at)
+        SELECT agent_id, pr_key, 'conflict', NULL, run_id, status, result, branch, updated_at, updated_at FROM cursor_sessions;
+        DROP TABLE cursor_sessions;
+      `)
+      db.exec('COMMIT')
+    } catch (error) {
+      db.exec('ROLLBACK')
+      throw error
+    }
+  }
 
   const columns = db.prepare('PRAGMA table_info(snapshot)').all() as { name: string }[]
   if (!columns.some((column) => column.name === 'review_pull_requests')) {
@@ -112,13 +132,13 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   const readInitiatives = db.prepare('SELECT id, name, created_at, updated_at FROM initiatives ORDER BY created_at ASC')
   const readAssignments = db.prepare('SELECT initiative_id, pr_key FROM initiative_pull_requests')
   const readCursorSessions = db.prepare(
-    'SELECT pr_key, agent_id, run_id, status, result, branch, updated_at FROM cursor_sessions',
+    `SELECT agent_id, pr_key, kind, prompt, run_id, status, result, branch, created_at, updated_at
+     FROM agent_sessions ORDER BY created_at DESC, rowid DESC`,
   )
   const writeCursorSession = db.prepare(
-    `INSERT INTO cursor_sessions (pr_key, agent_id, run_id, status, result, branch, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(pr_key) DO UPDATE SET
-       agent_id = excluded.agent_id,
+    `INSERT INTO agent_sessions (agent_id, pr_key, kind, prompt, run_id, status, result, branch, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(agent_id) DO UPDATE SET
        run_id = excluded.run_id,
        status = excluded.status,
        result = excluded.result,
@@ -147,31 +167,47 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
 
   function cursorSessions(): { prKey: string; session: CursorSession }[] {
     return (readCursorSessions.all() as {
-      pr_key: string
       agent_id: string
+      pr_key: string
+      kind: CursorSession['kind']
+      prompt: string | null
       run_id: string
       status: CursorSession['status']
       result: string | null
       branch: string | null
+      created_at: string
       updated_at: string
     }[]).map((row) => ({
       prKey: row.pr_key,
       session: {
         agentId: row.agent_id,
         runId: row.run_id,
+        kind: row.kind,
+        prompt: row.prompt,
         status: row.status,
         result: row.result,
         branch: row.branch,
+        createdAt: row.created_at,
         updatedAt: row.updated_at,
       },
     }))
   }
 
-  function decorate(list: PullRequest[], tags: Map<string, string[]>, sessions: Map<string, CursorSession>): PullRequest[] {
+  function sessionsByPull(): Map<string, CursorSession[]> {
+    const map = new Map<string, CursorSession[]>()
+    for (const { prKey, session } of cursorSessions()) {
+      const list = map.get(prKey) ?? []
+      list.push(session)
+      map.set(prKey, list)
+    }
+    return map
+  }
+
+  function decorate(list: PullRequest[], tags: Map<string, string[]>, sessions: Map<string, CursorSession[]>): PullRequest[] {
     return list.map((pr) => ({
       ...pr,
       initiativeIds: tags.get(pr.key) ?? [],
-      cursorSession: sessions.get(pr.key) ?? null,
+      cursorSessions: sessions.get(pr.key) ?? [],
     }))
   }
 
@@ -183,7 +219,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   function snapshot(): Snapshot {
     const row = readSnapshotRow.get() as SnapshotRow | undefined
     const tags = assignments()
-    const sessions = new Map(cursorSessions().map((item) => [item.prKey, item.session]))
+    const sessions = sessionsByPull()
     const held = queue.heldKeys()
     const visible = (list: PullRequest[]) => (held.size === 0 ? list : list.filter((pr) => !held.has(pr.key)))
     return {
@@ -211,7 +247,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   return {
     snapshot,
     saveSnapshot(input) {
-      const strip = (list: PullRequest[]) => list.map(({ cursorSession: _session, ...pr }) => ({ ...pr, initiativeIds: [] }))
+      const strip = (list: PullRequest[]) => list.map(({ cursorSessions: _sessions, ...pr }) => ({ ...pr, initiativeIds: [] }))
       const existing = readSnapshotRow.get() as SnapshotRow | undefined
       const review = input.reviewPullRequests ?? parseList(existing?.review_pull_requests)
       const mineSyncedAt = input.mineSyncedAt === undefined ? (existing?.mine_synced_at ?? null) : input.mineSyncedAt
@@ -316,7 +352,18 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     cursorSessions,
     saveCursorSession(prKey, session) {
-      writeCursorSession.run(prKey, session.agentId, session.runId, session.status, session.result, session.branch, session.updatedAt)
+      writeCursorSession.run(
+        session.agentId,
+        prKey,
+        session.kind,
+        session.prompt,
+        session.runId,
+        session.status,
+        session.result,
+        session.branch,
+        session.createdAt,
+        session.updatedAt,
+      )
     },
     queue,
     patchFeedback(key, counts) {
