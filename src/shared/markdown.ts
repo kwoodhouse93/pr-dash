@@ -14,13 +14,35 @@ export type Block =
   | { type: 'code'; text: string }
   | { type: 'table'; header: Inline[][]; rows: Inline[][][] }
   | { type: 'rule' }
+  | { type: 'details'; open: boolean; summary: Inline[]; children: Block[] }
+
+const DETAILS_SLOT = /^\uE000details:(\d+)$/
+const DETAILS_OPEN = /^[ \t]*<details(\s[^>]*)?>/i
 
 export function parseMarkdown(source: string): Block[] {
-  const lines = source.replace(/\r\n?/g, '\n').split('\n')
+  return parseMarkdownAt(source, 0)
+}
+
+function parseMarkdownAt(source: string, depth: number): Block[] {
+  const normalized = source.replace(/\r\n?/g, '\n')
+  if (depth > 8) return parseBlocks(stripLooseDetailsTags(normalized), [])
+  const { text, slots } = liftDetails(normalized, depth)
+  return parseBlocks(text, slots)
+}
+
+function parseBlocks(source: string, slots: Block[]): Block[] {
+  const lines = source.split('\n')
   const blocks: Block[] = []
   let index = 0
   while (index < lines.length) {
     const line = lines[index] ?? ''
+    const slot = DETAILS_SLOT.exec(line.trim())
+    if (slot) {
+      const block = slots[Number(slot[1])]
+      if (block) blocks.push(block)
+      index += 1
+      continue
+    }
     if (line.trim() === '') {
       index += 1
       continue
@@ -104,9 +126,124 @@ export function parseMarkdown(source: string): Block[] {
 function startsBlock(lines: string[], index: number): boolean {
   const line = lines[index] ?? ''
   if (line.trim() === '') return true
+  if (DETAILS_SLOT.test(line.trim())) return true
   if (line.startsWith('```') || line.startsWith('>')) return true
   if (/^(#{1,6})\s+/.test(line) || isRule(line) || listItem(line) || isTableStart(lines, index)) return true
   return false
+}
+
+function liftDetails(source: string, depth: number): { text: string; slots: Block[] } {
+  const slots: Block[] = []
+  const lines = source.split('\n')
+  const out: string[] = []
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index] ?? ''
+    if (line.startsWith('```')) {
+      out.push(line)
+      index += 1
+      while (index < lines.length && !(lines[index] ?? '').startsWith('```')) {
+        out.push(lines[index] ?? '')
+        index += 1
+      }
+      if (index < lines.length) {
+        out.push(lines[index] ?? '')
+        index += 1
+      }
+      continue
+    }
+    if (DETAILS_OPEN.test(line)) {
+      const rest = lines.slice(index).join('\n')
+      const taken = consumeDetails(rest)
+      if (taken) {
+        const { summary, body } = splitSummary(taken.inner)
+        slots.push({
+          type: 'details',
+          open: taken.open,
+          summary: parseInlines(plainSummary(summary)),
+          children: parseMarkdownAt(body.trim(), depth + 1),
+        })
+        out.push(`\uE000details:${slots.length - 1}`)
+        const parts = rest.slice(0, taken.length).split('\n')
+        const lastIndex = index + parts.length - 1
+        const after = (lines[lastIndex] ?? '').slice((parts.at(-1) ?? '').length)
+        if (after.trim()) {
+          lines[lastIndex] = after.trimStart()
+          index = lastIndex
+        } else {
+          index = lastIndex + 1
+        }
+        continue
+      }
+    }
+    out.push(stripLooseDetailsTags(line))
+    index += 1
+  }
+  return { text: out.join('\n'), slots }
+}
+
+function consumeDetails(text: string): { open: boolean; inner: string; length: number } | null {
+  const openMatch = DETAILS_OPEN.exec(text)
+  if (!openMatch) return null
+  const open = /(?:^|\s)open(?:\s|=|$)/i.test(openMatch[1] ?? '')
+  let index = openMatch[0].length
+  let depth = 1
+  while (index < text.length) {
+    if (atFence(text, index)) {
+      const next = skipFence(text, index)
+      if (next < 0) return null
+      index = next
+      continue
+    }
+    const tag = /^<\/?details(?:\s[^>]*)?>/i.exec(text.slice(index))
+    if (tag) {
+      depth += tag[0][1] === '/' ? -1 : 1
+      index += tag[0].length
+      if (depth === 0) return { open, inner: text.slice(openMatch[0].length, index - tag[0].length), length: index }
+      continue
+    }
+    index += 1
+  }
+  return null
+}
+
+function atFence(text: string, index: number): boolean {
+  return text.startsWith('```', index) && (index === 0 || text[index - 1] === '\n')
+}
+
+function skipFence(text: string, start: number): number {
+  const openEnd = text.indexOf('\n', start)
+  if (openEnd < 0) return -1
+  let index = openEnd + 1
+  while (index < text.length) {
+    if (text.startsWith('```', index)) {
+      const end = text.indexOf('\n', index)
+      return end < 0 ? text.length : end + 1
+    }
+    const next = text.indexOf('\n', index)
+    if (next < 0) return -1
+    index = next + 1
+  }
+  return -1
+}
+
+function splitSummary(inner: string): { summary: string; body: string } {
+  const match = /<summary(?:\s[^>]*)?>([\s\S]*?)<\/summary>/i.exec(inner)
+  if (!match) return { summary: '', body: inner }
+  const body = `${inner.slice(0, match.index)}${inner.slice(match.index + match[0].length)}`
+  return { summary: match[1] ?? '', body }
+}
+
+function plainSummary(summary: string): string {
+  const text = summary
+    .replace(/<[^>\n]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text || 'Details'
+}
+
+function stripLooseDetailsTags(value: string): string {
+  return value.replace(/<\/?details(?:\s[^>]*)?>/gi, '').replace(/<\/?summary(?:\s[^>]*)?>/gi, '')
 }
 
 function isRule(line: string): boolean {

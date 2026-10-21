@@ -28,7 +28,7 @@ export function requiredCheckGate(
   const missing: string[] = []
   for (const name of requiredNames) {
     const check = checks.find((item) => item.name === name)
-    if (!check) missing.push(name)
+    if (!check || check.unreported) missing.push(name)
     else if (cancelledCheck(check)) cancelled.push(name)
     else if (checkPhase(check) === 'fail') failing.push(name)
     else if (checkPhase(check) !== 'success') waiting.push(name)
@@ -61,7 +61,8 @@ export function canSquashMerge(pr: PullRequest): boolean {
     pr.baseRef === pr.defaultBranch &&
     !pr.isDraft &&
     mergeStateReady(pr.mergeable, pr.mergeStateStatus) &&
-    pr.unresolvedCount === 0
+    pr.unresolvedCount === 0 &&
+    requiredCheckGate(pr.checks, pr.requiredCheckNames ?? [], pr.mergeable, pr.mergeStateStatus)?.action !== 'fail'
   )
 }
 

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mergeReview, summarizeReviews } from '../src/shared/approval.ts'
-import { canSquashMerge } from '../src/shared/merge.ts'
+import { canSquashMerge, requiredCheckGate } from '../src/shared/merge.ts'
 import {
   activeHoldNames,
   applyRequired,
+  checkPhase,
   ciLabel,
   ciLevel,
   compareChecks,
@@ -15,6 +16,7 @@ import {
   withoutHolds,
 } from '../src/shared/ci.ts'
 import { feedbackCounts, quoteReply, summarizeNotes, summarizeThreads, threadKinds, threadPermalink } from '../src/shared/feedback.ts'
+import { checksFromRaw, type RawCheckSuite } from '../src/shared/map.ts'
 import { reviewSearchQueries } from '../src/server/github.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
@@ -187,7 +189,105 @@ describe('ci', () => {
     expect(checks[0]?.required).toBe(true)
     expect(ciLevel(checks)).toBe('red')
   })
+
+  it('shows a workflow that failed before creating jobs, and the required checks it never reported', () => {
+    const checks = checksFromRaw(
+      [{ __typename: 'CheckRun', name: 'prisma-migration-check', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      ['prisma-migration-check', 'build', 'lint'],
+      { mergeStateStatus: 'BLOCKED', suites: [startupSuite('Test')] },
+    )
+    expect(checks.find((item) => item.name === 'Test — workflow startup')).toMatchObject({
+      conclusion: 'STARTUP_FAILURE',
+      required: true,
+      workflowName: 'Test',
+      workflowRunId: 1234567890,
+      url: 'https://github.com/initech/backend/actions/runs/1234567890',
+    })
+    const missing = checks.find((item) => item.name === 'build')
+    expect(missing?.unreported).toBe(true)
+    expect(checkPhase(missing!)).toBe('missing')
+    expect(ciLevel(checks)).toBe('red')
+    expect(requiredCheckGate(checks, ['prisma-migration-check', 'build', 'lint'], 'MERGEABLE', 'BLOCKED')?.action).toBe('fail')
+  })
+
+  it('keeps a green rollup green when a ruleset name is absent and GitHub is not blocked', () => {
+    const checks = checksFromRaw(
+      [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      ['build', 'lint'],
+      { mergeStateStatus: 'CLEAN' },
+    )
+    expect(checks.map((item) => item.name)).toEqual(['build'])
+    expect(ciLevel(checks)).toBe('green')
+  })
+
+  it('lists required checks that never reported while GitHub still blocks the pull request', () => {
+    const checks = checksFromRaw(
+      [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+      ['build', 'lint'],
+      { mergeStateStatus: 'BLOCKED' },
+    )
+    expect(checkPhase(checks.find((item) => item.name === 'lint')!)).toBe('missing')
+    expect(ciLevel(checks)).toBe('pending')
+    expect(requiredCheckGate(checks, ['build', 'lint'], 'MERGEABLE', 'BLOCKED')).toEqual({ action: 'wait', names: ['lint'] })
+  })
+
+  it('does not turn a skipped required check into a missing one', () => {
+    const checks = checksFromRaw(
+      [
+        { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SKIPPED' },
+      ],
+      ['build', 'lint'],
+      { mergeStateStatus: 'BLOCKED' },
+    )
+    expect(checks.map((item) => item.name)).toEqual(['build'])
+    expect(ciLevel(checks)).toBe('green')
+  })
+
+  it('ignores a workflow suite that created jobs, a skip, and an older startup failure', () => {
+    const checks = checksFromRaw([], ['build'], {
+      mergeStateStatus: 'CLEAN',
+      suites: [
+        startupSuite('Test', { updatedAt: '2026-10-19T15:00:00Z', databaseId: 1 }),
+        {
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          updatedAt: '2026-10-19T16:00:00Z',
+          workflowRun: { databaseId: 2, url: null, workflow: { name: 'Test' } },
+          checkRuns: { totalCount: 3 },
+        },
+        {
+          status: 'COMPLETED',
+          conclusion: 'SKIPPED',
+          workflowRun: { databaseId: 3, url: null, workflow: { name: 'Preview' } },
+          checkRuns: { totalCount: 0 },
+        },
+        {
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          workflowRun: { databaseId: 4, url: null, workflow: { name: 'Lint' } },
+          checkRuns: { totalCount: 1 },
+        },
+      ],
+    })
+    expect(checks).toEqual([])
+  })
 })
+
+function startupSuite(workflow: string, over: { updatedAt?: string; databaseId?: number } = {}): RawCheckSuite {
+  return {
+    status: 'COMPLETED',
+    conclusion: 'STARTUP_FAILURE',
+    createdAt: '2026-10-19T15:39:26Z',
+    updatedAt: over.updatedAt ?? '2026-10-20T16:08:02Z',
+    workflowRun: {
+      databaseId: over.databaseId ?? 1234567890,
+      url: 'https://github.com/initech/backend/actions/runs/1234567890',
+      workflow: { name: workflow },
+    },
+    checkRuns: { totalCount: 0 },
+  }
+}
 
 describe('rules', () => {
   it('reads active required status check contexts', () => {
@@ -617,7 +717,7 @@ describe('stacks and grouping', () => {
     ])
   })
 
-  it('shows a stack once, intact, when not grouped by issue', () => {
+  it('keeps project sections and drops only the issue layer when not grouped by issue', () => {
     const prs = [
       pr({
         id: 'a',
@@ -650,11 +750,79 @@ describe('stacks and grouping', () => {
       'author',
       false,
     )
-    expect(view.projects).toEqual([])
+    expect(view.projects.map((project) => project.title)).toEqual(['Updates'])
+    expect(view.projects[0]?.issues).toHaveLength(1)
+    expect(view.projects[0]?.issues[0]?.title).toBeNull()
+    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
+      3,
+      'between',
+      1,
+    ])
     expect(view.initiatives).toEqual([])
     expect(view.looseIssues).toEqual([])
-    expect(view.unassigned?.stacks).toHaveLength(1)
-    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([3, 2, 1])
+    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
+      'above',
+      2,
+      'below',
+    ])
+  })
+
+  it('keeps a stack intact under its project when not grouped by issue', () => {
+    const prs = [
+      pr({
+        id: 'a',
+        number: 1,
+        baseRef: 'dev',
+        headRef: 'branch-a',
+        linearIssues: [{ identifier: 'ENG-1', title: 'Bottom', url: null, projectId: 'p1', projectName: 'Updates' }],
+      }),
+      pr({
+        id: 'b',
+        number: 2,
+        baseRef: 'branch-a',
+        headRef: 'branch-b',
+        linearIssues: [{ identifier: 'ENG-2', title: 'Top', url: null, projectId: 'p1', projectName: 'Updates' }],
+      }),
+    ]
+    const grouped = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT)
+    expect(grouped.projects[0]?.issues.map((issue) => issue.issueId).sort()).toEqual(['ENG-1', 'ENG-2'])
+    const view = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT, 'author', false)
+    expect(view.projects[0]?.issues).toHaveLength(1)
+    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
+      2,
+      1,
+    ])
+    expect(view.looseIssues).toEqual([])
+    expect(view.unassigned).toBeNull()
+  })
+
+  it('keeps an initiative when not grouped by issue and folds loose issues into the remainder', () => {
+    const tagged = pr({
+      id: 'i',
+      number: 4,
+      baseRef: 'dev',
+      headRef: 'init',
+      initiativeIds: ['cleanup'],
+    })
+    const loose = pr({
+      id: 'l',
+      number: 5,
+      baseRef: 'dev',
+      headRef: 'loose',
+      linearIssues: [{ identifier: 'ENG-8', title: 'Loose', url: null, projectId: null, projectName: null }],
+    })
+    const view = buildOutline(
+      [tagged, loose],
+      [{ id: 'cleanup', name: 'Auth cleanup', createdAt: '', updatedAt: '' }],
+      DEFAULT_FILTERS,
+      DEFAULT_SORT,
+      'author',
+      false,
+    )
+    expect(view.initiatives.map((bucket) => bucket.title)).toEqual(['Auth cleanup'])
+    expect(view.projects).toEqual([])
+    expect(view.looseIssues).toEqual([])
+    expect(view.unassigned?.singles.map((block) => block.summary.number)).toEqual([5])
   })
 
   it('groups a tagged slice of a stack under an initiative', () => {
@@ -785,5 +953,10 @@ describe('squash merge', () => {
   it('refuses a pull request with unresolved threads and still allows resolved ones', () => {
     expect(canSquashMerge({ ...ready, threadCount: 2, unresolvedCount: 1 })).toBe(false)
     expect(canSquashMerge({ ...ready, threadCount: 3, unresolvedCount: 0 })).toBe(true)
+  })
+
+  it('refuses a pull request whose workflow failed before creating jobs', () => {
+    const checks = checksFromRaw([], [], { mergeStateStatus: 'CLEAN', suites: [startupSuite('Test')] })
+    expect(canSquashMerge({ ...ready, checks })).toBe(false)
   })
 })

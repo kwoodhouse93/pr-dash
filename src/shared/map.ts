@@ -76,12 +76,95 @@ export type RawCheck = {
   checkSuite?: { workflowRun?: { databaseId?: number | null; workflow?: { name?: string | null } | null } | null } | null
 }
 
+export type RawCheckSuite = {
+  status?: string | null
+  conclusion?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  url?: string | null
+  workflowRun?: {
+    databaseId?: number | null
+    url?: string | null
+    workflow?: { name?: string | null } | null
+  } | null
+  checkRuns?: { totalCount?: number | null } | null
+}
+
+const SUITE_FAILURE = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR'])
+
+export type CheckSource = {
+  suites?: RawCheckSuite[]
+  mergeStateStatus?: string | null
+}
+
 function present<T>(value: T | null | undefined): value is T {
   return value != null
 }
 
-export function checksFromRaw(nodes: RawCheck[], requiredNames: string[]): Check[] {
-  return selectChecks(applyRequired(nodes.map(mapRawCheck).filter(present), requiredNames))
+export function checksFromRaw(nodes: RawCheck[], requiredNames: string[], source: CheckSource = {}): Check[] {
+  const mapped = nodes.map(mapRawCheck).filter(present)
+  const startup = workflowStartupChecks(source.suites ?? [])
+  const selected = selectChecks(applyRequired([...mapped, ...startup], requiredNames))
+  const seen = new Set(mapped.map((check) => check.name))
+  const blocked = (source.mergeStateStatus ?? '').toUpperCase() === 'BLOCKED'
+  const missing =
+    blocked || startup.length > 0
+      ? requiredNames.filter((name) => !seen.has(name)).map(unreportedCheck)
+      : []
+  return selectChecks([...selected, ...missing])
+}
+
+/**
+ * A GitHub Actions workflow that fails before creating jobs never appears in the check rollup.
+ * Keep the latest suite per workflow. A later suite that created jobs replaces the failure.
+ */
+export function workflowStartupChecks(suites: RawCheckSuite[]): Check[] {
+  const latest = new Map<string, RawCheckSuite>()
+  for (const suite of suites) {
+    const workflow = suite.workflowRun?.workflow?.name
+    if (!workflow) continue
+    const current = latest.get(workflow)
+    if (!current || suiteTime(suite) >= suiteTime(current)) latest.set(workflow, suite)
+  }
+  const checks: Check[] = []
+  for (const [workflow, suite] of latest) {
+    const runs = suite.checkRuns?.totalCount
+    const conclusion = (suite.conclusion ?? '').toUpperCase()
+    if (runs == null || runs > 0 || !SUITE_FAILURE.has(conclusion)) continue
+    checks.push({
+      name: `${workflow} — workflow startup`,
+      status: suite.status ?? 'COMPLETED',
+      conclusion,
+      required: true,
+      url: suite.workflowRun?.url ?? suite.url ?? null,
+      workflowName: workflow,
+      workflowRunId: suite.workflowRun?.databaseId ?? null,
+      startedAt: suite.createdAt ?? null,
+      completedAt: suite.updatedAt ?? null,
+    })
+  }
+  return checks
+}
+
+function suiteTime(suite: RawCheckSuite): number {
+  const raw = suite.updatedAt ?? suite.createdAt
+  const time = raw ? Date.parse(raw) : 0
+  return Number.isNaN(time) ? 0 : time
+}
+
+function unreportedCheck(name: string): Check {
+  return {
+    name,
+    status: 'COMPLETED',
+    conclusion: null,
+    required: true,
+    url: null,
+    workflowName: null,
+    workflowRunId: null,
+    startedAt: null,
+    completedAt: null,
+    unreported: true,
+  }
 }
 
 function mapRawCheck(node: RawCheck): Check | null {
@@ -125,6 +208,7 @@ export function mapPullRequest(
     dismissStale: boolean
     committedAt: string | null
     checks: RawCheck[]
+    suites?: RawCheckSuite[]
   },
 ): PullRequest {
   const reviews = summarizeReviews((node.reviews.nodes ?? []).filter(present))
@@ -133,7 +217,10 @@ export function mapPullRequest(
   const detail = feedbackFrom(threadNodes, node, extras.viewer)
   const comments = (node.comments.nodes ?? []).filter(present)
   const merge = mergeReview(node.reviewDecision, node.isDraft)
-  const checks = checksFromRaw(extras.checks, extras.requiredNames)
+  const checks = checksFromRaw(extras.checks, extras.requiredNames, {
+    suites: extras.suites,
+    mergeStateStatus: node.mergeStateStatus,
+  })
   return {
     id: node.id,
     key: `${node.repository.nameWithOwner}#${node.number}`,

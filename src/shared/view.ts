@@ -262,21 +262,15 @@ export function buildOutline(
       sort,
     )
 
-  if (!byIssue) {
-    return {
-      projects: [],
-      initiatives: [],
-      looseIssues: [],
-      unassigned: toBucket('all', null, null, null, blocksFor(() => true, 'filtered out')),
-    }
-  }
-
   const projectIssues = new Map<string, { project: string; identifier: string; title: string; href: string | null }>()
+  const projectNames = new Set<string>()
   const looseIssues = new Map<string, { identifier: string; title: string; href: string | null }>()
   for (const pr of prs) {
     const inProject = pr.linearIssues.filter((issue) => issue.projectName)
     if (inProject.length) {
       for (const issue of inProject) {
+        projectNames.add(issue.projectName!)
+        if (!byIssue) continue
         const key = `${issue.projectName}\0${issue.identifier}`
         if (projectIssues.has(key)) continue
         projectIssues.set(key, {
@@ -288,7 +282,7 @@ export function buildOutline(
       }
       continue
     }
-    if (pr.initiativeIds.length) continue
+    if (!byIssue || pr.initiativeIds.length) continue
     for (const issue of pr.linearIssues) {
       if (looseIssues.has(issue.identifier)) continue
       looseIssues.set(issue.identifier, {
@@ -300,29 +294,46 @@ export function buildOutline(
   }
 
   const byProject = new Map<string, { identifier: string; title: string; href: string | null }[]>()
-  for (const issue of projectIssues.values()) {
-    const list = byProject.get(issue.project) ?? []
-    list.push(issue)
-    byProject.set(issue.project, list)
+  if (byIssue) {
+    for (const issue of projectIssues.values()) {
+      const list = byProject.get(issue.project) ?? []
+      list.push(issue)
+      byProject.set(issue.project, list)
+    }
+  } else {
+    for (const project of projectNames) byProject.set(project, [])
   }
 
   const projects: ProjectGroup[] = []
   for (const [project, issues] of byProject) {
     const buckets = sortBuckets(
-      issues.flatMap((issue) => {
-        const bucket = toBucket(
-          `project:${project}:${issue.identifier}`,
-          issue.title,
-          issue.href,
-          issue.identifier,
-          blocksFor(
-            (pr) =>
-              pr.linearIssues.some((item) => item.projectName === project && item.identifier === issue.identifier),
-            'other issues',
+      byIssue
+        ? issues.flatMap((issue) => {
+            const bucket = toBucket(
+              `project:${project}:${issue.identifier}`,
+              issue.title,
+              issue.href,
+              issue.identifier,
+              blocksFor(
+                (pr) =>
+                  pr.linearIssues.some((item) => item.projectName === project && item.identifier === issue.identifier),
+                'other issues',
+              ),
+            )
+            return bucket ? [bucket] : []
+          })
+        : flatBucket(
+            toBucket(
+              `project:${project}:all`,
+              null,
+              null,
+              null,
+              blocksFor(
+                (pr) => pr.linearIssues.some((item) => item.projectName === project),
+                'grouped elsewhere',
+              ),
+            ),
           ),
-        )
-        return bucket ? [bucket] : []
-      }),
       sort,
     )
     if (buckets.length === 0) continue
@@ -356,25 +367,27 @@ export function buildOutline(
     sort,
   )
 
-  const loose = sortBuckets(
-    [...looseIssues.values()].flatMap((issue) => {
-      const bucket = toBucket(
-        `loose:${issue.identifier}`,
-        issue.title,
-        issue.href,
-        issue.identifier,
-        blocksFor(
-          (pr) =>
-            !hasProject(pr) &&
-            pr.initiativeIds.length === 0 &&
-            pr.linearIssues.some((item) => item.identifier === issue.identifier),
-          'other issues',
-        ),
+  const loose = !byIssue
+    ? []
+    : sortBuckets(
+        [...looseIssues.values()].flatMap((issue) => {
+          const bucket = toBucket(
+            `loose:${issue.identifier}`,
+            issue.title,
+            issue.href,
+            issue.identifier,
+            blocksFor(
+              (pr) =>
+                !hasProject(pr) &&
+                pr.initiativeIds.length === 0 &&
+                pr.linearIssues.some((item) => item.identifier === issue.identifier),
+              'other issues',
+            ),
+          )
+          return bucket ? [bucket] : []
+        }),
+        sort,
       )
-      return bucket ? [bucket] : []
-    }),
-    sort,
-  )
 
   return {
     projects,
@@ -386,11 +399,15 @@ export function buildOutline(
       null,
       null,
       blocksFor(
-        (pr) => !hasProject(pr) && pr.initiativeIds.length === 0 && pr.linearIssues.length === 0,
+        (pr) => !hasProject(pr) && pr.initiativeIds.length === 0 && (!byIssue || pr.linearIssues.length === 0),
         'grouped elsewhere',
       ),
     ),
   }
+}
+
+function flatBucket(bucket: Bucket | null): Bucket[] {
+  return bucket ? [bucket] : []
 }
 
 function countLabel(count: number): string {

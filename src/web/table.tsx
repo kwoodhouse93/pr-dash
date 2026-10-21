@@ -172,7 +172,7 @@ export function PrTable({
           </SectionBand>
         ) : null}
         {outline.unassigned ? (
-          byIssue ? (
+          byIssue || outline.projects.length > 0 || outline.initiatives.length > 0 ? (
             <SectionBand id="band:unassigned" title="No issue" collapsed={collapsed} onToggle={onToggleSection}>
               <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
             </SectionBand>
@@ -1510,8 +1510,16 @@ function CiPanel({
           {items.map(({ pr, check }) => {
             const phase = checkPhase(check)
             const stale = invalidated(pr, check)
-            const tone = stale ? 'invalidated' : phase === 'fail' ? 'fail' : phase === 'pending' ? 'pending' : 'success'
-            const state = stale ? 'Invalidated' : phase === 'fail' ? 'Failed' : phase === 'pending' ? 'Running' : null
+            const tone = stale ? 'invalidated' : phase === 'fail' ? 'fail' : phase === 'missing' || phase === 'pending' ? 'pending' : 'success'
+            const state = stale
+              ? 'Invalidated'
+              : phase === 'fail'
+                ? 'Failed'
+                : phase === 'missing'
+                  ? 'Not reported'
+                  : phase === 'pending'
+                    ? 'Running'
+                    : null
             return (
               <div key={`${pr.id}:${check.name}`} className="check">
                 <i className={tone} />

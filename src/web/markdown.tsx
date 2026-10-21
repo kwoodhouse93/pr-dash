@@ -1,6 +1,8 @@
 import { Fragment, type ReactNode } from 'react'
 import { parseMarkdown, type Block, type Inline } from '../shared/markdown.ts'
 
+const readiedDetails = new WeakSet<HTMLDetailsElement>()
+
 export function Markdown({ text, className }: { text: string; className?: string }) {
   const blocks = parseMarkdown(text)
   if (blocks.length === 0) return null
@@ -52,7 +54,27 @@ function renderBlock(block: Block, key: number): ReactNode {
       )
     case 'rule':
       return <hr key={key} />
+    case 'details':
+      return <DetailsBlock key={key} block={block} />
   }
+}
+
+function DetailsBlock({ block }: { block: Extract<Block, { type: 'details' }> }) {
+  return (
+    <details
+      className="md-details"
+      ref={(node) => {
+        if (!node || readiedDetails.has(node)) return
+        readiedDetails.add(node)
+        node.open = block.open
+      }}
+    >
+      <summary>{renderInlines(block.summary)}</summary>
+      {block.children.length > 0 ? (
+        <div className="md-details-body">{block.children.map((child, index) => renderBlock(child, index))}</div>
+      ) : null}
+    </details>
+  )
 }
 
 function renderInlines(nodes: Inline[]): ReactNode[] {

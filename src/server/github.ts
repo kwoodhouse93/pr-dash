@@ -12,7 +12,7 @@ import {
 } from '../shared/feedback.ts'
 import { summarizeReviews } from '../shared/approval.ts'
 import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
-import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type ThreadDetail } from '../shared/map.ts'
+import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
 import type { LivePull } from '../shared/queue.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
 import type { PullRequest } from '../shared/types.ts'
@@ -136,6 +136,37 @@ function pullFields(threadComments: boolean): string {
 }
 
 const PULL_FIELDS = pullFields(false)
+
+/** GitHub Actions. Suites from this app are the workflow runs that the check rollup can omit. */
+const GITHUB_ACTIONS_APP_ID = 15368
+
+const ACTION_SUITES = `
+  checkSuites(first: 40, filterBy: { appId: ${GITHUB_ACTIONS_APP_ID} }) {
+    nodes {
+      status
+      conclusion
+      createdAt
+      updatedAt
+      url
+      workflowRun { databaseId url workflow { name } }
+      checkRuns(first: 1) { totalCount }
+    }
+  }
+`
+
+type CommitChecks = {
+  committedDate?: string | null
+  statusCheckRollup?: { contexts: { nodes: Array<RawCheck | null> } } | null
+  checkSuites?: { nodes: Array<RawCheckSuite | null> | null } | null
+}
+
+function readCommitChecks(commit: CommitChecks | null | undefined): { committedAt: string | null; checks: RawCheck[]; suites: RawCheckSuite[] } {
+  return {
+    committedAt: commit?.committedDate ?? null,
+    checks: (commit?.statusCheckRollup?.contexts.nodes ?? []).filter((node): node is RawCheck => node != null),
+    suites: (commit?.checkSuites?.nodes ?? []).filter((suite): suite is RawCheckSuite => suite != null),
+  }
+}
 
 const LIST_QUERY = `
   query Authored($cursor: String) {
@@ -273,11 +304,11 @@ async function fetchReviewNodes(
 
 type CheckData = Record<string, {
   id?: string
-  commits?: { nodes: Array<{ commit: { committedDate: string | null; statusCheckRollup: { contexts: { nodes: Array<RawCheck | null> } } | null } | null } | null> }
+  commits?: { nodes: Array<{ commit: CommitChecks | null } | null> }
 } | null>
 
 async function fetchChecks(token: string, ids: string[], onProgress: (message: string) => void) {
-  const bundles = new Map<string, { committedAt: string | null; checks: RawCheck[] }>()
+  const bundles = new Map<string, { committedAt: string | null; checks: RawCheck[]; suites: RawCheckSuite[] }>()
   const batchSize = 4
   for (let index = 0; index < ids.length; index += batchSize) {
     const batch = ids.slice(index, index + batchSize)
@@ -306,6 +337,7 @@ async function fetchChecks(token: string, ids: string[], onProgress: (message: s
                       }
                     }
                   }
+                  ${ACTION_SUITES}
                 }
               }
             }
@@ -317,9 +349,7 @@ async function fetchChecks(token: string, ids: string[], onProgress: (message: s
     const variables = Object.fromEntries(batch.map((id, number) => [`id${number}`, id]))
     const data = await graphql<CheckData>(token, `query Checks(${varDefs}) { ${fields} }`, variables)
     batch.forEach((id, number) => {
-      const commit = data[`p${number}`]?.commits?.nodes?.[0]?.commit
-      const checks = (commit?.statusCheckRollup?.contexts.nodes ?? []).filter((node): node is RawCheck => node != null)
-      bundles.set(id, { committedAt: commit?.committedDate ?? null, checks })
+      bundles.set(id, readCommitChecks(data[`p${number}`]?.commits?.nodes?.[0]?.commit))
     })
   }
   return bundles
@@ -380,6 +410,7 @@ async function hydrate(
       dismissStale: rules?.dismissStale ?? false,
       committedAt: bundle?.committedAt ?? null,
       checks: bundle?.checks ?? [],
+      suites: bundle?.suites ?? [],
     })
   })
   return {
@@ -428,6 +459,7 @@ const ONE_QUERY = `
             commit {
               committedDate
               statusCheckRollup { contexts(first: 80) { nodes { ${CHECK_NODES} } } }
+              ${ACTION_SUITES}
             }
           }
         }
@@ -436,10 +468,7 @@ const ONE_QUERY = `
   }
 `
 
-type OneCommit = {
-  committedDate: string | null
-  statusCheckRollup: { contexts: { nodes: Array<RawCheck | null> } } | null
-} | null
+type OneCommit = CommitChecks | null
 
 type OneData = {
   node: (GitHubPull & {
@@ -451,13 +480,12 @@ type OneData = {
 export async function fetchOnePull(
   token: string,
   id: string,
-): Promise<{ pull: GitHubPull; open: boolean; committedAt: string | null; checks: RawCheck[] } | null> {
+): Promise<{ pull: GitHubPull; open: boolean; committedAt: string | null; checks: RawCheck[]; suites: RawCheckSuite[] } | null> {
   const data = await graphql<OneData>(token, ONE_QUERY, { id })
   const node = data.node
   if (!node) return null
-  const commit = node.commits?.nodes?.[0]?.commit
-  const checks = (commit?.statusCheckRollup?.contexts.nodes ?? []).filter((item): item is RawCheck => item != null)
-  return { pull: node, open: node.state == null || node.state === 'OPEN', committedAt: commit?.committedDate ?? null, checks }
+  const commit = readCommitChecks(node.commits?.nodes?.[0]?.commit)
+  return { pull: node, open: node.state == null || node.state === 'OPEN', ...commit }
 }
 
 const THREAD_QUERY = `
@@ -564,6 +592,7 @@ const LIVE_QUERY = `
                   }
                 }
               }
+              ${ACTION_SUITES}
             }
           }
         }
@@ -595,6 +624,7 @@ type LiveData = {
             oid: string
             committedDate: string | null
             statusCheckRollup: { contexts: { nodes: Array<RawCheck | null> } } | null
+            checkSuites?: { nodes: Array<RawCheckSuite | null> | null } | null
           } | null
         } | null>
       }
@@ -614,7 +644,7 @@ export async function fetchLivePull(token: string, repo: string, number: number,
   const pull = data.repository?.pullRequest
   if (!pull) throw new Error(`Pull request ${repo}#${number} was not found.`)
   const commit = pull.commits.nodes?.[0]?.commit
-  const nodes = (commit?.statusCheckRollup?.contexts.nodes ?? []).filter((node): node is RawCheck => node != null)
+  const loaded = readCommitChecks(commit)
   const threads = (pull.reviewThreads.nodes ?? []).filter((thread): thread is { isResolved: boolean } => thread != null)
   const reviews = summarizeReviews((pull.reviews.nodes ?? []).filter((review): review is NonNullable<typeof review> => review != null))
   return {
@@ -629,10 +659,10 @@ export async function fetchLivePull(token: string, repo: string, number: number,
     headOid: (commit?.oid ?? pull.headRefOid).toLowerCase(),
     unresolvedCount: threads.filter((thread) => !thread.isResolved).length,
     threadsTruncated: pull.reviewThreads.pageInfo.hasNextPage,
-    committedAt: commit?.committedDate ?? null,
+    committedAt: loaded.committedAt,
     reviewers: reviews.reviewers,
     changesRequested: reviews.changesRequested,
-    checks: checksFromRaw(nodes, requiredNames),
+    checks: checksFromRaw(loaded.checks, requiredNames, { suites: loaded.suites, mergeStateStatus: pull.mergeStateStatus }),
   }
 }
 

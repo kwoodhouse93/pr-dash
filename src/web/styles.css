@@ -958,6 +958,34 @@ td.uptodate { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  cursor: pointer;
+}
+.thread-card.collapsed .thread-file { margin-bottom: 0; }
+.thread-toggle {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+.thread-toggle:hover { background: var(--chip); color: var(--text); }
+.thread-toggle svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  transition: transform 120ms ease;
+}
+.thread-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.thread-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 12px;
 }
 .file-link {
   font-family: "Source Code Pro", ui-monospace, monospace;
@@ -996,6 +1024,24 @@ td.uptodate { width: 1%; text-align: center; padding-left: 4px; padding-right: 4
 }
 .thread-meta time { color: var(--faint); }
 .drawer .avatar { width: 20px; height: 20px; box-shadow: none; }
+.md-details {
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.md-details > summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--text);
+}
+.md-details > summary:hover { background: var(--bg-hover); }
+.md-details[open] > summary {
+  border-bottom: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+}
+.md-details-body { padding: 8px 10px 2px; }
 .drawer .md { font-size: 14px; }
 .drawer .md :is(p, ul, ol, pre, blockquote, table) { margin: 0 0 8px; }
 .drawer .md :is(h1, h2, h3) { margin: 10px 0 4px; font-size: 14px; font-weight: 650; }

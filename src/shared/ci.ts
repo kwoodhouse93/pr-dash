@@ -13,11 +13,12 @@ const SUCCESS = new Set(['SUCCESS', 'NEUTRAL'])
 
 const PENDING_STATUS = new Set(['QUEUED', 'IN_PROGRESS', 'PENDING', 'WAITING', 'REQUESTED'])
 
-export type CheckPhase = 'fail' | 'pending' | 'success' | 'skip'
+export type CheckPhase = 'fail' | 'missing' | 'pending' | 'success' | 'skip'
 
 export function checkPhase(check: Check): CheckPhase {
   const conclusion = (check.conclusion ?? '').toUpperCase()
   const status = (check.status ?? '').toUpperCase()
+  if (check.unreported) return 'missing'
   if (conclusion === 'SKIPPED' || conclusion === 'STALE') return 'skip'
   if (FAIL.has(conclusion)) return 'fail'
   if (SUCCESS.has(conclusion)) return 'success'
@@ -66,7 +67,8 @@ export function worstCi(levels: CiLevel[]): CiLevel {
 /**
  * Red: a required check failed.
  * Yellow: required checks are not failing, and an optional check failed.
- * Pending: a required check is still running. With no required checks, any running check counts.
+ * Pending: a required check is still running, or a required check never reported.
+ * With no required checks, any running check counts.
  * Green: every required check succeeded. A running optional check does not hold this back.
  */
 export function ciLevel(checks: Check[]): CiLevel {
@@ -76,7 +78,7 @@ export function ciLevel(checks: Check[]): CiLevel {
   const optional = selected.filter((check) => !check.required)
   if (required.some((check) => checkPhase(check) === 'fail')) return 'red'
   if (optional.some((check) => checkPhase(check) === 'fail')) return 'yellow'
-  if (required.some((check) => checkPhase(check) === 'pending')) return 'pending'
+  if (required.some((check) => checkPhase(check) === 'pending' || checkPhase(check) === 'missing')) return 'pending'
   if (required.length === 0 && optional.some((check) => checkPhase(check) === 'pending')) return 'pending'
   if (required.length > 0 && required.every((check) => checkPhase(check) === 'success')) return 'green'
   if (selected.every((check) => checkPhase(check) === 'success')) return 'green'
@@ -186,7 +188,7 @@ export function ciLabel(level: CiDisplay): string {
   }
 }
 
-const PHASE_ORDER: Record<CheckPhase, number> = { fail: 0, pending: 1, success: 2, skip: 3 }
+const PHASE_ORDER: Record<CheckPhase, number> = { fail: 0, missing: 0, pending: 1, success: 2, skip: 3 }
 
 /** Failing checks first, so a short tooltip shows why CI is not green. */
 export function compareChecks(a: Check, b: Check): number {
@@ -207,7 +209,7 @@ export function ciDetail(level: CiDisplay): string {
     case 'invalidated':
       return 'Rerun requested. The previous result stays hidden until a refresh reports the new run.'
     case 'pending':
-      return 'A check is still running.'
+      return 'A check is still running, or a required check has not reported.'
     case 'green':
       return 'Required checks passed.'
     case 'none':

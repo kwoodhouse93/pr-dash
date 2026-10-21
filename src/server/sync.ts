@@ -373,6 +373,7 @@ function mapOne(
     dismissStale: rule?.dismissStale ?? current.dismissStale,
     committedAt: loaded.committedAt,
     checks: loaded.checks,
+    suites: loaded.suites,
   })
 }
 
