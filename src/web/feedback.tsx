@@ -68,6 +68,10 @@ export function FeedbackProvider({ viewer, onCounts, children }: FeedbackApi & {
   return <FeedbackContext.Provider value={{ viewer, onCounts }}>{children}</FeedbackContext.Provider>
 }
 
+export function useViewer(): string | null {
+  return useContext(FeedbackContext).viewer
+}
+
 export function feedbackTarget(pr: PullRequest): FeedbackTarget {
   return {
     key: pr.key,

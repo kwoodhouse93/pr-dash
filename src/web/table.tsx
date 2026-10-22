@@ -13,7 +13,7 @@ import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
-import { Feedback, FeedbackProvider, feedbackTarget } from './feedback.tsx'
+import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
 import { Markdown } from './markdown.tsx'
 import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
 
@@ -1837,9 +1837,34 @@ function reviewClass(done: boolean, waiting: boolean) {
   return 'mark'
 }
 
+function humanReviewClass(changes: boolean, mine: boolean, human: boolean, waiting: boolean) {
+  if (changes) return 'mark changes'
+  if (mine) return 'mark mine'
+  if (human) return 'mark met'
+  if (waiting) return 'mark on'
+  return 'mark'
+}
+
+function humanReviewTitle(changes: boolean, mine: boolean, human: boolean, waiting: boolean) {
+  if (changes) return 'Changes requested'
+  if (mine) return 'Approved by you'
+  if (human) return 'Approved by a person'
+  if (waiting) return 'Awaiting a person'
+  return 'No review requested'
+}
+
+function approvedBy(prs: PullRequest[], login: string | null): boolean {
+  if (!login) return false
+  return prs.some((pr) =>
+    pr.reviewers.some((reviewer) => reviewer.human && reviewer.login === login && reviewer.state === 'APPROVED'),
+  )
+}
+
 function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; summary?: StackSummary }) {
+  const viewer = useViewer()
   const any = summary?.anyApproval ?? prs[0]!.anyApproval
   const human = summary?.humanApproval ?? prs[0]!.humanApproval
+  const mine = approvedBy(prs, viewer)
   const changes = summary?.changesRequested ?? prs[0]!.changesRequested
   const mark = summary?.mergeMark ?? prs[0]!.mergeMark
   const needed = mark === 'met' || mark === 'unmet'
@@ -1855,7 +1880,7 @@ function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; s
           <i className={reviewClass(any, needed)} title={any ? 'Approved' : needed ? 'Awaiting approval' : 'No review requested'}>
             <CheckIcon />
           </i>
-          <i className={reviewClass(human, needed)} title={human ? 'Approved by a person' : needed ? 'Awaiting a person' : 'No review requested'}>
+          <i className={humanReviewClass(changes, mine, human, needed)} title={humanReviewTitle(changes, mine, human, needed)}>
             <PersonIcon />
           </i>
           <i className={reviewClass(mark === 'met', mark === 'unmet')} title={mergeTitle(mark, changes)}>
@@ -1880,7 +1905,11 @@ function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; s
             </div>
           )),
         )}
-        <p>Grey means no review is required. White is still waiting. Green means that mark is satisfied. The check is any approval, the person is a human approval, and the arrow is GitHub’s merge requirement.</p>
+        <p>
+          Grey means no review is required. White is still waiting. Green outline is a human approval; a filled green circle means you approved.
+          Red means changes are still requested. The check is any approval, the person is a human approval, and the arrow is GitHub’s merge
+          requirement.
+        </p>
       </div>
     </HoverCard>
   )

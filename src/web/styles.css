@@ -942,6 +942,12 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
 .mark svg { width: 16px; height: 16px; display: block; }
 .mark.on { color: var(--text); }
 .mark.met { color: var(--green); }
+.mark.mine {
+  color: var(--bg);
+  background: var(--green);
+  border-radius: 999px;
+}
+.mark.changes { color: var(--red); }
 .feedback { color: var(--muted); font-size: 14px; }
 .feedback .await { color: var(--accent); font-style: normal; font-weight: 400; }
 .feedback-hit {
