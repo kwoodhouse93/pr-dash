@@ -156,9 +156,9 @@ export function SettingsPage({
           placeholder={owner ? 'Find a repository' : 'Find an owner'}
           aria-label={owner ? 'Find a repository' : 'Find an owner'}
         />
-        {catalog == null && rows.length === 0 ? <p>Loading repositories…</p> : null}
         {owner ? (
           <ul className="repo-pick" aria-label={`Repositories for ${owner}`}>
+            {catalog && visibleRepos.length === 0 ? <li className="repo-note">No repositories match.</li> : null}
             {visibleRepos.map((row) => (
               <li key={row.name}>
                 <label>
@@ -184,6 +184,8 @@ export function SettingsPage({
           </ul>
         ) : (
           <ul className="repo-pick" aria-label="Owners">
+            {catalog == null && rows.length === 0 ? <li className="repo-note">Loading repositories…</li> : null}
+            {catalog && visibleOwners.length === 0 ? <li className="repo-note">No owners match.</li> : null}
             {visibleOwners.map((item) => (
               <li key={item.name}>
                 <button type="button" className="owner" onClick={() => chooseOwner(item.name)}>
@@ -195,8 +197,6 @@ export function SettingsPage({
             ))}
           </ul>
         )}
-        {catalog && owner && visibleRepos.length === 0 ? <p>No repositories match.</p> : null}
-        {catalog && !owner && visibleOwners.length === 0 ? <p>No owners match.</p> : null}
         <form
           className="repo-add"
           onSubmit={(event) => {
