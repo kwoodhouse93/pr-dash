@@ -341,9 +341,12 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
   )
 }
 
+function pressedControl(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, label, .drawer-back, .popover'))
+}
+
 function toggleSection(event: { target: EventTarget | null }, toggle: () => void) {
-  const target = event.target
-  if (target instanceof HTMLElement && target.closest('button, a, input, label')) return
+  if (pressedControl(event.target)) return
   toggle()
 }
 
@@ -561,7 +564,7 @@ function DataRow({
       className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
         if (!toggle) return
-        if ((event.target as HTMLElement).closest('button, a, input, label')) return
+        if (pressedControl(event.target)) return
         toggle.onToggle(toggle.id)
       }}
     >
@@ -703,7 +706,7 @@ function SummaryRow({
     <tr
       className={`stack ${ci === 'red' ? 'fail' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
       onClick={(event) => {
-        if ((event.target as HTMLElement).closest('button, a, input, label')) return
+        if (pressedControl(event.target)) return
         onToggle(openId)
       }}
     >

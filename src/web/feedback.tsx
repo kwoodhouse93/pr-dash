@@ -175,6 +175,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
   const [sections, setSections] = useState<Loaded[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openNotes, setOpenNotes] = useState<Set<string>>(new Set())
+  const scrimPress = useRef(false)
   const notes = focus === 'comments' || focus === 'review-comments'
   const key = targets.map((target) => target.key).join('\n')
 
@@ -231,14 +232,18 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
 
   const single = targets.length === 1 ? targets[0] : null
   return createPortal(
-    <div className="drawer-back" onMouseDown={onClose}>
-      <aside
-        className="drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="feedback-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
+    <div
+      className="drawer-back"
+      onMouseDown={(event) => {
+        event.stopPropagation()
+        scrimPress.current = event.target === event.currentTarget
+      }}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (scrimPress.current && event.target === event.currentTarget) onClose()
+      }}
+    >
+      <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
         <header className="drawer-head">
           <div>
             <p className="eyebrow" id="feedback-title">{FOCUS_TITLE[focus]}</p>
@@ -361,7 +366,7 @@ function ThreadCard({
   onReply: (threadId: string, body: string) => Promise<void>
   onResolve: (threadId: string, resolved: boolean) => Promise<void>
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(!thread.isResolved)
   const [pending, setPending] = useState<'reply' | 'resolve' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const lock = useRef(false)
