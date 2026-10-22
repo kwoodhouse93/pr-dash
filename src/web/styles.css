@@ -607,6 +607,20 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .settings ul { list-style: none; padding: 0; margin: 0; }
 .settings li { padding: 3px 0; }
 .settings .primary { margin-top: 8px; }
+.sync-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.sync-actions .primary { margin-top: 0; }
+.sync-actions .primary:disabled,
+.sync-actions .ghost:disabled { cursor: not-allowed; }
+.sync-actions .ghost:disabled { opacity: 0.6; }
+.settings .sync-sub {
+  margin: 18px 0 6px;
+  color: var(--text);
+  font-family: "Source Sans 3", sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+}
+.sync-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sync-row > span { min-width: 0; }
 .settings .repo-filter { display: block; width: 100%; margin: 12px 0 8px; }
 .repo-error { color: var(--red); }
 .repo-pick {

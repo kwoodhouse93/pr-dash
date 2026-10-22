@@ -25,8 +25,61 @@ import {
   type RepoRules,
 } from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
+import { withRequestSignal } from './request-signal.ts'
+import { createSyncQueue, SyncCancelled, type SyncKind } from './sync-queue.ts'
+
+export { SyncCancelled }
 
 export const syncStatus = { running: false, message: 'Idle', completed: 0, total: 0 }
+
+const jobs = createSyncQueue({
+  onStart(job) {
+    steps = []
+    stepAt = 0
+    syncStatus.running = true
+    syncStatus.completed = 0
+    syncStatus.total = 0
+    syncStatus.message = startMessage(job.kind)
+  },
+  onIdle() {
+    steps = []
+    stepAt = 0
+    syncStatus.running = false
+    syncStatus.completed = 0
+    syncStatus.total = 0
+    syncStatus.message = 'Idle'
+  },
+})
+
+function startMessage(kind: SyncKind): string {
+  switch (kind) {
+    case 'full':
+      return 'Starting full sync'
+    case 'rules':
+      return 'Reading rulesets'
+    case 'list':
+      return 'Starting refresh'
+    case 'pull':
+      return 'Refreshing pull request'
+    case 'threads':
+      return 'Reading thread replies'
+  }
+}
+
+export function describeSync(db: DashboardDb) {
+  const queue = jobs.view()
+  return {
+    running: queue.activity != null,
+    message: syncStatus.message,
+    completed: syncStatus.completed,
+    total: syncStatus.total,
+    activity: queue.activity,
+    queue: queue.upcoming,
+    history: queue.history,
+    graphql: graphqlStatus(GRAPHQL_PAUSE_BELOW),
+    rules: db.ruleCache().map((rule) => ({ repo: rule.repo, fetchedAt: rule.fetchedAt })),
+  }
+}
 
 let steps: RefreshStep[] = []
 let stepAt = 0
@@ -50,8 +103,6 @@ function note(message: string) {
 export type RefreshFocus = 'mine' | 'review'
 
 const mergedKeys = new Set<string>()
-let tail: Promise<unknown> = Promise.resolve()
-let current: { key: string; promise: Promise<Snapshot> } | null = null
 
 export function markMerged(key: string) {
   mergedKeys.add(key)
@@ -65,32 +116,46 @@ export function omitMerged(pullRequests: PullRequest[]): PullRequest[] {
   return pullRequests.filter((pr) => !mergedKeys.has(pr.key))
 }
 
-function exclusive<T>(work: () => Promise<T>): Promise<T> {
-  const run = tail.then(work, work)
-  tail = run.then(
-    () => undefined,
-    () => undefined,
-  )
-  return run
-}
-
 export function refreshSnapshot(db: DashboardDb, next: RefreshFocus = 'mine', options?: { full?: boolean }): Promise<Snapshot> {
   const full = options?.full === true
-  const key = `${next}:${full ? 'full' : 'tab'}`
-  if (current?.key === key) return current.promise
-  const promise = exclusive(() => run(db, next, full)).finally(() => {
-    if (current?.promise === promise) current = null
+  return jobs.enqueue({
+    kind: full ? 'full' : 'list',
+    key: `${next}:${full ? 'full' : 'tab'}`,
+    summary: () => '',
+    work: (signal) => withRequestSignal(signal, () => run(db, next, full, signal)),
   })
-  current = { key, promise }
-  return promise
+}
+
+export function enqueueSync(db: DashboardDb, kind: 'full' | 'rules', focus: RefreshFocus = 'mine') {
+  jobs.enqueueUser({
+    kind,
+    summary: (snapshot: Snapshot) => snapshot.warning?.trim() || (db.watchedRepos().length === 0 ? 'No repositories selected' : 'Finished'),
+    work: (signal) => withRequestSignal(signal, () => (kind === 'rules' ? runRules(db, signal) : run(db, focus, true, signal))),
+  })
+  return describeSync(db)
+}
+
+export function cancelQueuedSync(db: DashboardDb, id: string) {
+  jobs.cancel(id)
+  return describeSync(db)
 }
 
 export function loadThreadFeedback(db: DashboardDb, next: RefreshFocus): Promise<{ snapshot: Snapshot; pending: number; paused: boolean }> {
-  return exclusive(() => readFeedback(db, next))
+  return jobs.enqueue({
+    kind: 'threads',
+    key: `threads:${next}`,
+    summary: () => '',
+    work: (signal) => withRequestSignal(signal, () => readFeedback(db, next, signal)),
+  })
 }
 
 export function refreshPull(db: DashboardDb, key: string): Promise<Snapshot> {
-  return exclusive(() => readOne(db, key))
+  return jobs.enqueue({
+    kind: 'pull',
+    key: `pull:${key}`,
+    summary: () => '',
+    work: (signal) => withRequestSignal(signal, () => readOne(db, key, signal)),
+  })
 }
 
 function joinWarning(left: string | null, right: string | null): string | null {
@@ -100,6 +165,11 @@ function joinWarning(left: string | null, right: string | null): string | null {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Refresh failed'
+}
+
+function cancelled(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted || error instanceof SyncCancelled) return true
+  return error instanceof Error && error.name === 'AbortError'
 }
 
 function pauseNow(): string | null {
@@ -112,6 +182,7 @@ async function rulesFor(
   repos: string[],
   force: boolean,
   onProgress: (message: string) => void,
+  strict = false,
 ): Promise<Map<string, RepoRules>> {
   const now = Date.now()
   const cached = new Map(db.ruleCache().map((item) => [item.repo, item]))
@@ -126,7 +197,8 @@ async function rulesFor(
         db.saveRules(repo, rules, fetchedAt)
       }
     } catch (error) {
-      if (!needed.every((repo) => cached.has(repo))) throw error
+      if (cancelled(error)) throw new SyncCancelled()
+      if (strict || !needed.every((repo) => cached.has(repo))) throw error
     }
   }
   const rules = new Map<string, RepoRules>()
@@ -144,8 +216,7 @@ async function rulesFor(
   return rules
 }
 
-async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Promise<Snapshot> {
-  syncStatus.running = true
+async function run(db: DashboardDb, requested: RefreshFocus, full: boolean, signal: AbortSignal): Promise<Snapshot> {
   beginSteps(full)
   const warnings: string[] = []
   let failed: string | null = null
@@ -165,16 +236,19 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
       if (full) {
         const selected = new Set(watched)
         const repos = reposIn(db.snapshot()).filter((repo) => selected.has(repo))
+        if (signal.aborted) throw new SyncCancelled()
         try {
           await rulesFor(db, token, repos, true, (message) => {
             note(message)
           })
         } catch (error) {
+          if (cancelled(error, signal)) throw new SyncCancelled()
           warnings.push(messageOf(error))
         }
       }
     } else {
       for (const next of order) {
+        if (signal.aborted) throw new SyncCancelled()
         const blocked = pauseNow()
         if (blocked) {
           warnings.push(blocked)
@@ -185,6 +259,7 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
           const warning = next === 'mine' ? await refreshMine(db, token, full) : await refreshReview(db, token, full)
           if (warning) warnings.push(warning)
         } catch (error) {
+          if (cancelled(error, signal)) throw new SyncCancelled()
           if (error instanceof GraphqlPaused) {
             warnings.push(error.message)
             note(error.message)
@@ -210,6 +285,7 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
       })
     }
     if (failed) throw new Error(failed)
+    if (signal.aborted) throw new SyncCancelled()
     note('Checking Cursor')
     const selected = new Set(db.watchedRepos())
     const sessions = db.cursorSessions().filter(({ prKey }) => {
@@ -218,10 +294,23 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
     })
     await refreshCursorSessions(sessions, (prKey, session) => db.saveCursorSession(prKey, session))
     return db.snapshot()
-  } finally {
-    syncStatus.running = false
-    note('Idle')
+  } catch (error) {
+    if (cancelled(error, signal)) throw new SyncCancelled()
+    throw error
   }
+}
+
+async function runRules(db: DashboardDb, signal: AbortSignal): Promise<Snapshot> {
+  note('Reading rulesets')
+  const watched = db.watchedRepos()
+  if (watched.length === 0) {
+    note('No repositories selected')
+    return db.snapshot()
+  }
+  if (signal.aborted) throw new SyncCancelled()
+  const token = loadGithubToken()
+  await rulesFor(db, token, watched, true, (message) => note(message), true)
+  return db.snapshot()
 }
 
 function reposIn(snap: Snapshot): string[] {
@@ -311,15 +400,19 @@ function staleFeedback(list: PullRequest[]): PullRequest[] {
   return list.filter((pr) => pr.threadCount > 0 && pr.feedbackAt !== pr.updatedAt)
 }
 
-async function readFeedback(db: DashboardDb, next: RefreshFocus): Promise<{ snapshot: Snapshot; pending: number; paused: boolean }> {
+async function readFeedback(
+  db: DashboardDb,
+  next: RefreshFocus,
+  signal: AbortSignal,
+): Promise<{ snapshot: Snapshot; pending: number; paused: boolean }> {
   const snap = db.snapshot()
   const watched = new Set(snap.repos)
   const list = (next === 'review' ? snap.reviewPullRequests : snap.pullRequests).filter((pr) => watched.has(pr.repo))
   const stale = staleFeedback(list)
   const paused = graphqlStatus(GRAPHQL_PAUSE_BELOW).paused
   if (paused || stale.length === 0) return { snapshot: snap, pending: stale.length, paused }
+  if (signal.aborted) throw new SyncCancelled()
   const batch = stale.slice(0, 8)
-  syncStatus.running = true
   note(`Reading thread replies (${Math.min(8, stale.length)} of ${stale.length})`)
   try {
     assertGraphql(GRAPHQL_PAUSE_BELOW)
@@ -346,20 +439,18 @@ async function readFeedback(db: DashboardDb, next: RefreshFocus): Promise<{ snap
     const pending = staleFeedback(next === 'review' ? saved.reviewPullRequests : saved.pullRequests).length
     return { snapshot: saved, pending, paused: graphqlStatus(GRAPHQL_PAUSE_BELOW).paused }
   } catch (error) {
+    if (cancelled(error, signal)) throw new SyncCancelled()
     if (error instanceof GraphqlPaused) return { snapshot: db.snapshot(), pending: stale.length, paused: true }
     throw error
-  } finally {
-    syncStatus.running = false
-    note('Idle')
   }
 }
 
-async function readOne(db: DashboardDb, key: string): Promise<Snapshot> {
+async function readOne(db: DashboardDb, key: string, signal: AbortSignal): Promise<Snapshot> {
   assertGraphql()
   const snap = db.snapshot()
   const current = [...snap.pullRequests, ...snap.reviewPullRequests].find((pr) => pr.key === key)
   if (!current) throw new Error('That pull request is no longer in this list.')
-  syncStatus.running = true
+  if (signal.aborted) throw new SyncCancelled()
   note(`Refreshing #${current.number}`)
   try {
     const token = loadGithubToken()
@@ -395,9 +486,9 @@ async function readOne(db: DashboardDb, key: string): Promise<Snapshot> {
     })
     await processMergeWatches(db)
     return db.snapshot()
-  } finally {
-    syncStatus.running = false
-    note('Idle')
+  } catch (error) {
+    if (cancelled(error, signal)) throw new SyncCancelled()
+    throw error
   }
 }
 

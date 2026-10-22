@@ -1,4 +1,5 @@
 import type { LinearAssignee, LinearIssue, LinearStatus, PullRequest } from '../shared/types.ts'
+import { requestSignal } from './request-signal.ts'
 
 type RawState = { id: string; name: string; type: string; color: string; position?: number }
 type RawUser = { id: string; name: string; displayName: string; avatarUrl?: string | null; active?: boolean }
@@ -191,7 +192,7 @@ async function linear<T>(token: string, query: string, variables: Record<string,
     method: 'POST',
     headers: { Authorization: token, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),
-    signal: AbortSignal.timeout(20_000),
+    signal: requestSignal(20_000),
   })
   if (!response.ok) throw new Error(`Linear responded ${response.status}.`)
   const body = (await response.json()) as { data?: T; errors?: { message: string }[] }

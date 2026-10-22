@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ownersFromRepos, parseRepoName, removalWarning, repoLeaf, repoOwner, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
-import { api, type SyncStatus } from './api.ts'
+import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatExact } from './format.ts'
 
 export function SettingsPage({
@@ -8,8 +8,8 @@ export function SettingsPage({
   repos,
   mineSyncedAt,
   reviewSyncedAt,
-  syncing,
-  onFullSync,
+  onEnqueue,
+  onCancelSync,
   onAddRepo,
   onRemoveRepo,
 }: {
@@ -17,8 +17,8 @@ export function SettingsPage({
   repos: string[]
   mineSyncedAt: string | null
   reviewSyncedAt: string | null
-  syncing: boolean
-  onFullSync: () => void
+  onEnqueue: (kind: 'full' | 'rules') => void
+  onCancelSync: (id: string) => void
   onAddRepo: (repo: string) => Promise<void>
   onRemoveRepo: (repo: string) => Promise<void>
 }) {
@@ -66,6 +66,12 @@ export function SettingsPage({
   const visibleOwners = query ? owners.filter((item) => item.name.toLowerCase().includes(query)) : owners
   const visibleRepos = rows.filter((row) => repoOwner(row.name) === owner && (!query || repoLeaf(row.name).toLowerCase().includes(query)))
   const warning = pending ? removalWarning(pending.name, pending.stored, pending.busy) : null
+  const activity = status?.activity ?? null
+  const upcoming = status?.queue ?? []
+  const history = status?.history ?? []
+  const fullQueued = upcoming.some((job) => job.kind === 'full')
+  const rulesQueued = upcoming.some((job) => job.kind === 'rules')
+  const busy = activity != null || upcoming.length > 0
 
   function chooseOwner(name: string) {
     setOwner(name)
@@ -257,11 +263,59 @@ export function SettingsPage({
         )}
       </section>
       <section>
-        <h2>Full sync</h2>
-        <p>Reloads both lists and reads rulesets again for the repositories you selected.</p>
-        <button type="button" className="primary" disabled={syncing || repos.length === 0} onClick={onFullSync}>
-          {syncing ? 'Syncing' : 'Full sync'}
-        </button>
+        <h2>Sync</h2>
+        <p>
+          Full sync reloads both lists and reads rulesets again for the repositories you selected. Sync rulesets reloads those rules only.
+          If a sync is already running, the next one waits until it finishes.
+        </p>
+        <div className="sync-actions">
+          <button type="button" className="primary" disabled={fullQueued || repos.length === 0} onClick={() => onEnqueue('full')}>
+            {fullQueued ? 'Full sync queued' : busy ? 'Queue full sync' : 'Full sync'}
+          </button>
+          <button type="button" className="ghost" disabled={rulesQueued || repos.length === 0} onClick={() => onEnqueue('rules')}>
+            {rulesQueued ? 'Rulesets queued' : busy ? 'Queue ruleset sync' : 'Sync rulesets'}
+          </button>
+        </div>
+        <h3 className="sync-sub">Queue</h3>
+        {activity == null && upcoming.length === 0 ? (
+          <p>Nothing running.</p>
+        ) : (
+          <ul className="sync-list">
+            {activity ? (
+              <li className="sync-row">
+                <span>
+                  <strong>Running</strong>
+                  {` · ${syncKindLabel(activity.kind)}`}
+                  {status && status.message !== 'Idle' ? ` · ${status.message}` : ''}
+                  {status && status.total > 0 ? ` · ${status.completed} of ${status.total}` : ''}
+                </span>
+                <button type="button" className="text-btn" aria-label={`Cancel ${syncKindLabel(activity.kind)}`} onClick={() => onCancelSync(activity.id)}>
+                  Cancel
+                </button>
+              </li>
+            ) : null}
+            {upcoming.map((job) => (
+              <li key={job.id} className="sync-row">
+                <span>Up next · {syncKindLabel(job.kind)}</span>
+                <button type="button" className="text-btn" aria-label={`Cancel ${syncKindLabel(job.kind)}`} onClick={() => onCancelSync(job.id)}>
+                  Cancel
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <h3 className="sync-sub">Recent syncs</h3>
+        {history.length === 0 ? (
+          <p>No full or ruleset syncs yet.</p>
+        ) : (
+          <ul className="sync-list">
+            {history.map((entry) => (
+              <li key={entry.id}>
+                {syncKindLabel(entry.kind)} · {historyLabel(entry)} · {formatExact(entry.finishedAt)}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
       {pending && warning ? (
         <div
@@ -300,4 +354,25 @@ export function SettingsPage({
 
 function stamp(iso: string | null): string {
   return iso ? formatExact(iso) : 'Not yet'
+}
+
+function syncKindLabel(kind: SyncKind): string {
+  switch (kind) {
+    case 'full':
+      return 'Full sync'
+    case 'rules':
+      return 'Rulesets'
+    case 'list':
+      return 'List refresh'
+    case 'pull':
+      return 'Pull request'
+    case 'threads':
+      return 'Thread replies'
+  }
+}
+
+function historyLabel(entry: { outcome: 'done' | 'failed' | 'cancelled'; message: string }): string {
+  if (entry.outcome === 'failed') return `Failed · ${entry.message}`
+  if (entry.outcome === 'cancelled') return entry.message === 'Cancelled' ? 'Cancelled' : entry.message
+  return entry.message === 'Finished' ? 'Done' : entry.message
 }

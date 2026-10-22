@@ -42,6 +42,7 @@ export function App() {
   pageRef.current = prefs.page
   const refreshedAt = useRef<{ mine: number; review: number }>({ mine: 0, review: 0 })
   const previousPage = useRef(prefs.page)
+  const syncBusy = useRef(false)
 
   function adopt(snap: Snapshot): Snapshot {
     const reviewPullRequests = snap.reviewPullRequests ?? []
@@ -122,13 +123,15 @@ export function App() {
             await loadFeedback(focus)
           }
         } catch (caught) {
-          if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not load thread replies')
+          const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
+          if (message !== 'Sync cancelled' && id === applyId.current) toastError(message)
         }
       }
       return true
     } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Refresh failed'
       if (!options.full) refreshedAt.current[focus] = 0
-      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Refresh failed')
+      if (message !== 'Sync cancelled' && id === applyId.current) toastError(message)
       return false
     } finally {
       window.clearInterval(poll)
@@ -144,7 +147,8 @@ export function App() {
     try {
       await loadFeedback(focus)
     } catch (caught) {
-      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not load thread replies')
+      const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
+      if (message !== 'Sync cancelled' && id === applyId.current) toastError(message)
     } finally {
       if (id === applyId.current) setRefreshing(false)
     }
@@ -232,33 +236,39 @@ export function App() {
     }
   }, [])
 
+  const syncWatch = prefs.page === 'settings' || refreshing || sync?.activity != null || (sync?.queue.length ?? 0) > 0
   useEffect(() => {
-    if (prefs.page !== 'settings') return
+    if (!syncWatch) return
     let cancel = false
     const tick = () => {
       void api.status().then((next) => {
-        if (!cancel) setSync(next)
+        if (cancel) return
+        const busy = next.activity != null || next.queue.length > 0
+        const finished = syncBusy.current && !busy
+        syncBusy.current = busy
+        setSync(next)
+        if (refreshing || busy) {
+          if (next.message !== 'Idle') setStatus(next.message)
+          if (next.total > 0) setProgress({ completed: next.completed, total: next.total })
+        }
+        if (busy || finished) {
+          void api.snapshot().then((snap) => {
+            if (!cancel) setData(adopt(snap))
+          }).catch(() => undefined)
+        }
+        if (finished && !refreshing) {
+          setStatus('Idle')
+          setProgress(null)
+        }
       }).catch(() => undefined)
     }
     tick()
-    const timer = window.setInterval(tick, 2000)
+    const timer = window.setInterval(tick, refreshing || sync?.activity != null ? 400 : 2000)
     return () => {
       cancel = true
       window.clearInterval(timer)
     }
-  }, [prefs.page])
-
-  useEffect(() => {
-    if (!refreshing) return
-    const timer = window.setInterval(() => {
-      void api.status().then((next) => {
-        setSync(next)
-        if (next.message !== 'Idle') setStatus(next.message)
-        if (next.total > 0) setProgress({ completed: next.completed, total: next.total })
-      }).catch(() => undefined)
-    }, 400)
-    return () => window.clearInterval(timer)
-  }, [refreshing])
+  }, [syncWatch, refreshing, sync?.activity != null])
 
   const linearHint = Boolean(
     data &&
@@ -545,11 +555,15 @@ export function App() {
               repos={data?.repos ?? []}
               mineSyncedAt={data?.mineSyncedAt ?? null}
               reviewSyncedAt={data?.reviewSyncedAt ?? null}
-              syncing={refreshing}
-              onFullSync={() => {
+              onEnqueue={(kind) => {
                 const focus = pageRef.current === 'review' ? 'review' : 'mine'
-                void refresh({ force: true, full: true, focus }).then(async () => {
-                  setSync(await api.status().catch(() => null))
+                void api.enqueueSync(kind, focus).then(setSync).catch((caught) => {
+                  toastError(caught instanceof Error ? caught.message : 'Could not queue that sync')
+                })
+              }}
+              onCancelSync={(id) => {
+                void api.cancelSync(id).then(setSync).catch((caught) => {
+                  toastError(caught instanceof Error ? caught.message : 'Could not cancel that sync')
                 })
               }}
               onAddRepo={async (repo) => {

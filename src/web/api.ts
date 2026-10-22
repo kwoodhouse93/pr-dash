@@ -24,11 +24,30 @@ function post<T>(path: string, payload: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 }
 
+export type SyncKind = 'full' | 'rules' | 'list' | 'pull' | 'threads'
+
+export type SyncJob = {
+  id: string
+  kind: SyncKind
+}
+
+export type SyncHistoryEntry = {
+  id: string
+  kind: 'full' | 'rules'
+  outcome: 'done' | 'failed' | 'cancelled'
+  message: string
+  startedAt: string | null
+  finishedAt: string
+}
+
 export type SyncStatus = {
   running: boolean
   message: string
   completed: number
   total: number
+  activity: SyncJob | null
+  queue: SyncJob[]
+  history: SyncHistoryEntry[]
   graphql: {
     paused: boolean
     limit: number | null
@@ -53,6 +72,8 @@ export const api = {
   addRepo: (repo: string) => post<Snapshot>('/api/repos', { repo }),
   removeRepo: (repo: string) => post<Snapshot>('/api/repos/remove', { repo }),
   refresh: (focus: 'mine' | 'review' = 'mine', full = false) => post<Snapshot>('/api/refresh', { focus, full }),
+  enqueueSync: (kind: 'full' | 'rules', focus: 'mine' | 'review') => post<SyncStatus>('/api/sync', { kind, focus }),
+  cancelSync: (id: string) => post<SyncStatus>(`/api/sync/${encodeURIComponent(id)}/cancel`, {}),
   feedback: (focus: 'mine' | 'review') => post<FeedbackLoad>('/api/feedback', { focus }),
   refreshPull: (key: string) => post<Snapshot>('/api/pulls/refresh', { key }),
   createInitiative: (name: string) => post<Snapshot>('/api/initiatives', { name }),

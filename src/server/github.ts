@@ -17,6 +17,7 @@ import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { authoredSearchQueries, reviewSearchQueries } from '../shared/repos.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
 import type { PullRequest } from '../shared/types.ts'
+import { requestSignal } from './request-signal.ts'
 
 export function loadGithubToken(): string {
   const fromEnv = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
@@ -70,7 +71,7 @@ async function graphql<T>(token: string, query: string, variables?: Record<strin
       'User-Agent': 'pr-dash',
     },
     body: JSON.stringify({ query, variables }),
-    signal: AbortSignal.timeout(60_000),
+    signal: requestSignal(60_000),
   })
   const seen = rememberGraphql(response)
   const text = await response.text()
@@ -98,7 +99,7 @@ async function rest(token: string, path: string, method = 'GET', body?: unknown)
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
+    signal: requestSignal(60_000),
   })
 }
 

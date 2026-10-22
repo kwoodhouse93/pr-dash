@@ -7,7 +7,6 @@ import { loadEnv } from './env.ts'
 import { openDatabase } from './db.ts'
 import {
   fetchPullFeedback,
-  graphqlStatus,
   loadGithubToken,
   payloadFor,
   replyToPullNote,
@@ -32,8 +31,7 @@ import {
 import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
 import type { FeedbackDetail } from '../shared/feedback.ts'
 import { canSquashMerge } from '../shared/merge.ts'
-import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
-import { markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, syncStatus } from './sync.ts'
+import { cancelQueuedSync, describeSync, enqueueSync, markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, SyncCancelled } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase } from '../shared/ci.ts'
 import { agentBlocker, parseAgentRequest } from '../shared/agents.ts'
@@ -47,16 +45,7 @@ const app = new Hono()
 
 app.get('/api/snapshot', (c) => c.json(db.snapshot()))
 
-app.get('/api/status', (c) =>
-  c.json({
-    running: syncStatus.running,
-    message: syncStatus.message,
-    completed: syncStatus.completed,
-    total: syncStatus.total,
-    graphql: graphqlStatus(GRAPHQL_PAUSE_BELOW),
-    rules: db.ruleCache().map((rule) => ({ repo: rule.repo, fetchedAt: rule.fetchedAt })),
-  }),
-)
+app.get('/api/status', (c) => c.json(describeSync(db)))
 
 app.get('/api/repos', async (c) => {
   try {
@@ -94,12 +83,22 @@ app.post('/api/repos/remove', async (c) => {
   }
 })
 
+app.post('/api/sync', async (c) => {
+  const body = await c.req.json<{ kind?: string; focus?: string }>().catch(() => ({ kind: undefined, focus: undefined }))
+  if (body.kind !== 'full' && body.kind !== 'rules') return c.json({ error: 'Choose a full sync or a ruleset sync.' }, 400)
+  const focus = body.focus === 'review' ? 'review' : 'mine'
+  return c.json(enqueueSync(db, body.kind, focus))
+})
+
+app.post('/api/sync/:id/cancel', (c) => c.json(cancelQueuedSync(db, c.req.param('id'))))
+
 app.post('/api/refresh', async (c) => {
   try {
     const body = await c.req.json<{ focus?: string; full?: boolean }>().catch(() => ({ focus: undefined, full: undefined }))
     const focus = body.focus === 'review' ? 'review' : 'mine'
     return c.json(await refreshSnapshot(db, focus, { full: body.full === true }))
   } catch (error) {
+    if (error instanceof SyncCancelled) return c.json({ error: 'Sync cancelled' }, 409)
     return c.json({ error: messageOf(error) }, 500)
   }
 })
@@ -110,6 +109,7 @@ app.post('/api/feedback', async (c) => {
     const focus = body.focus === 'review' ? 'review' : 'mine'
     return c.json(await loadThreadFeedback(db, focus))
   } catch (error) {
+    if (error instanceof SyncCancelled) return c.json({ error: 'Sync cancelled' }, 409)
     return c.json({ error: messageOf(error) }, 500)
   }
 })
@@ -121,6 +121,7 @@ app.post('/api/pulls/refresh', async (c) => {
     if (!key) return c.json({ error: 'A pull request is required.' }, 400)
     return c.json(await refreshPull(db, key))
   } catch (error) {
+    if (error instanceof SyncCancelled) return c.json({ error: 'Sync cancelled' }, 409)
     return c.json({ error: messageOf(error) }, 502)
   }
 })

@@ -2,6 +2,7 @@ import { sessionNote, type AgentRequest } from '../shared/agents.ts'
 import { cursorPushedBranch, cursorSessionActive, cursorSessionStatus } from '../shared/cursor.ts'
 import type { CursorSession, PullRequest } from '../shared/types.ts'
 import { agentTask } from './agent-tasks.ts'
+import { requestSignal } from './request-signal.ts'
 
 const CURSOR_API = 'https://api.cursor.com/v1/agents'
 
@@ -104,7 +105,7 @@ async function cursorPost<T>(apiKey: string, url: string, payload: unknown): Pro
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(60_000),
+    signal: requestSignal(60_000),
   })
   return readCursor<T>(response)
 }
@@ -112,7 +113,7 @@ async function cursorPost<T>(apiKey: string, url: string, payload: unknown): Pro
 async function cursorGet<T>(apiKey: string, url: string): Promise<T> {
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(20_000),
+    signal: requestSignal(20_000),
   })
   return readCursor<T>(response)
 }
