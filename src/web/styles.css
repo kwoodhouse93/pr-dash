@@ -511,8 +511,30 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .queue-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .queue-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .queue-steps li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.queue-logs { margin-top: 10px; }
+.queue-log-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.queue-log-toggle:hover { color: var(--text); }
+.queue-log-toggle svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  transition: transform 120ms ease;
+}
+.queue-log-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.queue-log-toggle .count { color: var(--faint); font-size: 13px; }
 .queue-log {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   padding: 10px;
   max-height: 220px;
   overflow: auto;

@@ -1,4 +1,5 @@
-import { stepLabel, type MergeEntry, type QueueSnapshot } from '../shared/queue.ts'
+import { useState } from 'react'
+import { stepLabel, type MergeEntry, type MergeLog, type QueueSnapshot } from '../shared/queue.ts'
 import { formatExact } from './format.ts'
 
 export function MergeQueuePage({
@@ -113,12 +114,34 @@ function QueueCard({
           </li>
         ))}
       </ol>
-      {entry.logs.length > 0 ? (
+      {entry.logs.length > 0 ? <QueueLogs logs={entry.logs} /> : null}
+    </article>
+  )
+}
+
+function QueueLogs({ logs }: { logs: MergeLog[] }) {
+  const [open, setOpen] = useState(false)
+  const count = logs.length === 1 ? '1 line' : `${logs.length} lines`
+  return (
+    <div className="queue-logs">
+      <button
+        type="button"
+        className="queue-log-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Logs
+        <span className="count">{count}</span>
+      </button>
+      {open ? (
         <pre className="queue-log">
-          {entry.logs.map((line) => `${line.at.slice(11, 19)}  ${line.message}`).join('\n')}
+          {logs.map((line) => `${line.at.slice(11, 19)}  ${line.message}`).join('\n')}
         </pre>
       ) : null}
-    </article>
+    </div>
   )
 }
 
