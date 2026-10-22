@@ -40,16 +40,17 @@ describe('repository selection', () => {
     expect(() => parseRepoName('owner/name.git')).toThrow(/owner\/name/)
   })
 
-  it('keeps each search qualifier with its repository and splits long queries', () => {
+  it('uses repeated repo qualifiers and splits long queries', () => {
     expect(authoredSearchQueries([])).toEqual([])
-    expect(authoredSearchQueries(['acme/app'])).toEqual([
-      'sort:updated-desc is:open is:pr archived:false author:@me repo:acme/app',
+    expect(authoredSearchQueries(['acme/web', 'acme/app'])).toEqual([
+      'sort:updated-desc is:open is:pr archived:false author:@me repo:acme/app repo:acme/web',
     ])
     const repos = Array.from({ length: 20 }, (_, index) => `acme/repository-name-${String(index).padStart(2, '0')}`)
     const queries = scopedQueries('is:open is:pr', repos)
     expect(queries.length).toBeGreaterThan(1)
     expect(queries.every((query) => query.length <= 256)).toBe(true)
-    expect(queries.flatMap((query) => query.split(' OR '))).toHaveLength(20)
+    expect(queries.flatMap((query) => query.match(/repo:[^ ]+/g) ?? [])).toHaveLength(20)
+    expect(queries.every((query) => !query.includes(' OR '))).toBe(true)
     expect(scopedQueries('x'.repeat(250), ['acme/app', 'acme/web'])).toEqual([])
   })
 

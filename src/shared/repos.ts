@@ -77,14 +77,14 @@ export function repoKeyLike(repo: string): string {
 }
 
 /**
- * One search clause per repository, joined with OR, so qualifiers are not dropped
- * by OR precedence. Clauses that cannot fit are omitted. Batches stay within GitHub's limit.
+ * GitHub treats repeated `repo:` qualifiers as alternatives. Qualifier-only clauses
+ * joined with OR match nothing, so keep the common qualifiers once per batch.
  */
 export function scopedQueries(prefix: string, repos: string[], limit = SEARCH_QUERY_LIMIT): string[] {
   const unique = [...new Set(repos)].filter(Boolean).sort()
   const queries: string[] = []
   let batch: string[] = []
-  const render = (items: string[]) => items.map((repo) => `${prefix} repo:${repo}`).join(' OR ')
+  const render = (items: string[]) => `${prefix} ${items.map((repo) => `repo:${repo}`).join(' ')}`
   for (const repo of unique) {
     if (render([repo]).length > limit) continue
     if (batch.length > 0 && render([...batch, repo]).length > limit) {
