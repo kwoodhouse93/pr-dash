@@ -447,7 +447,7 @@ span.author { display: inline-flex; align-items: center; gap: 8px; min-width: 0;
   font-size: 14px;
 }
 .merge-action { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.primary.merge { padding: 4px 12px; font-size: 14px; white-space: nowrap; }
+.primary.merge, .ghost.merge { padding: 4px 12px; font-size: 14px; white-space: nowrap; }
 .merge-ready-toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; white-space: nowrap; cursor: pointer; }
 .merge-ready-toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .merge-ready-toggle span {

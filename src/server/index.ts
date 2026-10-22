@@ -15,6 +15,7 @@ import {
   rerunWorkflows,
   setReviewThreadResolved,
   squashMergePullRequest,
+  markPullReadyForReview,
 } from './github.ts'
 import { removeMirror } from './git.ts'
 import { parseRepoName } from '../shared/repos.ts'
@@ -126,6 +127,23 @@ app.post('/api/pulls/refresh', async (c) => {
     const body = await c.req.json<{ key?: string }>()
     const key = body.key ?? ''
     if (!key) return c.json({ error: 'A pull request is required.' }, 400)
+    return c.json(await refreshPull(db, key))
+  } catch (error) {
+    if (error instanceof SyncCancelled) return c.json({ error: 'Sync cancelled' }, 409)
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.post('/api/pulls/ready', async (c) => {
+  try {
+    const body = await c.req.json<{ key?: string }>()
+    const key = body.key ?? ''
+    if (!key) return c.json({ error: 'A pull request is required.' }, 400)
+    const snap = db.snapshot()
+    const pr = snap.pullRequests.find((item) => item.key === key)
+    if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
+    if (!pr.isDraft) return c.json({ error: 'That pull request is already ready for review.' }, 409)
+    await markPullReadyForReview(loadGithubToken(), pr.repo, pr.number)
     return c.json(await refreshPull(db, key))
   } catch (error) {
     if (error instanceof SyncCancelled) return c.json({ error: 'Sync cancelled' }, 409)

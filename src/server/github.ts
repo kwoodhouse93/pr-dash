@@ -776,6 +776,13 @@ export async function updatePullBase(token: string, repo: string, number: number
   throw new Error(messageFrom(text, response.status))
 }
 
+export async function markPullReadyForReview(token: string, repo: string, number: number): Promise<void> {
+  const response = await rest(token, `/repos/${repo}/pulls/${number}`, 'PATCH', { draft: false })
+  if (response.ok) return
+  const text = await response.text()
+  throw new Error(messageFrom(text, response.status))
+}
+
 export async function updatePullBranch(token: string, repo: string, number: number, expectedHeadSha: string): Promise<void> {
   const response = await rest(token, `/repos/${repo}/pulls/${number}/update-branch`, 'PUT', {
     expected_head_sha: expectedHeadSha,

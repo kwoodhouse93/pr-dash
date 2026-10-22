@@ -146,6 +146,7 @@ describe('queue menu', () => {
             onMerge={async () => {}}
             onQueue={onQueue}
             onStackMerge={async () => {}}
+            onMarkReady={async () => {}}
             onSetMergeWhenReady={options.onSetMergeWhenReady ?? (async () => {})}
             queueByKey={new Map()}
             watchesByKey={new Map()}

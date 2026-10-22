@@ -77,6 +77,7 @@ export const api = {
   cancelSync: (id: string) => post<SyncStatus>(`/api/sync/${encodeURIComponent(id)}/cancel`, {}),
   feedback: (focus: 'mine' | 'review') => post<FeedbackLoad>('/api/feedback', { focus }),
   refreshPull: (key: string) => post<Snapshot>('/api/pulls/refresh', { key }),
+  markReady: (key: string) => post<Snapshot>('/api/pulls/ready', { key }),
   createInitiative: (name: string) => post<Snapshot>('/api/initiatives', { name }),
   renameInitiative: (id: string, name: string) =>
     request<Snapshot>(`/api/initiatives/${id}`, {

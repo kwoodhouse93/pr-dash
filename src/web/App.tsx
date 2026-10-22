@@ -668,6 +668,11 @@ export function App() {
               onStackMerge={async (key) => {
                 setQueue(await api.enqueue(key, 'downstack'))
               }}
+              onMarkReady={async (key) => {
+                const snap = await api.markReady(key)
+                ++applyId.current
+                setData(adopt(snap))
+              }}
               onSetMergeWhenReady={async (key, scope, enabled) => {
                 setQueue(await api.setMergeWhenReady(key, scope, enabled))
               }}

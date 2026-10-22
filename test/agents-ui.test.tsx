@@ -162,6 +162,7 @@ describe('agents', () => {
             onMerge={async () => {}}
             onQueue={async () => {}}
             onStackMerge={async () => {}}
+            onMarkReady={async () => {}}
             onSetMergeWhenReady={async () => {}}
             queueByKey={new Map()}
             watchesByKey={new Map()}
