@@ -740,18 +740,31 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .pill.draft { color: var(--yellow); }
 .tag-btn { cursor: pointer; background: transparent; }
 .num, .when, .size { font-variant-numeric: tabular-nums; font-family: "Source Code Pro", ui-monospace, monospace; font-weight: 300; font-size: 14px; }
-.repo, .when { color: var(--muted); }
+td.repo, td.when { color: var(--muted); }
+th.repo, td.repo,
+th.size, td.size,
+th.when, td.when {
+  width: 1%;
+  padding-left: 6px;
+  padding-right: 6px;
+}
 .pip {
   display: inline-block;
   width: 8px;
   height: 8px;
-  margin-right: 8px;
+  margin-right: 6px;
   border-radius: 99px;
   vertical-align: 1px;
 }
-.add { color: var(--green); margin-right: 6px; }
-.del { color: var(--red); margin-right: 8px; }
-.files { color: var(--faint); }
+.add { color: var(--green); margin-right: 5px; }
+.del { color: var(--red); margin-right: 6px; }
+.files {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--faint);
+}
+.files svg { width: 13px; height: 13px; display: block; flex: none; }
 th.conflict,
 td.conflict,
 th.uptodate,

@@ -143,10 +143,10 @@ export function PrTable({
           <th className="num">#</th>
           <SortHeader label="Title" sortKey="title" sort={sort} onSort={onSort} />
           {mode === 'review' ? <th className="author">Author</th> : null}
-          <SortHeader label="Repo" sortKey="repo" sort={sort} onSort={onSort} />
-          <SortHeader label="Size" sortKey="size" sort={sort} onSort={onSort} />
-          <SortHeader label="Created" sortKey="created" sort={sort} onSort={onSort} />
-          <SortHeader label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
+          <SortHeader className="repo" label="Repo" sortKey="repo" sort={sort} onSort={onSort} />
+          <SortHeader className="size" label="Size" sortKey="size" sort={sort} onSort={onSort} />
+          <SortHeader className="when" label="Created" sortKey="created" sort={sort} onSort={onSort} />
+          <SortHeader className="when" label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
           <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
           <th className="uptodate">Up-to-date</th>
           <th className="conflict">Conflict</th>
@@ -201,16 +201,18 @@ function SortHeader({
   sortKey,
   sort,
   onSort,
+  className,
 }: {
   label: string
   sortKey: SortKey
   sort: Sort
   onSort: (key: SortKey) => void
+  className?: string
 }) {
   const active = sort.key === sortKey
   const arrow = active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''
   return (
-    <th>
+    <th className={className}>
       <button type="button" className="sort" aria-pressed={active} onClick={() => onSort(sortKey)}>
         {label}
         {arrow}
@@ -1334,11 +1336,18 @@ function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; i
 }
 
 function Size({ additions, deletions, files }: { additions: number; deletions: number; files: number }) {
+  const fileLabel = `${files.toLocaleString('en-GB')} ${files === 1 ? 'file' : 'files'}`
   return (
     <td className="size">
       <span className="add">+{formatCount(additions)}</span>
       <span className="del">−{formatCount(deletions)}</span>
-      <span className="files">{formatCount(files)} {files === 1 ? 'file' : 'files'}</span>
+      <span className="files" title={fileLabel} aria-label={fileLabel}>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 1.75h5.15L13.1 5.7V13.2c0 .58-.47 1.05-1.05 1.05H4A1.05 1.05 0 0 1 2.95 13.2V2.8C2.95 2.22 3.42 1.75 4 1.75Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+          <path d="M9.05 1.9v3.85h3.85" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        {formatCount(files)}
+      </span>
     </td>
   )
 }
