@@ -294,6 +294,7 @@ export function App() {
   }, [queue?.paused, queue?.pauseReason])
 
   const page = prefs.page
+  const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']
   const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])
   const mine = useMemo(
     () => (data?.pullRequests ?? []).filter((pr) => watched.has(pr.repo)),
@@ -307,24 +308,24 @@ export function App() {
   const initiatives = data?.initiatives ?? []
   const prByKey = useMemo(() => new Map(prs.map((pr) => [pr.key, pr])), [prs])
   const outline = useMemo(
-    () => buildOutline(prs, initiatives, prefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', prefs.byIssue),
-    [prs, initiatives, prefs, page],
+    () => buildOutline(prs, initiatives, viewPrefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', viewPrefs.byIssue),
+    [prs, initiatives, viewPrefs, prefs.sort, page],
   )
   const repos = useMemo(() => {
     const names = [...new Set(prs.map((pr) => pr.repo))]
-    if (prefs.filters.repo && !names.includes(prefs.filters.repo)) names.push(prefs.filters.repo)
+    if (viewPrefs.filters.repo && !names.includes(viewPrefs.filters.repo)) names.push(viewPrefs.filters.repo)
     return names.sort()
-  }, [prs, prefs.filters.repo])
+  }, [prs, viewPrefs.filters.repo])
   const colors = useMemo(() => repoColors(repos), [repos])
   const visible = !outlineEmpty(outline)
   const reviewBadge = review.filter((pr) => pr.reviewPending || needsAttention(pr, 'reviewer')).length
   const listPage = page === 'mine' || page === 'review'
-  const filtersOn = JSON.stringify(prefs.filters) !== JSON.stringify(DEFAULT_FILTERS)
+  const filtersOn = JSON.stringify(viewPrefs.filters) !== JSON.stringify(DEFAULT_FILTERS)
   const matched = useMemo(() => {
     const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
     const attention = page === 'review' ? 'reviewer' : 'author'
-    return prs.filter((pr) => prMatches(pr, prefs.filters, names, attention)).length
-  }, [prs, initiatives, prefs.filters, page])
+    return prs.filter((pr) => prMatches(pr, viewPrefs.filters, names, attention)).length
+  }, [prs, initiatives, viewPrefs.filters, page])
   const noun = page === 'review' ? 'to review' : 'open'
   const countLabel = filtersOn ? `${matched}/${prs.length} ${noun}` : `${prs.length} ${noun}`
   const syncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt ?? null) : (data?.mineSyncedAt ?? data?.syncedAt ?? null)
@@ -343,7 +344,19 @@ export function App() {
   }, [])
 
   function patchFilters(patch: Partial<Filters>) {
-    setPrefs((current) => ({ ...current, filters: { ...current.filters, ...patch } }))
+    setPrefs((current) => {
+      const target = current.page === 'review' ? 'review' : 'mine'
+      return {
+        ...current,
+        views: {
+          ...current.views,
+          [target]: {
+            ...current.views[target],
+            filters: { ...current.views[target].filters, ...patch },
+          },
+        },
+      }
+    })
   }
 
   async function changeQueue(work: () => Promise<QueueSnapshot>, refreshAfter = false) {
@@ -402,7 +415,7 @@ export function App() {
           <div className="filters" hidden={!listPage}>
             <input
               className="search"
-              value={prefs.filters.query}
+              value={viewPrefs.filters.query}
               onChange={(event) => patchFilters({ query: event.target.value })}
               placeholder={page === 'review' ? 'Title, author, repo, number, issue' : 'Title, repo, number, issue'}
               aria-label="Filter pull requests"
@@ -410,7 +423,7 @@ export function App() {
             <select
               className="select"
               aria-label="Repository"
-              value={prefs.filters.repo ?? ''}
+              value={viewPrefs.filters.repo ?? ''}
               onChange={(event) => patchFilters({ repo: event.target.value || null })}
             >
               <option value="">All repos</option>
@@ -423,7 +436,7 @@ export function App() {
             <select
               className="select"
               aria-label="CI"
-              value={prefs.filters.ci}
+              value={viewPrefs.filters.ci}
               onChange={(event) => patchFilters({ ci: event.target.value as Filters['ci'] })}
             >
               <option value="all">All CI</option>
@@ -436,7 +449,7 @@ export function App() {
             <select
               className="select"
               aria-label="Review"
-              value={prefs.filters.review}
+              value={viewPrefs.filters.review}
               onChange={(event) => patchFilters({ review: event.target.value as Filters['review'] })}
             >
               <option value="all">All reviews</option>
@@ -449,7 +462,7 @@ export function App() {
             <select
               className="select"
               aria-label="Initiative"
-              value={prefs.filters.initiativeId ?? ''}
+              value={viewPrefs.filters.initiativeId ?? ''}
               onChange={(event) => patchFilters({ initiativeId: event.target.value || null })}
             >
               <option value="">All initiatives</option>
@@ -463,25 +476,36 @@ export function App() {
             <button
               type="button"
               className="ghost"
-              aria-pressed={prefs.filters.awaitingOnly}
-              onClick={() => patchFilters({ awaitingOnly: !prefs.filters.awaitingOnly })}
+              aria-pressed={viewPrefs.filters.awaitingOnly}
+              onClick={() => patchFilters({ awaitingOnly: !viewPrefs.filters.awaitingOnly })}
             >
               {page === 'review' ? 'Unread' : 'Awaiting you'}
             </button>
             <button
               type="button"
               className="ghost"
-              aria-pressed={prefs.filters.hideDrafts}
-              onClick={() => patchFilters({ hideDrafts: !prefs.filters.hideDrafts })}
+              aria-pressed={viewPrefs.filters.hideDrafts}
+              onClick={() => patchFilters({ hideDrafts: !viewPrefs.filters.hideDrafts })}
             >
               Hide drafts
             </button>
             <button
               type="button"
               className="ghost"
-              aria-pressed={prefs.byIssue}
+              aria-pressed={viewPrefs.byIssue}
               title="Group pull requests under each Linear issue. Projects and initiatives stay either way."
-              onClick={() => setPrefs((current) => ({ ...current, byIssue: !current.byIssue }))}
+              onClick={() =>
+                setPrefs((current) => {
+                  const target = current.page === 'review' ? 'review' : 'mine'
+                  return {
+                    ...current,
+                    views: {
+                      ...current.views,
+                      [target]: { ...current.views[target], byIssue: !current.views[target].byIssue },
+                    },
+                  }
+                })
+              }
             >
               By issue
             </button>
@@ -601,7 +625,7 @@ export function App() {
                   return api.assign(created.id, keys, 'add')
                 })
               }}
-              byIssue={prefs.byIssue}
+              byIssue={viewPrefs.byIssue}
               linearConfigured={Boolean(data?.linearConfigured)}
               viewer={data?.viewer ?? null}
               onFeedback={applyFeedback}
