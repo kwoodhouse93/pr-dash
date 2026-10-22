@@ -2,6 +2,9 @@ export type SyncKind = 'full' | 'rules' | 'list' | 'pull' | 'threads'
 export type UserSyncKind = 'full' | 'rules'
 export type SyncOutcome = 'done' | 'failed' | 'cancelled'
 
+/** Lower runs first. Interactive (row refresh) preempts user/background; user preempts background. */
+export type SyncPriority = 'interactive' | 'user' | 'background'
+
 export type SyncQueueItem = {
   id: string
   kind: SyncKind
@@ -23,13 +26,21 @@ export class SyncCancelled extends Error {
   }
 }
 
+const PRIORITY_RANK: Record<SyncPriority, number> = {
+  interactive: 0,
+  user: 1,
+  background: 2,
+}
+
 type Job = {
   id: string
   kind: SyncKind
   user: boolean
+  priority: SyncPriority
   key: string | null
   controller: AbortController
   startedAt: string | null
+  preempted: boolean
   work: (signal: AbortSignal) => Promise<unknown>
   summary: (value: unknown) => string
   resolve: (value: unknown) => void
@@ -78,10 +89,27 @@ export function createSyncQueue(options?: {
   }
 
   function orderedWaiting(): Job[] {
-    return [...waiting.filter((job) => job.user), ...waiting.filter((job) => !job.user)]
+    return [
+      ...waiting.filter((job) => job.priority === 'interactive'),
+      ...waiting.filter((job) => job.priority === 'user'),
+      ...waiting.filter((job) => job.priority === 'background'),
+    ]
   }
 
-  function push<T>(spec: Enqueue<T> & { user: boolean }): Promise<T> {
+  function preemptLower(priority: SyncPriority) {
+    if (!active || PRIORITY_RANK[active.priority] <= PRIORITY_RANK[priority]) return
+    active.preempted = true
+    active.controller.abort()
+  }
+
+  function requeuePreempted(job: Job) {
+    job.preempted = false
+    job.controller = new AbortController()
+    job.startedAt = null
+    waiting.push(job)
+  }
+
+  function push<T>(spec: Enqueue<T> & { user: boolean; priority: SyncPriority }): Promise<T> {
     const controller = new AbortController()
     let resolve: (value: T) => void = () => undefined
     let reject: (error: unknown) => void = () => undefined
@@ -93,9 +121,11 @@ export function createSyncQueue(options?: {
       id: `sync-${++seq}`,
       kind: spec.kind,
       user: spec.user,
+      priority: spec.priority,
       key: spec.key,
       controller,
       startedAt: null,
+      preempted: false,
       work: spec.work as Job['work'],
       summary: spec.summary as Job['summary'],
       resolve: resolve as Job['resolve'],
@@ -104,6 +134,8 @@ export function createSyncQueue(options?: {
     }
     waiting.push(job)
     promise.catch(() => undefined)
+    // Only interactive work (row refresh / forced tab refresh) preempts; Settings syncs still wait out the active job.
+    if (spec.priority === 'interactive') preemptLower(spec.priority)
     kick()
     return promise
   }
@@ -124,6 +156,10 @@ export function createSyncQueue(options?: {
       if (!next) break
       waiting.splice(waiting.indexOf(next), 1)
       if (next.controller.signal.aborted) {
+        if (next.preempted) {
+          requeuePreempted(next)
+          continue
+        }
         record(next, 'cancelled', 'Cancelled before it started')
         next.reject(new SyncCancelled())
         continue
@@ -133,15 +169,19 @@ export function createSyncQueue(options?: {
       options?.onStart?.({ id: next.id, kind: next.kind })
       try {
         const value = await next.work(next.controller.signal)
-        if (next.controller.signal.aborted) {
+        if (next.controller.signal.aborted && !next.preempted) {
           record(next, 'cancelled', 'Cancelled')
           next.reject(new SyncCancelled())
         } else {
+          // Completed work wins over a preempt abort that the job ignored.
+          next.preempted = false
           record(next, 'done', next.summary(value).trim() || 'Finished')
           next.resolve(value)
         }
       } catch (error) {
-        if (next.controller.signal.aborted || error instanceof SyncCancelled) {
+        if (next.preempted && (next.controller.signal.aborted || error instanceof SyncCancelled)) {
+          requeuePreempted(next)
+        } else if (next.controller.signal.aborted || error instanceof SyncCancelled) {
           record(next, 'cancelled', 'Cancelled')
           next.reject(error instanceof SyncCancelled ? error : new SyncCancelled())
         } else {
@@ -155,18 +195,38 @@ export function createSyncQueue(options?: {
     }
   }
 
+  function findByKey(key: string): Job | undefined {
+    if (active?.key === key) return active
+    return waiting.find((job) => job.key === key)
+  }
+
+  function promote(job: Job, priority: SyncPriority) {
+    if (PRIORITY_RANK[job.priority] <= PRIORITY_RANK[priority]) return
+    job.priority = priority
+    preemptLower(priority)
+  }
+
   return {
     enqueue<T>(spec: Enqueue<T>): Promise<T> {
       if (spec.key) {
-        if (active?.key === spec.key) return active.promise as Promise<T>
-        const pending = waiting.find((job) => job.key === spec.key)
-        if (pending) return pending.promise as Promise<T>
+        const existing = findByKey(spec.key)
+        if (existing) return existing.promise as Promise<T>
       }
-      return push({ ...spec, user: false })
+      return push({ ...spec, user: false, priority: 'background' })
+    },
+    enqueueInteractive<T>(spec: Enqueue<T>): Promise<T> {
+      if (spec.key) {
+        const existing = findByKey(spec.key)
+        if (existing) {
+          promote(existing, 'interactive')
+          return existing.promise as Promise<T>
+        }
+      }
+      return push({ ...spec, user: false, priority: 'interactive' })
     },
     enqueueUser<T>(spec: EnqueueUser<T>): boolean {
       if (waiting.some((job) => job.user && job.kind === spec.kind)) return false
-      void push({ ...spec, user: true, key: null })
+      void push({ ...spec, user: true, priority: 'user', key: null })
       return true
     },
     cancel(id: string): boolean {
@@ -174,6 +234,7 @@ export function createSyncQueue(options?: {
       if (index >= 0) {
         const job = waiting.splice(index, 1)[0]
         if (!job) return false
+        job.preempted = false
         job.controller.abort()
         record(job, 'cancelled', 'Cancelled before it started')
         job.reject(new SyncCancelled())
@@ -181,6 +242,7 @@ export function createSyncQueue(options?: {
         return true
       }
       if (active?.id === id) {
+        active.preempted = false
         active.controller.abort()
         return true
       }

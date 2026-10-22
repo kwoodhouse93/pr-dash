@@ -71,7 +71,8 @@ export const api = {
   repos: () => request<RepoCatalog>('/api/repos'),
   addRepo: (repo: string) => post<Snapshot>('/api/repos', { repo }),
   removeRepo: (repo: string) => post<Snapshot>('/api/repos/remove', { repo }),
-  refresh: (focus: 'mine' | 'review' = 'mine', full = false) => post<Snapshot>('/api/refresh', { focus, full }),
+  refresh: (focus: 'mine' | 'review' = 'mine', full = false, interactive = false) =>
+    post<Snapshot>('/api/refresh', { focus, full, interactive }),
   enqueueSync: (kind: 'full' | 'rules', focus: 'mine' | 'review') => post<SyncStatus>('/api/sync', { kind, focus }),
   cancelSync: (id: string) => post<SyncStatus>(`/api/sync/${encodeURIComponent(id)}/cancel`, {}),
   feedback: (focus: 'mine' | 'review') => post<FeedbackLoad>('/api/feedback', { focus }),

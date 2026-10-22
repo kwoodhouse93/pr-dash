@@ -94,9 +94,16 @@ app.post('/api/sync/:id/cancel', (c) => c.json(cancelQueuedSync(db, c.req.param(
 
 app.post('/api/refresh', async (c) => {
   try {
-    const body = await c.req.json<{ focus?: string; full?: boolean }>().catch(() => ({ focus: undefined, full: undefined }))
+    const body = await c.req
+      .json<{ focus?: string; full?: boolean; interactive?: boolean }>()
+      .catch(() => ({ focus: undefined, full: undefined, interactive: undefined }))
     const focus = body.focus === 'review' ? 'review' : 'mine'
-    return c.json(await refreshSnapshot(db, focus, { full: body.full === true }))
+    return c.json(
+      await refreshSnapshot(db, focus, {
+        full: body.full === true,
+        interactive: body.interactive === true,
+      }),
+    )
   } catch (error) {
     if (error instanceof SyncCancelled) return c.json({ error: 'Sync cancelled' }, 409)
     return c.json({ error: messageOf(error) }, 500)

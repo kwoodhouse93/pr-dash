@@ -106,7 +106,7 @@ export function App() {
       }).catch(() => undefined)
     }, 800)
     try {
-      const snap = await api.refresh(focus, options.full === true)
+      const snap = await api.refresh(focus, options.full === true, options.force === true || options.full === true)
       if (options.full) {
         refreshedAt.current.mine = started
         refreshedAt.current.review = started

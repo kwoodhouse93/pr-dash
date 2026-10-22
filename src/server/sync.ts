@@ -116,14 +116,19 @@ export function omitMerged(pullRequests: PullRequest[]): PullRequest[] {
   return pullRequests.filter((pr) => !mergedKeys.has(pr.key))
 }
 
-export function refreshSnapshot(db: DashboardDb, next: RefreshFocus = 'mine', options?: { full?: boolean }): Promise<Snapshot> {
+export function refreshSnapshot(
+  db: DashboardDb,
+  next: RefreshFocus = 'mine',
+  options?: { full?: boolean; interactive?: boolean },
+): Promise<Snapshot> {
   const full = options?.full === true
-  return jobs.enqueue({
-    kind: full ? 'full' : 'list',
+  const spec = {
+    kind: (full ? 'full' : 'list') as SyncKind,
     key: `${next}:${full ? 'full' : 'tab'}`,
     summary: () => '',
-    work: (signal) => withRequestSignal(signal, () => run(db, next, full, signal)),
-  })
+    work: (signal: AbortSignal) => withRequestSignal(signal, () => run(db, next, full, signal)),
+  }
+  return options?.interactive ? jobs.enqueueInteractive(spec) : jobs.enqueue(spec)
 }
 
 export function enqueueSync(db: DashboardDb, kind: 'full' | 'rules', focus: RefreshFocus = 'mine') {
@@ -150,7 +155,7 @@ export function loadThreadFeedback(db: DashboardDb, next: RefreshFocus): Promise
 }
 
 export function refreshPull(db: DashboardDb, key: string): Promise<Snapshot> {
-  return jobs.enqueue({
+  return jobs.enqueueInteractive({
     kind: 'pull',
     key: `pull:${key}`,
     summary: () => '',

@@ -190,4 +190,132 @@ describe('sync queue', () => {
     })
     expect(queue.view().history).toEqual([])
   })
+
+  it('runs a pull refresh ahead of a waiting threads job', async () => {
+    const queue = createSyncQueue()
+    const order: string[] = []
+    const first = gate()
+    const running = queue.enqueue({
+      kind: 'list',
+      key: 'list-1',
+      work: async () => {
+        order.push('list')
+        await first.promise
+        return 'list'
+      },
+      summary: () => '',
+    })
+    await tick()
+    const threads = queue.enqueue({
+      kind: 'threads',
+      key: 'threads:mine',
+      work: async () => {
+        order.push('threads')
+        return 'threads'
+      },
+      summary: () => '',
+    })
+    const pull = queue.enqueueInteractive({
+      kind: 'pull',
+      key: 'pull:owner/repo#1',
+      work: async () => {
+        order.push('pull')
+        return 'pull'
+      },
+      summary: () => '',
+    })
+    expect(queue.view().upcoming.map((job) => job.kind)).toEqual(['pull', 'threads'])
+
+    first.release()
+    await running
+    await pull
+    await threads
+    expect(order).toEqual(['list', 'pull', 'threads'])
+  })
+
+  it('preempts a running threads job so a pull refresh can start, then resumes threads', async () => {
+    const queue = createSyncQueue()
+    const order: string[] = []
+    const blocker = gate()
+    let threadsAttempts = 0
+    const threads = queue.enqueue({
+      kind: 'threads',
+      key: 'threads:mine',
+      work: (signal) => {
+        threadsAttempts += 1
+        order.push(`threads-${threadsAttempts}`)
+        return new Promise((resolve, reject) => {
+          const onAbort = () => reject(new DOMException('aborted', 'AbortError'))
+          signal.addEventListener('abort', onAbort, { once: true })
+          blocker.promise.then(() => {
+            signal.removeEventListener('abort', onAbort)
+            resolve('threads')
+          })
+        })
+      },
+      summary: () => '',
+    })
+    await tick()
+    expect(queue.view().activity?.kind).toBe('threads')
+
+    const pull = queue.enqueueInteractive({
+      kind: 'pull',
+      key: 'pull:owner/repo#1',
+      work: async () => {
+        order.push('pull')
+        return 'pull'
+      },
+      summary: () => '',
+    })
+    await pull
+    expect(order).toEqual(['threads-1', 'pull', 'threads-2'])
+    expect(queue.view().activity?.kind).toBe('threads')
+
+    blocker.release()
+    await threads
+    expect(order).toEqual(['threads-1', 'pull', 'threads-2'])
+    expect(threadsAttempts).toBe(2)
+  })
+
+  it('promotes a waiting list refresh to interactive instead of duplicating it', async () => {
+    const queue = createSyncQueue()
+    const order: string[] = []
+    const first = gate()
+    const running = queue.enqueueInteractive({
+      kind: 'pull',
+      key: 'pull:owner/repo#1',
+      work: async () => {
+        order.push('pull')
+        await first.promise
+        return 'pull'
+      },
+      summary: () => '',
+    })
+    await tick()
+    const background = queue.enqueue({
+      kind: 'list',
+      key: 'mine:tab',
+      work: async () => {
+        order.push('list')
+        return 'list'
+      },
+      summary: () => '',
+    })
+    const interactive = queue.enqueueInteractive({
+      kind: 'list',
+      key: 'mine:tab',
+      work: async () => {
+        order.push('duplicate')
+        return 'duplicate'
+      },
+      summary: () => '',
+    })
+    expect(interactive).toBe(background)
+    expect(queue.view().upcoming.map((job) => job.kind)).toEqual(['list'])
+
+    first.release()
+    await running
+    await background
+    expect(order).toEqual(['pull', 'list'])
+  })
 })
