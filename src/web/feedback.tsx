@@ -128,14 +128,14 @@ export function Feedback({ mode, targets }: { mode: 'mine' | 'review'; targets: 
     if (awaiting > 0) parts.push({ key: 'awaiting', text: `${awaiting} awaiting`, hot: true, focus: 'awaiting' })
     if (comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: true, focus: 'comments' })
   }
-  if (unresolved > 0) parts.push({ key: 'unresolved', text: `${unresolved} unresolved`, hot: false, focus: 'unresolved' })
+  if (unresolved > 0) parts.push({ key: 'unresolved', text: `${unresolved} unresolved`, hot: true, focus: 'unresolved' })
   if (threads > 0 || parts.length === 0) {
     parts.push({ key: 'threads', text: `${threads}${truncated ? '+' : ''} thread${threads === 1 ? '' : 's'}`, hot: false, focus: 'threads' })
   }
   const pending = targets.some((target) => target.detailsPending)
   const title = `${mode === 'review'
     ? 'Unread is an open thread you joined that has a newer reply. A highlighted comment is a review message, or a conversation you joined, that you have not answered. Other comments are conversation notes you have not joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
-    : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'}${pending ? ' Reply details are still loading.' : ''}`
+    : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'} Unresolved threads block merge.${pending ? ' Reply details are still loading.' : ''}`
   function choose(focus: FeedbackFocus) {
     const matching = targets.filter((target) => targetMatches(target, focus, mode))
     const picked = matching.length > 0 ? matching : focus === 'threads' ? targets : matching
