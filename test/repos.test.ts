@@ -6,6 +6,7 @@ import { mirrorPath, removeMirror } from '../src/server/git.ts'
 import { openDatabase } from '../src/server/db.ts'
 import {
   authoredSearchQueries,
+  ownersFromRepos,
   parseRepoName,
   removalWarning,
   replaceRepoPulls,
@@ -18,6 +19,20 @@ function pr(repo: string, number: number): PullRequest {
 }
 
 describe('repository selection', () => {
+  it('groups repositories under their owner and puts the signed-in user first', () => {
+    const owners = ownersFromRepos(
+      [
+        { name: 'initech/backend', selected: true, stored: true },
+        { name: 'initech/frontend', selected: false, stored: true },
+        { name: 'ada/notes', selected: false, stored: false },
+        { name: 'globex/ledger', selected: true, stored: true },
+      ],
+      'ada',
+    )
+    expect(owners.map((owner) => owner.name)).toEqual(['ada', 'globex', 'initech'])
+    expect(owners.find((owner) => owner.name === 'initech')).toMatchObject({ selected: 1, stored: 1, total: 2 })
+  })
+
   it('parses owner/name and rejects anything else', () => {
     expect(parseRepoName(' Gobonoid/cbc-paymentology-notifications ')).toBe('Gobonoid/cbc-paymentology-notifications')
     expect(() => parseRepoName('cbc-paymentology-notifications')).toThrow(/owner\/name/)

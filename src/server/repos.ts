@@ -17,6 +17,7 @@ export async function repoCatalog(db: DashboardDb): Promise<RepoCatalog> {
   }
   const names = [...new Set([...selected, ...stored, ...available])].sort((left, right) => left.localeCompare(right))
   return {
+    viewer: db.snapshot().viewer,
     truncated,
     warning,
     repos: names.map((name) => ({

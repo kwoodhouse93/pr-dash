@@ -13,9 +13,45 @@ export type RepoChoice = {
 }
 
 export type RepoCatalog = {
+  viewer: string | null
   repos: RepoChoice[]
   truncated: boolean
   warning: string | null
+}
+
+export type OwnerChoice = {
+  name: string
+  selected: number
+  stored: number
+  total: number
+}
+
+export function repoOwner(repo: string): string {
+  const slash = repo.indexOf('/')
+  return slash === -1 ? repo : repo.slice(0, slash)
+}
+
+export function repoLeaf(repo: string): string {
+  const slash = repo.indexOf('/')
+  return slash === -1 ? repo : repo.slice(slash + 1)
+}
+
+/** The signed-in user comes first, then other owners alphabetically. */
+export function ownersFromRepos(repos: Pick<RepoChoice, 'name' | 'selected' | 'stored'>[], viewer: string | null): OwnerChoice[] {
+  const map = new Map<string, OwnerChoice>()
+  for (const repo of repos) {
+    const name = repoOwner(repo.name)
+    const current = map.get(name) ?? { name, selected: 0, stored: 0, total: 0 }
+    current.total += 1
+    if (repo.selected) current.selected += 1
+    if (repo.stored && !repo.selected) current.stored += 1
+    map.set(name, current)
+  }
+  return [...map.values()].sort((a, b) => {
+    if (viewer && a.name === viewer) return -1
+    if (viewer && b.name === viewer) return 1
+    return a.name.localeCompare(b.name)
+  })
 }
 
 export function parseRepoName(value: string): string {

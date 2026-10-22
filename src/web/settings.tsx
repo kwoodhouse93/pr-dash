@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { parseRepoName, removalWarning, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
+import { ownersFromRepos, parseRepoName, removalWarning, repoLeaf, repoOwner, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
 import { api, type SyncStatus } from './api.ts'
 import { formatExact } from './format.ts'
 
@@ -23,6 +23,7 @@ export function SettingsPage({
   onRemoveRepo: (repo: string) => Promise<void>
 }) {
   const [catalog, setCatalog] = useState<RepoCatalog | null>(null)
+  const [owner, setOwner] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -58,11 +59,26 @@ export function SettingsPage({
   const rows = useMemo(() => {
     const list = catalog ? catalog.repos : repos.map((name) => ({ name, selected: true, stored: false, busy: false }))
     const rank = (row: RepoChoice) => (row.selected ? 0 : row.stored ? 1 : 2)
-    return [...list].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+    return [...list].sort((a, b) => rank(a) - rank(b) || repoLeaf(a.name).localeCompare(repoLeaf(b.name)))
   }, [catalog, repos])
+  const owners = useMemo(() => ownersFromRepos(rows, catalog?.viewer ?? null), [rows, catalog?.viewer])
   const query = filter.trim().toLowerCase()
-  const visible = query ? rows.filter((row) => row.name.toLowerCase().includes(query)) : rows
+  const visibleOwners = query ? owners.filter((item) => item.name.toLowerCase().includes(query)) : owners
+  const visibleRepos = rows.filter((row) => repoOwner(row.name) === owner && (!query || repoLeaf(row.name).toLowerCase().includes(query)))
   const warning = pending ? removalWarning(pending.name, pending.stored, pending.busy) : null
+
+  function chooseOwner(name: string) {
+    setOwner(name)
+    setFilter('')
+    setError(null)
+  }
+
+  function addNamed(name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (trimmed.includes('/') || !owner) void add(trimmed)
+    else void add(`${owner}/${trimmed}`)
+  }
 
   async function add(name: string) {
     setError(null)
@@ -105,59 +121,89 @@ export function SettingsPage({
       <section>
         <h2>Repositories</h2>
         <p>
-          A refresh only asks GitHub about repositories you select.
+          Choose an owner, then the repositories to sync.
           {repos.length === 0 ? ' None are selected yet.' : ` ${repos.length} selected.`}
         </p>
         <p>Removing a repository deletes the pull requests and other data this dashboard has stored for it. GitHub is not changed.</p>
         {catalog?.warning ? <p>{catalog.warning}</p> : null}
         {catalog?.truncated ? <p>GitHub returned the first 1000 repositories. Add any other as owner/name.</p> : null}
         {error && !pending ? <p className="repo-error">{error}</p> : null}
+        {owner ? (
+          <div className="repo-back">
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                setOwner(null)
+                setFilter('')
+              }}
+            >
+              All owners
+            </button>
+            <strong>{owner}</strong>
+          </div>
+        ) : null}
         <input
           className="search repo-filter"
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter repositories"
-          aria-label="Filter repositories"
+          placeholder={owner ? 'Find a repository' : 'Find an owner'}
+          aria-label={owner ? 'Find a repository' : 'Find an owner'}
         />
         {catalog == null && rows.length === 0 ? <p>Loading repositories…</p> : null}
-        <ul className="repo-pick" aria-label="Repositories">
-          {visible.map((row) => (
-            <li key={row.name}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={row.selected}
-                  disabled={busyName === row.name || removing}
-                  onChange={(event) => {
-                    if (event.target.checked) void add(row.name)
-                    else setPending(row)
-                  }}
-                />
-                <span>{row.name}</span>
-              </label>
-              {row.stored && !row.selected ? <span className="repo-meta">Saved from an earlier sync</span> : null}
-              {row.stored && !row.selected ? (
-                <button type="button" className="text-btn" onClick={() => setPending(row)}>
-                  Delete data
+        {owner ? (
+          <ul className="repo-pick" aria-label={`Repositories for ${owner}`}>
+            {visibleRepos.map((row) => (
+              <li key={row.name}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={row.selected}
+                    disabled={busyName === row.name || removing}
+                    onChange={(event) => {
+                      if (event.target.checked) void add(row.name)
+                      else setPending(row)
+                    }}
+                  />
+                  <span>{repoLeaf(row.name)}</span>
+                </label>
+                {row.stored && !row.selected ? <span className="repo-meta">Saved from an earlier sync</span> : null}
+                {row.stored && !row.selected ? (
+                  <button type="button" className="text-btn" onClick={() => setPending(row)}>
+                    Delete data
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="repo-pick" aria-label="Owners">
+            {visibleOwners.map((item) => (
+              <li key={item.name}>
+                <button type="button" className="owner" onClick={() => chooseOwner(item.name)}>
+                  <span className="owner-name">{item.name}</span>
+                  {item.selected > 0 ? <span className="repo-meta">{item.selected} selected</span> : null}
+                  {item.stored > 0 ? <span className="repo-meta">Saved data</span> : null}
                 </button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-        {catalog && visible.length === 0 ? <p>No repositories match.</p> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {catalog && owner && visibleRepos.length === 0 ? <p>No repositories match.</p> : null}
+        {catalog && !owner && visibleOwners.length === 0 ? <p>No owners match.</p> : null}
         <form
           className="repo-add"
           onSubmit={(event) => {
             event.preventDefault()
-            void add(draft)
+            addNamed(draft)
           }}
         >
           <input
             className="search"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="owner/name"
-            aria-label="Repository to add"
+            placeholder={owner ? 'repository name' : 'owner/name'}
+            aria-label={owner ? `Repository to add under ${owner}` : 'Repository to add'}
           />
           <button type="submit" className="ghost" disabled={busyName != null}>
             Add

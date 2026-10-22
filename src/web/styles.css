@@ -583,7 +583,23 @@ tr.held .stack-mark::after { opacity: 0.35; }
   min-width: 0;
   padding: 7px 10px;
 }
-.repo-pick label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-pick label span,
+.owner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-pick button.owner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.repo-pick button.owner:hover { background: var(--bg-hover); }
+.owner-name { flex: 1; min-width: 0; }
+.repo-back { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.repo-back strong { color: var(--text); font-weight: 400; }
 .repo-meta { color: var(--faint); font-size: 13px; white-space: nowrap; }
 .repo-add { display: flex; gap: 8px; margin-top: 8px; }
 .repo-add .search { flex: 1; min-width: 0; }
