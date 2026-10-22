@@ -1,4 +1,10 @@
-import type { MergeMark, Reviewer } from './types.ts'
+import type { MergeMark, PullRequest, Reviewer } from './types.ts'
+
+/** True when `login` is a person whose latest review on the pull request is an approval. */
+export function approvedByLogin(pr: Pick<PullRequest, 'reviewers'>, login: string | null): boolean {
+  if (!login) return false
+  return pr.reviewers.some((reviewer) => reviewer.human && reviewer.login === login && reviewer.state === 'APPROVED')
+}
 
 export type ReviewDecision = 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
 

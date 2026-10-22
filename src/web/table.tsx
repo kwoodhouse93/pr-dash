@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { createPortal } from 'react-dom'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
+import { approvedByLogin } from '../shared/approval.ts'
 import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge, sliceParts } from '../shared/merge.ts'
 import { stepLabel, type MergeWatch, type RowMark, type StepStatus } from '../shared/queue.ts'
@@ -1900,10 +1901,7 @@ function humanReviewTitle(changes: boolean, mine: boolean, human: boolean, waiti
 }
 
 function approvedBy(prs: PullRequest[], login: string | null): boolean {
-  if (!login) return false
-  return prs.some((pr) =>
-    pr.reviewers.some((reviewer) => reviewer.human && reviewer.login === login && reviewer.state === 'APPROVED'),
-  )
+  return prs.some((pr) => approvedByLogin(pr, login))
 }
 
 function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; summary?: StackSummary }) {

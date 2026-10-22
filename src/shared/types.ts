@@ -155,6 +155,8 @@ export type Filters = {
   hideDrafts: boolean
   ci: CiLevel | 'all'
   review: 'all' | 'unmet' | 'met' | 'human' | 'changes' | 'none'
+  /** Whether the signed-in viewer's own approval should include or exclude a pull request. Only meaningful on the review tab. */
+  approvedByMe: 'all' | 'only' | 'exclude'
   awaitingOnly: boolean
   initiativeId: string | null
 }
@@ -167,6 +169,7 @@ export const DEFAULT_FILTERS: Filters = {
   hideDrafts: false,
   ci: 'all',
   review: 'all',
+  approvedByMe: 'all',
   awaitingOnly: false,
   initiativeId: null,
 }

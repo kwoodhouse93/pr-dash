@@ -1,4 +1,5 @@
 import type { Filters, Initiative, PullRequest, Sort } from './types.ts'
+import { approvedByLogin } from './approval.ts'
 import { buildStacks, summarize, type Stack, type StackSummary } from './stacks.ts'
 
 export type ViewRow =
@@ -49,6 +50,7 @@ export function prMatches(
   filters: Filters,
   initiativeNames: Map<string, string>,
   attention: Attention = 'author',
+  viewer: string | null = null,
 ): boolean {
   if (filters.repo && pr.repo !== filters.repo) return false
   if (filters.hideDrafts && pr.isDraft) return false
@@ -67,6 +69,8 @@ export function prMatches(
   if (filters.review === 'human' && !pr.humanApproval) return false
   if (filters.review === 'changes' && !pr.changesRequested) return false
   if (filters.review === 'none' && pr.anyApproval) return false
+  if (filters.approvedByMe === 'only' && !approvedByLogin(pr, viewer)) return false
+  if (filters.approvedByMe === 'exclude' && approvedByLogin(pr, viewer)) return false
   const query = filters.query.trim().toLowerCase()
   if (query) {
     const haystack = [
@@ -249,9 +253,10 @@ export function buildOutline(
   sort: Sort,
   attention: Attention = 'author',
   byIssue = true,
+  viewer: string | null = null,
 ): Outline {
   const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
-  const matches = (pr: PullRequest) => prMatches(pr, filters, names, attention)
+  const matches = (pr: PullRequest) => prMatches(pr, filters, names, attention, viewer)
   const stacks = buildStacks(prs)
   const blocksFor = (inGroup: (pr: PullRequest) => boolean, outsideReason: string) =>
     sortBlocks(

@@ -865,6 +865,54 @@ describe('stacks and grouping', () => {
     expect(view.unassigned?.stacks[0]?.summary.title).toBe('middle')
   })
 
+  it('includes or excludes pull requests the viewer approved', () => {
+    const approvedByMe = pr({
+      id: 'mine',
+      number: 11,
+      baseRef: 'main',
+      headRef: 'mine',
+      anyApproval: true,
+      humanApproval: true,
+      reviewers: [{ login: 'ada', human: true, state: 'APPROVED', submittedAt: '2026-10-02T00:00:00Z' }],
+    })
+    const approvedByOther = pr({
+      id: 'other',
+      number: 12,
+      baseRef: 'main',
+      headRef: 'other',
+      anyApproval: true,
+      humanApproval: true,
+      reviewers: [{ login: 'grace', human: true, state: 'APPROVED', submittedAt: '2026-10-02T00:00:00Z' }],
+    })
+    const changesByMe = pr({
+      id: 'changes',
+      number: 13,
+      baseRef: 'main',
+      headRef: 'changes',
+      changesRequested: true,
+      reviewers: [{ login: 'ada', human: true, state: 'CHANGES_REQUESTED', submittedAt: '2026-10-02T00:00:00Z' }],
+    })
+    const botNamedLikeMe = pr({
+      id: 'bot',
+      number: 14,
+      baseRef: 'main',
+      headRef: 'bot',
+      anyApproval: true,
+      reviewers: [{ login: 'ada', human: false, state: 'APPROVED', submittedAt: '2026-10-02T00:00:00Z' }],
+    })
+    const prs = [approvedByMe, approvedByOther, changesByMe, botNamedLikeMe]
+    const numbers = (filters: typeof DEFAULT_FILTERS, viewer: string | null) =>
+      buildOutline(prs, [], filters, DEFAULT_SORT, 'reviewer', true, viewer)
+        .unassigned?.singles.map((block) => block.summary.number)
+        .sort() ?? []
+
+    expect(numbers({ ...DEFAULT_FILTERS, approvedByMe: 'only' }, 'ada')).toEqual([11])
+    expect(numbers({ ...DEFAULT_FILTERS, approvedByMe: 'exclude' }, 'ada')).toEqual([12, 13, 14])
+    expect(numbers({ ...DEFAULT_FILTERS, approvedByMe: 'all' }, 'ada')).toEqual([11, 12, 13, 14])
+    expect(numbers({ ...DEFAULT_FILTERS, approvedByMe: 'only' }, null)).toEqual([])
+    expect(numbers({ ...DEFAULT_FILTERS, approvedByMe: 'exclude' }, null)).toEqual([11, 12, 13, 14])
+  })
+
   it('sorts pull requests by the most recently updated one', () => {
     const older = pr({ id: 'old', number: 8, baseRef: 'dev', headRef: 'old', updatedAt: '2026-10-01T00:00:00Z', title: 'older' })
     const newer = pr({ id: 'new', number: 9, baseRef: 'dev', headRef: 'new', updatedAt: '2026-10-20T00:00:00Z', title: 'newer' })

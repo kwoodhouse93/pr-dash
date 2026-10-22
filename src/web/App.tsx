@@ -307,9 +307,10 @@ export function App() {
   const prs = page === 'review' ? review : mine
   const initiatives = data?.initiatives ?? []
   const prByKey = useMemo(() => new Map(prs.map((pr) => [pr.key, pr])), [prs])
+  const viewer = data?.viewer ?? null
   const outline = useMemo(
-    () => buildOutline(prs, initiatives, viewPrefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', viewPrefs.byIssue),
-    [prs, initiatives, viewPrefs, prefs.sort, page],
+    () => buildOutline(prs, initiatives, viewPrefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', viewPrefs.byIssue, viewer),
+    [prs, initiatives, viewPrefs, prefs.sort, page, viewer],
   )
   const repos = useMemo(() => {
     const names = [...new Set(prs.map((pr) => pr.repo))]
@@ -324,8 +325,8 @@ export function App() {
   const matched = useMemo(() => {
     const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
     const attention = page === 'review' ? 'reviewer' : 'author'
-    return prs.filter((pr) => prMatches(pr, viewPrefs.filters, names, attention)).length
-  }, [prs, initiatives, viewPrefs.filters, page])
+    return prs.filter((pr) => prMatches(pr, viewPrefs.filters, names, attention, viewer)).length
+  }, [prs, initiatives, viewPrefs.filters, page, viewer])
   const noun = page === 'review' ? 'to review' : 'open'
   const countLabel = filtersOn ? `${matched}/${prs.length} ${noun}` : `${prs.length} ${noun}`
   const syncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt ?? null) : (data?.mineSyncedAt ?? data?.syncedAt ?? null)
@@ -459,6 +460,18 @@ export function App() {
               <option value="changes">Changes requested</option>
               <option value="none">No approval</option>
             </select>
+            {page === 'review' ? (
+              <select
+                className="select"
+                aria-label="Your approval"
+                value={viewPrefs.filters.approvedByMe}
+                onChange={(event) => patchFilters({ approvedByMe: event.target.value as Filters['approvedByMe'] })}
+              >
+                <option value="all">Approved by you or not</option>
+                <option value="only">Approved by you</option>
+                <option value="exclude">Not approved by you</option>
+              </select>
+            ) : null}
             <select
               className="select"
               aria-label="Initiative"
@@ -627,7 +640,7 @@ export function App() {
               }}
               byIssue={viewPrefs.byIssue}
               linearConfigured={Boolean(data?.linearConfigured)}
-              viewer={data?.viewer ?? null}
+              viewer={viewer}
               onFeedback={applyFeedback}
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
               onMerge={async (key) => {
