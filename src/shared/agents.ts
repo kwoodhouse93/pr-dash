@@ -4,6 +4,8 @@ import type { AgentKind, Check, CursorSession, PullRequest } from './types.ts'
 
 /** A review thread, trimmed to what Cursor needs in order to fix it. */
 export type ThreadFix = {
+  /** GitHub's node ID for the review thread, used to reply to and resolve it. */
+  id: string | null
   path: string | null
   line: number | null
   startLine: number | null
@@ -115,6 +117,8 @@ function parseThreadFix(value: unknown): ThreadFix | null {
   if (!value || typeof value !== 'object') return null
   const thread = value as Record<string, unknown>
   if (!Array.isArray(thread.comments)) return null
+  const id = thread.id == null ? null : typeof thread.id === 'string' && /^[\w-]{1,200}$/.test(thread.id) ? thread.id : undefined
+  if (id === undefined) return null
   const path = clipText(thread.path, THREAD_PATH)
   const url = clipText(thread.url, THREAD_PATH)
   const line = clipLine(thread.line)
@@ -138,6 +142,7 @@ function parseThreadFix(value: unknown): ThreadFix | null {
   const diffHunk = hunk === null ? null : hunk.text
   if (hunk?.clipped) truncated = true
   return {
+    id,
     path: path?.text ?? null,
     line,
     startLine,

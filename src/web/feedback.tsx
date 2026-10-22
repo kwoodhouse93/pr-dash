@@ -452,6 +452,7 @@ function ThreadCard({
 
 function threadFix(thread: FeedbackThread): ThreadFix {
   return {
+    id: thread.id,
     path: thread.path,
     line: thread.line,
     startLine: thread.startLine,

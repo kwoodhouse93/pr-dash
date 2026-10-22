@@ -186,6 +186,7 @@ describe('agent shortcuts', () => {
     expect(parseAgentRequest({ kind: 'thread', thread: thread() })).toEqual({ kind: 'thread', thread: thread(), prompt: null })
     expect(parseAgentRequest({ kind: 'thread', prompt: 'Missing the thread' })).toBeNull()
     expect(parseAgentRequest({ kind: 'thread', thread: { ...thread(), outdated: 'yes' } })).toBeNull()
+    expect(parseAgentRequest({ kind: 'thread', thread: { ...thread(), id: "x'; rm -rf /" } })).toBeNull()
     expect(parseAgentRequest({ kind: 'deploy' })).toBeNull()
     expect(parseAgentRequest(null)).toBeNull()
   })
@@ -247,7 +248,13 @@ describe('agent shortcuts', () => {
     expect(naive.prompt).toContain('ada:\nPlease rename this.')
     expect(naive.prompt).toContain('```diff')
     expect(naive.prompt).toContain('do not push')
+    expect(naive.prompt).toContain('reply on the review thread itself')
+    expect(naive.prompt).toContain('Resolve the thread only if your pushed change fully addresses everything raised in it.')
+    expect(naive.prompt).toContain('addPullRequestReviewThreadReply')
+    expect(naive.prompt).toContain('resolveReviewThread')
+    expect(naive.prompt).toContain('-f id=PRRT_kwDOabc123')
     expect(naive.prompt).not.toContain('Additional instructions:')
+    expect(agentTask(pr, { kind: 'thread', thread: thread({ id: null }), prompt: null }).prompt).not.toContain('resolveReviewThread')
     expect(sessionNote({ kind: 'thread', thread: thread(), prompt: null })).toBe('src/web/queue.tsx:12-18')
 
     const custom = agentTask(pr, { kind: 'thread', thread: thread(), prompt: '  Keep the public name.\nAdd a test.  ' })
@@ -276,6 +283,7 @@ describe('agent shortcuts', () => {
 
 function thread(patch: Partial<ThreadFix> = {}): ThreadFix {
   return {
+    id: 'PRRT_kwDOabc123',
     path: 'src/web/queue.tsx',
     line: 18,
     startLine: 12,

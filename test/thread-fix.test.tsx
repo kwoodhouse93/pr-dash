@@ -160,6 +160,7 @@ describe('fix a review thread with Cursor', () => {
           kind: 'thread',
           prompt: null,
           thread: {
+            id: 'thread-1',
             path: 'src/web/queue.tsx',
             line: 18,
             startLine: 12,

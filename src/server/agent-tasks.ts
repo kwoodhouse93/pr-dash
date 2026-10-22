@@ -60,7 +60,20 @@ function threadPrompt(pr: PullRequest, thread: ThreadFix, extra: string): string
     `Fix the issue raised in this review thread on pull request #${pr.number}.`,
     'Read the comments and the diff, make the change they ask for, run the relevant checks, and push it to the existing branch.',
     'If the request is ambiguous, or a correct fix is not clear, do not push. Explain what is unclear instead.',
+    '',
+    'When you are done, reply on the review thread itself, not as a general pull request comment.',
+    'Say what you changed and name the commit you pushed, or explain why you did not change anything.',
+    'Resolve the thread only if your pushed change fully addresses everything raised in it.',
+    'Leave it unresolved if you pushed nothing, fixed only part of it, or the reviewer still needs to decide something.',
   ]
+  if (thread.id) {
+    lines.push(
+      '',
+      `The thread's GitHub node ID is ${thread.id}. With the GitHub CLI:`,
+      `- Reply: gh api graphql -f query='mutation($id: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $id, body: $body}) { comment { url } } }' -f id=${thread.id} -f body='<reply>'`,
+      `- Resolve: gh api graphql -f query='mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }' -f id=${thread.id}`,
+    )
+  }
   if (extra) lines.push('', 'Additional instructions:', extra)
   lines.push('', 'Review thread:', `- ${threadPlace(thread)}${thread.outdated ? ' (outdated)' : ''}`)
   if (thread.url) lines.push(`- ${thread.url}`)
