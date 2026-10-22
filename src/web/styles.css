@@ -495,7 +495,8 @@ tbody tr.held.tone-b:hover > td {
   background: var(--bg-hover);
   --row-bg: var(--bg-hover);
 }
-tr.held > td :is(a, .repo, .add, .del, .files, .mark, .feedback, .await, .ci, .pill:not(.queue), .conflict-x, .uptodate-x, .cursor-chip) {
+tr.held > td:is(.add, .del, .files),
+tr.held > td :is(a, .repo, .mark, .feedback, .await, .ci, .pill:not(.queue), .conflict-x, .uptodate-x, .cursor-chip) {
   color: var(--faint);
 }
 tr.held > td .ci,
@@ -742,12 +743,25 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .num, .when, .size { font-variant-numeric: tabular-nums; font-family: "Source Code Pro", ui-monospace, monospace; font-weight: 300; font-size: 14px; }
 td.repo, td.when { color: var(--muted); }
 th.repo, td.repo,
-th.size, td.size,
 th.when, td.when {
   width: 1%;
-  padding-left: 6px;
-  padding-right: 6px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
+th.size {
+  width: 1%;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+td.size {
+  width: 1%;
+  text-align: right;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+td.size.add { padding-left: 8px; color: var(--green); }
+td.size.del { color: var(--red); }
+td.size.files { padding-right: 8px; color: var(--faint); }
 .pip {
   display: inline-block;
   width: 8px;
@@ -756,15 +770,13 @@ th.when, td.when {
   border-radius: 99px;
   vertical-align: 1px;
 }
-.add { color: var(--green); margin-right: 5px; }
-.del { color: var(--red); margin-right: 6px; }
-.files {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--faint);
+td.size.files svg {
+  width: 13px;
+  height: 13px;
+  display: inline-block;
+  vertical-align: -0.12em;
+  margin-right: 3px;
 }
-.files svg { width: 13px; height: 13px; display: block; flex: none; }
 th.conflict,
 td.conflict,
 th.uptodate,
