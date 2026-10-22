@@ -12,10 +12,14 @@ import {
   payloadFor,
   replyToPullNote,
   replyToReviewThread,
+  repositoryVisible,
   rerunWorkflows,
   setReviewThreadResolved,
   squashMergePullRequest,
 } from './github.ts'
+import { removeMirror } from './git.ts'
+import { parseRepoName } from '../shared/repos.ts'
+import { repoCatalog } from './repos.ts'
 import {
   cancelEntry,
   enqueueDownstack,
@@ -52,6 +56,42 @@ app.get('/api/status', (c) =>
     rules: db.ruleCache().map((rule) => ({ repo: rule.repo, fetchedAt: rule.fetchedAt })),
   }),
 )
+
+app.get('/api/repos', async (c) => {
+  try {
+    return c.json(await repoCatalog(db))
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.post('/api/repos', async (c) => {
+  try {
+    const body = await c.req.json<{ repo?: string }>()
+    const repo = parseRepoName(body.repo ?? '')
+    if (!db.watchedRepos().includes(repo)) {
+      const visible = await repositoryVisible(loadGithubToken(), repo)
+      if (!visible) return c.json({ error: `GitHub did not return ${repo}. Check the name and that this token can see it.` }, 404)
+      db.watchRepo(repo)
+    }
+    return c.json(db.snapshot())
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 400)
+  }
+})
+
+app.post('/api/repos/remove', async (c) => {
+  try {
+    const body = await c.req.json<{ repo?: string }>()
+    const repo = parseRepoName(body.repo ?? '')
+    db.forgetRepo(repo)
+    await removeMirror(repo)
+    return c.json(db.snapshot())
+  } catch (error) {
+    const status = error instanceof Error && error.name === 'RepoBusy' ? 409 : 400
+    return c.json({ error: messageOf(error) }, status)
+  }
+})
 
 app.post('/api/refresh', async (c) => {
   try {

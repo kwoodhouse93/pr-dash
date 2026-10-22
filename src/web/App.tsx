@@ -37,6 +37,7 @@ export function App() {
   const applyId = useRef(0)
   const mergedKeys = useRef(new Set<string>())
   const seenQueue = useRef(new Set<string>())
+  const watchedRef = useRef<string[]>([])
   const pageRef = useRef<DashboardPage>(prefs.page)
   pageRef.current = prefs.page
   const refreshedAt = useRef<{ mine: number; review: number }>({ mine: 0, review: 0 })
@@ -44,6 +45,7 @@ export function App() {
 
   function adopt(snap: Snapshot): Snapshot {
     const reviewPullRequests = snap.reviewPullRequests ?? []
+    watchedRef.current = snap.repos ?? []
     if (mergedKeys.current.size === 0) return { ...snap, reviewPullRequests }
     const keep = (pr: Snapshot['pullRequests'][number]) => !mergedKeys.current.has(pr.key)
     return {
@@ -83,6 +85,7 @@ export function App() {
     const page = pageRef.current
     const focus = options.focus ?? (page === 'review' ? 'review' : 'mine')
     const listed = page === 'mine' || page === 'review'
+    if (watchedRef.current.length === 0 && !options.force) return false
     const feedback = options.feedback ?? 'if-ran'
     if (!options.full && !listed && !options.force) return false
     const recent = !options.force && !options.full && Date.now() - refreshedAt.current[focus] < REFRESH_MS
@@ -174,8 +177,9 @@ export function App() {
   useEffect(() => {
     let cancel = false
     ;(async () => {
+      let snap: Snapshot | null = null
       try {
-        const snap = await api.snapshot()
+        snap = await api.snapshot()
         if (!cancel) setData(adopt(snap))
       } catch (caught) {
         if (!cancel) toastError(caught instanceof Error ? caught.message : 'Could not load the saved snapshot')
@@ -183,6 +187,7 @@ export function App() {
         if (!cancel) setBooting(false)
       }
       const page = pageRef.current
+      if (!snap || snap.repos.length === 0) return
       if (page === 'mine' || page === 'review') await refresh({ force: true })
     })()
     const timer = window.setInterval(() => {
@@ -289,8 +294,15 @@ export function App() {
   }, [queue?.paused, queue?.pauseReason])
 
   const page = prefs.page
-  const mine = data?.pullRequests ?? []
-  const review = data?.reviewPullRequests ?? []
+  const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])
+  const mine = useMemo(
+    () => (data?.pullRequests ?? []).filter((pr) => watched.has(pr.repo)),
+    [data?.pullRequests, watched],
+  )
+  const review = useMemo(
+    () => (data?.reviewPullRequests ?? []).filter((pr) => watched.has(pr.repo)),
+    [data?.reviewPullRequests, watched],
+  )
   const prs = page === 'review' ? review : mine
   const initiatives = data?.initiatives ?? []
   const prByKey = useMemo(() => new Map(prs.map((pr) => [pr.key, pr])), [prs])
@@ -493,6 +505,7 @@ export function App() {
           {page === 'settings' ? (
             <SettingsPage
               status={sync}
+              repos={data?.repos ?? []}
               mineSyncedAt={data?.mineSyncedAt ?? null}
               reviewSyncedAt={data?.reviewSyncedAt ?? null}
               syncing={refreshing}
@@ -501,6 +514,15 @@ export function App() {
                 void refresh({ force: true, full: true, focus }).then(async () => {
                   setSync(await api.status().catch(() => null))
                 })
+              }}
+              onAddRepo={async (repo) => {
+                const snap = await api.addRepo(repo)
+                setData(adopt(snap))
+                const focus = pageRef.current === 'review' ? 'review' : 'mine'
+                void refresh({ force: true, full: true, focus })
+              }}
+              onRemoveRepo={async (repo) => {
+                setData(adopt(await api.removeRepo(repo)))
               }}
             />
           ) : null}
@@ -513,13 +535,22 @@ export function App() {
           ) : null}
           {listPage && booting && prs.length === 0 ? <div className="empty">Loading saved pull requests…</div> : null}
           {listPage && !booting && prs.length === 0 && refreshing ? <div className="empty">{status}</div> : null}
-          {page === 'mine' && !booting && prs.length === 0 && !refreshing ? (
+          {listPage && !booting && data && data.repos.length === 0 && !refreshing ? (
+            <div className="empty">
+              <h2>No repositories selected</h2>
+              <p>Choose which repositories to sync. Until you do, this dashboard does not ask GitHub for pull requests.</p>
+              <button type="button" className="primary" onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}>
+                Choose repositories
+              </button>
+            </div>
+          ) : null}
+          {page === 'mine' && !booting && data && data.repos.length > 0 && prs.length === 0 && !refreshing ? (
             <div className="empty">
               <h2>No open pull requests</h2>
               <p>This view is pull requests you authored. Refresh again after the next one is open.</p>
             </div>
           ) : null}
-          {page === 'review' && !booting && prs.length === 0 && !refreshing ? (
+          {page === 'review' && !booting && data && data.repos.length > 0 && prs.length === 0 && !refreshing ? (
             <div className="empty">
               <h2>No pull requests to review</h2>
               <p>This view is open pull requests that request your review, including your teams, and open pull requests you have already reviewed.</p>

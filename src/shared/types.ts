@@ -136,6 +136,8 @@ export type Snapshot = {
   syncedAt: string | null
   mineSyncedAt: string | null
   reviewSyncedAt: string | null
+  /** Repositories a refresh is allowed to ask GitHub about. Empty until the user selects some. */
+  repos: string[]
   pullRequests: PullRequest[]
   reviewPullRequests: PullRequest[]
   initiatives: Initiative[]

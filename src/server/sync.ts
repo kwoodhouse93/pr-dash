@@ -1,6 +1,7 @@
 import { carryThreadFeedback } from '../shared/feedback.ts'
 import { applyThreadDetails, mapPullRequest } from '../shared/map.ts'
 import { refreshSteps, stepIndex, type RefreshStep } from '../shared/progress.ts'
+import { pullKeyRepo, replaceRepoPulls } from '../shared/repos.ts'
 import { landedMergeVisible, type RemotePullState } from '../shared/queue.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
@@ -145,10 +146,15 @@ async function rulesFor(
 async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Promise<Snapshot> {
   syncStatus.running = true
   beginSteps(full)
-  const token = loadGithubToken()
   const warnings: string[] = []
   let failed: string | null = null
   try {
+    const watched = db.watchedRepos()
+    if (watched.length === 0) {
+      note('No repositories selected')
+      return db.snapshot()
+    }
+    const token = loadGithubToken()
     if (full) forgetViewerContext()
     const order: RefreshFocus[] = full ? [requested, requested === 'review' ? 'mine' : 'review'] : [requested]
     const paused = pauseNow()
@@ -156,7 +162,8 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
       warnings.push(paused)
       note(paused)
       if (full) {
-        const repos = reposIn(db.snapshot())
+        const selected = new Set(watched)
+        const repos = reposIn(db.snapshot()).filter((repo) => selected.has(repo))
         try {
           await rulesFor(db, token, repos, true, (message) => {
             note(message)
@@ -203,7 +210,12 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean): Pro
     }
     if (failed) throw new Error(failed)
     note('Checking Cursor')
-    await refreshCursorSessions(db.cursorSessions(), (prKey, session) => db.saveCursorSession(prKey, session))
+    const selected = new Set(db.watchedRepos())
+    const sessions = db.cursorSessions().filter(({ prKey }) => {
+      const repo = pullKeyRepo(prKey)
+      return repo != null && selected.has(repo)
+    })
+    await refreshCursorSessions(sessions, (prKey, session) => db.saveCursorSession(prKey, session))
     return db.snapshot()
   } finally {
     syncStatus.running = false
@@ -216,20 +228,22 @@ function reposIn(snap: Snapshot): string[] {
 }
 
 async function refreshMine(db: DashboardDb, token: string, forceRules: boolean): Promise<string | null> {
+  const watched = db.watchedRepos()
   const previous = new Map(db.snapshot().pullRequests.map((pr) => [pr.key, pr]))
   const fetched = await fetchAuthoredPullRequests(token, (message) => {
     note(message)
-  }, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
+  }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
   }))
   const warning = await withLinear(fetched.pullRequests, fetched.warning)
   await confirmLandedMerges(db, token, fetched.pullRequests)
   const current = db.snapshot()
+  const next = db.queue.overlay(omitMerged(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr))))
   db.saveSnapshot({
-    viewer: fetched.viewer,
+    viewer: fetched.viewer || current.viewer || '',
     syncedAt: new Date().toISOString(),
     mineSyncedAt: new Date().toISOString(),
-    pullRequests: db.queue.overlay(omitMerged(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr)))),
+    pullRequests: replaceRepoPulls(current.pullRequests, next, watched),
     reviewPullRequests: current.reviewPullRequests,
     linearConfigured: Boolean(process.env.LINEAR_API_KEY),
     warning,
@@ -238,10 +252,11 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
 }
 
 async function refreshReview(db: DashboardDb, token: string, forceRules: boolean): Promise<string | null> {
+  const watched = db.watchedRepos()
   const previous = new Map(db.snapshot().reviewPullRequests.map((pr) => [pr.key, pr]))
   const fetched = await fetchReviewPullRequests(token, (message) => {
     note(message)
-  }, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
+  }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
   }))
   const warning = await withLinear(fetched.pullRequests, fetched.warning)
@@ -251,7 +266,11 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
     syncedAt: new Date().toISOString(),
     reviewSyncedAt: new Date().toISOString(),
     pullRequests: current.pullRequests,
-    reviewPullRequests: fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr)),
+    reviewPullRequests: replaceRepoPulls(
+      current.reviewPullRequests,
+      fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr)),
+      watched,
+    ),
     linearConfigured: Boolean(process.env.LINEAR_API_KEY),
     warning,
   })
@@ -292,7 +311,8 @@ function staleFeedback(list: PullRequest[]): PullRequest[] {
 
 async function readFeedback(db: DashboardDb, next: RefreshFocus): Promise<{ snapshot: Snapshot; pending: number; paused: boolean }> {
   const snap = db.snapshot()
-  const list = next === 'review' ? snap.reviewPullRequests : snap.pullRequests
+  const watched = new Set(snap.repos)
+  const list = (next === 'review' ? snap.reviewPullRequests : snap.pullRequests).filter((pr) => watched.has(pr.repo))
   const stale = staleFeedback(list)
   const paused = graphqlStatus(GRAPHQL_PAUSE_BELOW).paused
   if (paused || stale.length === 0) return { snapshot: snap, pending: stale.length, paused }

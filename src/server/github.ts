@@ -14,6 +14,7 @@ import { summarizeReviews } from '../shared/approval.ts'
 import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, rememberWindow, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
 import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
 import type { LivePull, RemotePullState } from '../shared/queue.ts'
+import { authoredSearchQueries, reviewSearchQueries } from '../shared/repos.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
 import type { PullRequest } from '../shared/types.ts'
 
@@ -167,18 +168,6 @@ function readCommitChecks(commit: CommitChecks | null | undefined): { committedA
   }
 }
 
-const LIST_QUERY = `
-  query Authored($cursor: String) {
-    viewer {
-      login
-      pullRequests(first: 12, states: [OPEN], after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) {
-        pageInfo { hasNextPage endCursor }
-        nodes { ${PULL_FIELDS} }
-      }
-    }
-  }
-`
-
 const SEARCH_QUERY = `
   query Review($query: String!, $cursor: String) {
     search(query: $query, type: ISSUE, first: 20, after: $cursor) {
@@ -204,38 +193,42 @@ const TEAMS_QUERY = `
   }
 `
 
-export function reviewSearchQueries(teams: string[]): string[] {
-  const base = 'is:open is:pr archived:false -author:@me'
-  return [
-    `${base} review-requested:@me`,
-    `${base} reviewed-by:@me`,
-    ...teams.map((team) => `${base} team-review-requested:${team}`),
-  ]
+const LIST_CAP = 240
+
+function keptRepos(nodes: GitHubPull[], repos: string[]): GitHubPull[] {
+  const allowed = new Set(repos)
+  return nodes.filter((node) => allowed.has(node.repository.nameWithOwner))
 }
 
-type ListData = {
-  viewer: {
-    login: string
-    pullRequests: {
-      pageInfo: { hasNextPage: boolean; endCursor: string | null }
-      nodes: Array<GitHubPull | null>
+async function fetchSearchNodes(
+  token: string,
+  queries: string[],
+  onProgress: (message: string) => void,
+  label: string,
+): Promise<GitHubPull[]> {
+  const seen = new Set<string>()
+  const nodes: GitHubPull[] = []
+  for (const query of queries) {
+    let cursor: string | null = null
+    for (let page = 0; page < 6 && nodes.length < LIST_CAP; page += 1) {
+      onProgress(nodes.length === 0 ? label : `${label} (${nodes.length} so far)`)
+      const data: SearchData = await graphql<SearchData>(token, SEARCH_QUERY, { query, cursor })
+      for (const node of data.search.nodes ?? []) {
+        if (!node || seen.has(node.id)) continue
+        seen.add(node.id)
+        nodes.push(node)
+      }
+      if (!data.search.pageInfo.hasNextPage) break
+      cursor = data.search.pageInfo.endCursor
     }
   }
+  return nodes
 }
 
-async function fetchNodes(token: string, onProgress: (message: string) => void): Promise<{ viewer: string; nodes: GitHubPull[] }> {
-  const nodes: GitHubPull[] = []
-  let cursor: string | null = null
-  let viewer = ''
-  for (let page = 0; page < 12; page += 1) {
-    onProgress(page === 0 ? 'Fetching your pull requests' : `Fetching your pull requests (${nodes.length} so far)`)
-    const data: ListData = await graphql<ListData>(token, LIST_QUERY, { cursor })
-    viewer = data.viewer.login
-    nodes.push(...data.viewer.pullRequests.nodes.filter((node): node is GitHubPull => node != null))
-    if (!data.viewer.pullRequests.pageInfo.hasNextPage) break
-    cursor = data.viewer.pullRequests.pageInfo.endCursor
-  }
-  return { viewer, nodes }
+async function loginFor(token: string): Promise<string> {
+  if (viewerCache && Date.now() - viewerCache.at < RULES_MAX_AGE_MS) return viewerCache.login
+  const viewer = await graphql<{ viewer: { login: string } }>(token, VIEWER_QUERY)
+  return viewer.viewer.login
 }
 
 type SearchData = {
@@ -279,26 +272,13 @@ async function viewerContext(token: string): Promise<{ login: string; teams: str
 
 async function fetchReviewNodes(
   token: string,
+  repos: string[],
   onProgress: (message: string) => void,
 ): Promise<{ viewer: string; teams: string[]; nodes: GitHubPull[]; warning: string | null }> {
   const { login, teams, warning } = await viewerContext(token)
-  const seen = new Set<string>()
-  const nodes: GitHubPull[] = []
-  for (const query of reviewSearchQueries(teams)) {
-    let cursor: string | null = null
-    for (let page = 0; page < 6 && nodes.length < 120; page += 1) {
-      onProgress(nodes.length === 0 ? 'Fetching pull requests to review' : `Fetching pull requests to review (${nodes.length} so far)`)
-      const data: SearchData = await graphql<SearchData>(token, SEARCH_QUERY, { query, cursor })
-      for (const node of data.search.nodes ?? []) {
-        if (!node || seen.has(node.id) || node.author?.login === login) continue
-        seen.add(node.id)
-        nodes.push(node)
-      }
-      if (!data.search.pageInfo.hasNextPage) break
-      cursor = data.search.pageInfo.endCursor
-    }
-  }
-  return { viewer: login, teams, nodes, warning }
+  const nodes = await fetchSearchNodes(token, reviewSearchQueries(teams, repos), onProgress, 'Fetching pull requests to review')
+  const others = nodes.filter((node) => node.author?.login !== login)
+  return { viewer: login, teams, nodes: keptRepos(others, repos), warning }
 }
 
 type CheckData = Record<string, {
@@ -469,19 +449,63 @@ async function hydrate(
 export async function fetchAuthoredPullRequests(
   token: string,
   onProgress: (message: string) => void,
-  loadRules: RulesLoader = (repos) => fetchRepoRules(token, repos, onProgress),
+  repos: string[],
+  loadRules: RulesLoader = (needed) => fetchRepoRules(token, needed, onProgress),
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
-  const { viewer, nodes } = await fetchNodes(token, onProgress)
+  if (repos.length === 0) return { viewer: '', pullRequests: [], warning: null }
+  const viewer = await loginFor(token)
+  const nodes = keptRepos(await fetchSearchNodes(token, authoredSearchQueries(repos), onProgress, 'Fetching your pull requests'), repos)
   return hydrate(token, viewer, [], nodes, onProgress, null, loadRules)
 }
 
 export async function fetchReviewPullRequests(
   token: string,
   onProgress: (message: string) => void,
-  loadRules: RulesLoader = (repos) => fetchRepoRules(token, repos, onProgress),
+  repos: string[],
+  loadRules: RulesLoader = (needed) => fetchRepoRules(token, needed, onProgress),
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
-  const { viewer, teams, nodes, warning } = await fetchReviewNodes(token, onProgress)
+  if (repos.length === 0) return { viewer: '', pullRequests: [], warning: null }
+  const { viewer, teams, nodes, warning } = await fetchReviewNodes(token, repos, onProgress)
   return hydrate(token, viewer, teams, nodes, onProgress, warning, loadRules)
+}
+
+let accessibleCache: { at: number; names: string[]; truncated: boolean } | null = null
+const ACCESSIBLE_REPOS_MS = 5 * 60 * 1000
+
+export async function listAccessibleRepos(token: string): Promise<{ names: string[]; truncated: boolean }> {
+  if (accessibleCache && Date.now() - accessibleCache.at < ACCESSIBLE_REPOS_MS) {
+    return { names: accessibleCache.names, truncated: accessibleCache.truncated }
+  }
+  const names: string[] = []
+  let truncated = false
+  for (let page = 1; page <= 10; page += 1) {
+    const response = await rest(
+      token,
+      `/user/repos?per_page=100&page=${page}&sort=full_name&affiliation=owner,collaborator,organization_member`,
+    )
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`GitHub ${response.status}: ${text.slice(0, 180)}`)
+    }
+    const body = (await response.json()) as { full_name?: string; archived?: boolean }[]
+    if (!Array.isArray(body) || body.length === 0) break
+    for (const repo of body) {
+      if (repo.full_name && !repo.archived) names.push(repo.full_name)
+    }
+    if (body.length === 100 && page === 10) truncated = true
+    if (body.length < 100) break
+  }
+  names.sort((left, right) => left.localeCompare(right))
+  accessibleCache = { at: Date.now(), names, truncated }
+  return { names, truncated }
+}
+
+export async function repositoryVisible(token: string, repo: string): Promise<boolean> {
+  const response = await rest(token, `/repos/${repo}`)
+  if (response.ok) return true
+  if (response.status === 404) return false
+  const text = await response.text()
+  throw new Error(`GitHub ${response.status}: ${text.slice(0, 180)}`)
 }
 
 const CHECK_NODES = `

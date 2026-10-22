@@ -96,10 +96,25 @@ export async function abortRebases(mirror: string) {
   }
 }
 
-export function mirrorPath(repo: string): string {
+export function mirrorsRoot(): string {
   const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'data', 'pr-dash.sqlite')
-  const [owner, name] = repo.split('/')
-  return path.join(path.dirname(dbPath), 'mirrors', owner ?? 'repo', `${name ?? repo}.git`)
+  return path.join(path.dirname(dbPath), 'mirrors')
+}
+
+export function mirrorPath(repo: string): string {
+  const slash = repo.indexOf('/')
+  const owner = slash === -1 ? 'repo' : repo.slice(0, slash)
+  const name = slash === -1 ? repo : repo.slice(slash + 1)
+  return path.join(mirrorsRoot(), owner, `${name}.git`)
+}
+
+export async function removeMirror(repo: string): Promise<void> {
+  const root = path.resolve(mirrorsRoot())
+  const target = path.resolve(mirrorPath(repo))
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) {
+    throw new Error('Refusing to delete a mirror outside the mirrors directory.')
+  }
+  await rm(target, { recursive: true, force: true })
 }
 
 export class AlreadyBased extends GitError {

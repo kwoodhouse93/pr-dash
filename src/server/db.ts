@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { FeedbackCounts } from '../shared/feedback.ts'
+import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import type { CursorSession, Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
@@ -27,6 +28,10 @@ export type DashboardDb = {
   }): Snapshot
   ruleCache(): CachedRules[]
   saveRules(repo: string, rules: { checks: string[]; requiredApprovals: number; dismissStale: boolean }, fetchedAt: string): void
+  watchedRepos(): string[]
+  watchRepo(repo: string): void
+  storedRepos(): string[]
+  forgetRepo(repo: string): void
   createInitiative(name: string): Initiative
   renameInitiative(id: string, name: string): Initiative
   deleteInitiative(id: string): void
@@ -82,6 +87,10 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       required_approvals INTEGER NOT NULL,
       dismiss_stale INTEGER NOT NULL,
       fetched_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS watched_repos (
+      repo TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS agent_sessions (
       agent_id TEXT PRIMARY KEY,
@@ -227,12 +236,34 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       syncedAt: row?.synced_at ?? null,
       mineSyncedAt: row?.mine_synced_at ?? null,
       reviewSyncedAt: row?.review_synced_at ?? null,
+      repos: watchedRepos(),
       pullRequests: row ? visible(decorate(parseList(row.pull_requests), tags, sessions)) : [],
       reviewPullRequests: row ? visible(decorate(parseList(row.review_pull_requests), tags, sessions)) : [],
       initiatives: initiatives(),
       linearConfigured: row ? row.linear_configured === 1 : Boolean(process.env.LINEAR_API_KEY),
       warning: row?.warning ?? null,
     }
+  }
+
+  function watchedRepos(): string[] {
+    return (db.prepare('SELECT repo FROM watched_repos ORDER BY repo').all() as { repo: string }[]).map((row) => row.repo)
+  }
+
+  function storedRepos(): string[] {
+    const names = new Set<string>()
+    const row = readSnapshotRow.get() as SnapshotRow | undefined
+    for (const pr of [...parseList(row?.pull_requests), ...parseList(row?.review_pull_requests)]) names.add(pr.repo)
+    for (const rule of db.prepare('SELECT repo FROM repo_rules').all() as { repo: string }[]) names.add(rule.repo)
+    for (const session of db.prepare('SELECT pr_key FROM agent_sessions').all() as { pr_key: string }[]) {
+      const repo = pullKeyRepo(session.pr_key)
+      if (repo) names.add(repo)
+    }
+    for (const repo of queue.repos()) names.add(repo)
+    return [...names].sort()
+  }
+
+  function stripStored(list: PullRequest[]): PullRequest[] {
+    return list.map(({ cursorSessions: _sessions, ...pr }) => ({ ...pr, initiativeIds: [] }))
   }
 
   function assertUniqueName(name: string, ignoreId?: string) {
@@ -247,7 +278,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   return {
     snapshot,
     saveSnapshot(input) {
-      const strip = (list: PullRequest[]) => list.map(({ cursorSessions: _sessions, ...pr }) => ({ ...pr, initiativeIds: [] }))
+      const strip = stripStored
       const existing = readSnapshotRow.get() as SnapshotRow | undefined
       const review = input.reviewPullRequests ?? parseList(existing?.review_pull_requests)
       const mineSyncedAt = input.mineSyncedAt === undefined ? (existing?.mine_synced_at ?? null) : input.mineSyncedAt
@@ -303,6 +334,43 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
            dismiss_stale = excluded.dismiss_stale,
            fetched_at = excluded.fetched_at`,
       ).run(repo, JSON.stringify(rules.checks), rules.requiredApprovals, rules.dismissStale ? 1 : 0, fetchedAt)
+    },
+    watchedRepos,
+    watchRepo(repo) {
+      db.prepare('INSERT INTO watched_repos (repo, created_at) VALUES (?, ?) ON CONFLICT(repo) DO NOTHING').run(
+        repo,
+        new Date().toISOString(),
+      )
+    },
+    storedRepos,
+    forgetRepo(repo) {
+      if (queue.repoActive(repo)) {
+        const error = new Error(`A merge is in progress for ${repo}. Cancel it before removing the repository.`)
+        error.name = 'RepoBusy'
+        throw error
+      }
+      const like = repoKeyLike(repo)
+      const row = readSnapshotRow.get() as SnapshotRow | undefined
+      db.exec('BEGIN')
+      try {
+        queue.forgetRepo(repo)
+        db.prepare('DELETE FROM repo_rules WHERE repo = ?').run(repo)
+        db.prepare(`DELETE FROM agent_sessions WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+        db.prepare(`DELETE FROM initiative_pull_requests WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+        db.prepare('DELETE FROM watched_repos WHERE repo = ?').run(repo)
+        if (row) {
+          const mine = stripStored(parseList(row.pull_requests).filter((pr) => pr.repo !== repo))
+          const review = stripStored(parseList(row.review_pull_requests).filter((pr) => pr.repo !== repo))
+          db.prepare('UPDATE snapshot SET pull_requests = ?, review_pull_requests = ? WHERE id = 1').run(
+            JSON.stringify(mine),
+            JSON.stringify(review),
+          )
+        }
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
     },
     createInitiative(name) {
       const trimmed = name.trim()

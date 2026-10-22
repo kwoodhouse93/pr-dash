@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { EntryStatus, MergeEntry, MergeLog, MergeStep, QueueSnapshot, StepStatus } from '../shared/queue.ts'
 
@@ -259,6 +260,32 @@ export function attachQueue(db: DatabaseSync) {
     repoActive(repo: string): boolean {
       const row = db.prepare(`SELECT 1 FROM merge_entries WHERE repo = ? AND status = 'active' AND archived = 0`).get(repo)
       return row != null
+    },
+
+    repos(): string[] {
+      const names = new Set<string>()
+      for (const row of db.prepare('SELECT repo FROM merge_entries').all() as { repo: string }[]) names.add(row.repo)
+      for (const row of db.prepare('SELECT pr_key FROM merge_retained').all() as { pr_key: string }[]) {
+        const repo = pullKeyRepo(row.pr_key)
+        if (repo) names.add(repo)
+      }
+      return [...names]
+    },
+
+    forgetRepo(repo: string) {
+      const like = repoKeyLike(repo)
+      const entries = db.prepare('SELECT id FROM merge_entries WHERE repo = ?').all(repo) as { id: string }[]
+      const state = worker()
+      if (state.pause_entry_id && entries.some((entry) => entry.id === state.pause_entry_id)) {
+        db.prepare('UPDATE merge_worker SET paused = 0, pause_entry_id = NULL, pause_reason = NULL WHERE id = 1').run()
+      }
+      for (const entry of entries) {
+        db.prepare('DELETE FROM merge_logs WHERE entry_id = ?').run(entry.id)
+        db.prepare('DELETE FROM merge_entries WHERE id = ?').run(entry.id)
+      }
+      db.prepare(`DELETE FROM merge_steps WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+      db.prepare(`DELETE FROM merge_retained WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+      db.prepare(`DELETE FROM merge_hold_releases WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
     },
 
     isPaused(): boolean {

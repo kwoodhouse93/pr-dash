@@ -15,6 +15,8 @@ Open http://127.0.0.1:5173. The API listens on http://127.0.0.1:4317.
 
 The server uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise `gh auth token`. A refresh pulls the open list you are looking at, then keeps that snapshot in `data/pr-dash.sqlite`. That list refreshes about every 3 minutes while the tab is visible, and pauses when few GraphQL points remain. Thread replies load after the list, and again when a pull request changes. The row menu can refresh one pull request. Required checks are cached for a day. Settings has a full sync that reloads both lists and reads rulesets again. Sort, filters, and which stacks are expanded are remembered in this browser.
 
+Settings chooses which repositories a refresh includes. None are included until you select them, so a refresh does not ask GitHub about every repository you can access. Removing a repository deletes the pull requests, cached rules, agent sessions, and merge queue entries stored for it. That does not change the repository on GitHub.
+
 `LINEAR_API_KEY` is optional. Without it, issue titles still come from the Linear link on the pull request. Project names need the key.
 
 Set `CURSOR_API_KEY` to start Cursor Cloud Agents from a row: resolve a merge conflict, investigate failing CI, or run your own prompt. Each agent works on and pushes to the pull request’s existing head branch. The dashboard remembers every session and refreshes active ones with the pull requests. Create a user or service-account key in the Cursor dashboard. The key remains on this server.

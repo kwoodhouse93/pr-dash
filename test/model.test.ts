@@ -17,7 +17,7 @@ import {
 } from '../src/shared/ci.ts'
 import { feedbackCounts, quoteReply, summarizeNotes, summarizeThreads, threadKinds, threadPermalink } from '../src/shared/feedback.ts'
 import { checksFromRaw, isBehindBase, mapPullRequest, type GitHubPull, type RawCheckSuite } from '../src/shared/map.ts'
-import { reviewSearchQueries } from '../src/server/github.ts'
+import { reviewSearchQueries } from '../src/shared/repos.ts'
 import { parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
 import { buildStacks, restackChain, summarize } from '../src/shared/stacks.ts'
@@ -516,13 +516,14 @@ describe('feedback', () => {
 })
 
 describe('review search', () => {
-  it('keeps your own pull requests out and includes team review requests', () => {
-    expect(reviewSearchQueries([])).toEqual([
-      'is:open is:pr archived:false -author:@me review-requested:@me',
-      'is:open is:pr archived:false -author:@me reviewed-by:@me',
+  it('limits review search to selected repositories and includes team review requests', () => {
+    expect(reviewSearchQueries([], [])).toEqual([])
+    expect(reviewSearchQueries([], ['acme/app'])).toEqual([
+      'sort:updated-desc is:open is:pr archived:false -author:@me review-requested:@me repo:acme/app',
+      'sort:updated-desc is:open is:pr archived:false -author:@me reviewed-by:@me repo:acme/app',
     ])
-    expect(reviewSearchQueries(['initech/eng'])).toContain(
-      'is:open is:pr archived:false -author:@me team-review-requested:initech/eng',
+    expect(reviewSearchQueries(['initech/eng'], ['acme/app'])).toContain(
+      'sort:updated-desc is:open is:pr archived:false -author:@me team-review-requested:initech/eng repo:acme/app',
     )
   })
 })
