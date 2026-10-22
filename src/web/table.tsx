@@ -10,7 +10,7 @@ import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequ
 import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
 import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
-import { formatCount, formatExact, formatWhen } from './format.ts'
+import { formatCount, formatExact, formatWhen, graphitePrUrl } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
@@ -33,7 +33,7 @@ function useStackLock(): StackLock {
   return useContext(StackLockContext)
 }
 
-const COLUMNS = 17
+const COLUMNS = 18
 
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
 const EMPTY_HOLDS: CheckHold[] = []
@@ -154,6 +154,7 @@ export function PrTable({
           <th>Feedback</th>
           <th className="agents">Agents</th>
           {mode === 'mine' ? <th className="merge">Merge</th> : null}
+          <th className="open">Open</th>
           <th aria-label="Actions" />
         </tr>
       </thead>
@@ -621,6 +622,7 @@ function DataRow({
           />
         </td>
       ) : null}
+      <OpenLinks url={pr.url} repo={pr.repo} number={pr.number} />
       <RowMenu
         id={`menu:${pr.id}`}
         primaryKey={pr.key}
@@ -777,6 +779,7 @@ function SummaryRow({
         ) : null}
       </td>
       ) : null}
+      <OpenLinks url={summary.url} repo={summary.repo} number={summary.number} />
       <RowMenu
         id={`menu:${block.id}`}
         primaryKey={summary.topKey}
@@ -798,6 +801,49 @@ function Grip({ spine }: { spine: Spine | null }) {
     <td className="grip">
       {spine === 'only' ? <span className="stack-mark" aria-hidden="true" /> : null}
     </td>
+  )
+}
+
+function OpenLinks({ url, repo, number }: { url: string; repo: string; number: number }) {
+  return (
+    <td className="open">
+      <span className="open-links">
+        <a href={url} target="_blank" rel="noreferrer" title="Open in GitHub" aria-label={`Open #${number} in GitHub`}>
+          <GithubIcon />
+        </a>
+        <a
+          href={graphitePrUrl(repo, number)}
+          target="_blank"
+          rel="noreferrer"
+          title="Open in Graphite"
+          aria-label={`Open #${number} in Graphite`}
+        >
+          <GraphiteIcon />
+        </a>
+      </span>
+    </td>
+  )
+}
+
+function GithubIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+      />
+    </svg>
+  )
+}
+
+function GraphiteIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M8 1.2 2.4 4.4v7.2L8 14.8l5.6-3.2V4.4L8 1.2Zm0 1.85 3.85 2.2v.01L8 7.45 4.15 5.26 8 3.05Zm-4.4 3.4 3.85 2.2v4.35L3.6 10.8V6.45Zm5 6.55V8.65l3.85-2.2v4.35L8.6 13Z"
+      />
+    </svg>
   )
 }
 
@@ -938,7 +984,7 @@ function RunningNote({ session, prefix = null }: { session: CursorSession; prefi
     <p>
       {prefix ? `${prefix} · ` : ''}
       {cursorStatusLabel(session.status)}. {agentWork(session.kind)}{' '}
-      <a href={links.webUrl} target="_blank" rel="noreferrer">
+      <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
         Open session
       </a>
     </p>
@@ -1127,7 +1173,7 @@ function AgentSessions({ sessions, showPr }: { sessions: { pr: PullRequest; sess
             ) : null}
             <div className="cursor-links">
               <a className="external" href={links.desktopUrl}>Open in Cursor</a>
-              <a href={links.webUrl} target="_blank" rel="noreferrer">
+              <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
                 Open on the web
               </a>
             </div>
@@ -1255,7 +1301,7 @@ function RowMenuBody(props: RowMenuProps) {
           <button
             key={item.key}
             type="button"
-            className="menu-item"
+            className="menu-item external"
             disabled={running !== null || agents.pending !== null}
             onClick={() => {
               void agents.launch(item, request).then((opened) => {
@@ -1708,7 +1754,7 @@ function CiPanel({
                 <span>
                   {prs.length > 1 ? `#${pr.number} ` : ''}
                   {check.url ? (
-                    <a href={check.url} target="_blank" rel="noreferrer">
+                    <a className="external" href={check.url} target="_blank" rel="noreferrer">
                       {check.name}
                     </a>
                   ) : (

@@ -243,7 +243,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
           <div>
             <p className="eyebrow" id="feedback-title">{FOCUS_TITLE[focus]}</p>
             {single ? (
-              <a className="drawer-pr" href={single.url} target="_blank" rel="noreferrer">
+              <a className="drawer-pr external" href={single.url} target="_blank" rel="noreferrer">
                 #{single.number} {single.title}
               </a>
             ) : (
@@ -264,7 +264,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
             <section key={section.target.key} className="feedback-section">
               {targets.length > 1 ? (
                 <h3>
-                  <a href={section.target.url} target="_blank" rel="noreferrer">
+                  <a className="external" href={section.target.url} target="_blank" rel="noreferrer">
                     #{section.target.number} {section.target.title}
                   </a>
                 </h3>
@@ -335,7 +335,7 @@ function ThreadList({
       {detail.threadsTruncated ? (
         <p className="faint">
           Showing the first 60 threads.{' '}
-          <a href={prUrl} target="_blank" rel="noreferrer">
+          <a className="external" href={prUrl} target="_blank" rel="noreferrer">
             Open the pull request
           </a>{' '}
           for the rest.
@@ -401,7 +401,7 @@ function ThreadCard({
             <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <a className="file-link" href={href} target="_blank" rel="noreferrer" title="Open this diff on GitHub">
+        <a className="file-link external" href={href} target="_blank" rel="noreferrer" title="Open this diff on GitHub">
           {label}
         </a>
         {thread.isOutdated ? <span className="pill">Outdated</span> : null}
@@ -649,7 +649,7 @@ function NoteCard({
       <div className="thread-file">
         <span className="note-kind">{note.kind === 'review' ? 'Review' : 'Comment'}</span>
         {note.url ? (
-          <a href={note.url} target="_blank" rel="noreferrer">
+          <a className="external" href={note.url} target="_blank" rel="noreferrer">
             View on GitHub
           </a>
         ) : null}

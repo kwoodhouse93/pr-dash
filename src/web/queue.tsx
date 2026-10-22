@@ -104,7 +104,7 @@ function QueueCard({
         {entry.steps.map((step) => (
           <li key={step.id}>
             <span className={`pill queue ${step.status}`}>{stepLabel(step.status)}</span>
-            <a href={step.url} target="_blank" rel="noreferrer">
+            <a className="external" href={step.url} target="_blank" rel="noreferrer">
               #{step.number} {step.title}
             </a>
             <span className="meta">

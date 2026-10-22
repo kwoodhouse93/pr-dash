@@ -92,7 +92,7 @@ function renderInlines(nodes: Inline[]): ReactNode[] {
         return <em key={index}>{renderInlines(node.children)}</em>
       case 'link':
         return (
-          <a key={index} href={node.href} target="_blank" rel="noreferrer">
+          <a key={index} className="external" href={node.href} target="_blank" rel="noreferrer">
             {renderInlines(node.children)}
           </a>
         )

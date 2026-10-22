@@ -40,3 +40,8 @@ export function formatExact(iso: string): string {
     minute: '2-digit',
   })
 }
+
+/** Graphite PR page for a `owner/repo` key and pull request number. */
+export function graphitePrUrl(repo: string, number: number): string {
+  return `https://app.graphite.dev/github/pr/${repo}/${number}`
+}
