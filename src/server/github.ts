@@ -11,7 +11,7 @@ import {
   type FeedbackPayload,
 } from '../shared/feedback.ts'
 import { summarizeReviews } from '../shared/approval.ts'
-import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
+import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, preferGraphqlBudget, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
 import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
 import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
@@ -49,7 +49,7 @@ export function assertGraphql(floor = GRAPHQL_SINGLE_FLOOR, now = Date.now()) {
 
 function rememberGraphql(response: Response) {
   const next = budgetFromHeaders(response.headers)
-  if (next) graphqlBudget = next
+  if (next) graphqlBudget = preferGraphqlBudget(graphqlBudget, next)
 }
 
 function markGraphqlSpent(resetAt = Date.now() + 60_000) {

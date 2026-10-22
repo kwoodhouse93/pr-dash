@@ -18,6 +18,18 @@ export type GraphqlView = {
   message: string | null
 }
 
+/**
+ * One token can be charged against two GraphQL windows with different reset times.
+ * Hold the smaller remaining count until its reset, so the counter does not flip between them.
+ */
+export function preferGraphqlBudget(current: GraphqlBudget | null, next: GraphqlBudget, now = Date.now()): GraphqlBudget {
+  if (!current || now >= current.resetAt) return next
+  if (now >= next.resetAt) return current
+  if (next.remaining < current.remaining) return next
+  if (next.remaining > current.remaining) return current
+  return next.resetAt >= current.resetAt ? next : current
+}
+
 export function budgetFromHeaders(headers: { get(name: string): string | null }): GraphqlBudget | null {
   const resource = headers.get('x-ratelimit-resource')
   if (resource && resource !== 'graphql') return null
