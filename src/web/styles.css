@@ -1191,7 +1191,29 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
   font-size: 14px;
 }
 .reply-hint { margin: 6px 0 8px; font-size: 12px; }
-.thread-actions { display: flex; gap: 8px; align-items: center; }
+.thread-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .thread-actions .primary,
 .thread-actions .ghost { padding: 6px 12px; font-size: 14px; border-radius: 8px; }
+.thread-actions .fix-thread { margin-left: auto; }
+.thread-actions .launch-error { flex: 1 0 100%; margin: 0; }
+.split-fix { display: inline-flex; }
+.thread-actions .split-fix .primary:not(.caret) { border-radius: 8px 0 0 8px; }
+.thread-actions .split-fix .primary.caret {
+  border-radius: 0 8px 8px 0;
+  border-left: 1px solid #9a6d3b;
+  padding: 6px 8px;
+}
+.popover.thread-fix { z-index: 45; width: min(360px, calc(100vw - 24px)); }
+.popover.thread-fix textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  min-height: 88px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+}
 .reply-toggle { margin-top: 8px; padding: 4px 10px; font-size: 13px; border-radius: 8px; }

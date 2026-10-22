@@ -109,13 +109,13 @@ export type PullRequest = {
 
 export type CursorSessionStatus = 'creating' | 'running' | 'finished' | 'failed' | 'cancelled' | 'expired'
 
-export type AgentKind = 'conflict' | 'ci' | 'prompt'
+export type AgentKind = 'conflict' | 'ci' | 'prompt' | 'thread'
 
 export type CursorSession = {
   agentId: string
   runId: string
   kind: AgentKind
-  /** The user's text, for a prompt session. */
+  /** The user's text, or the file a review-thread fix was aimed at. */
   prompt: string | null
   status: CursorSessionStatus
   result: string | null

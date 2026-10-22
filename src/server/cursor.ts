@@ -1,4 +1,4 @@
-import type { AgentRequest } from '../shared/agents.ts'
+import { sessionNote, type AgentRequest } from '../shared/agents.ts'
 import { cursorPushedBranch, cursorSessionActive, cursorSessionStatus } from '../shared/cursor.ts'
 import type { CursorSession, PullRequest } from '../shared/types.ts'
 import { agentTask } from './agent-tasks.ts'
@@ -46,7 +46,7 @@ export async function startCursorAgent(pr: PullRequest, request: AgentRequest): 
     agentId,
     runId,
     kind: request.kind,
-    prompt: request.kind === 'prompt' ? request.prompt.trim() : null,
+    prompt: sessionNote(request),
     status: cursorSessionStatus(body.run?.status),
     result: null,
     branch: null,

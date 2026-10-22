@@ -8,7 +8,7 @@ import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { StackSummary } from '../shared/stacks.ts'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
-import { paintCursorLoading } from './cursor-loading.ts'
+import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen } from './format.ts'
 import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
@@ -34,10 +34,6 @@ function useStackLock(): StackLock {
 }
 
 const COLUMNS = 15
-
-type StartAgent = (key: string, request: AgentRequest) => Promise<{ url: string }>
-
-const AgentContext = createContext<StartAgent>(() => Promise.reject(new Error('Cursor agents are not available here.')))
 
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
 const EMPTY_HOLDS: CheckHold[] = []
@@ -132,7 +128,7 @@ export function PrTable({
   }
   return (
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
-    <AgentContext.Provider value={onStartAgent}>
+    <AgentProvider start={onStartAgent}>
     <HoldContext.Provider value={holds}>
     <table className="prs">
       <thead>
@@ -189,7 +185,7 @@ export function PrTable({
       </tbody>
     </table>
     </HoldContext.Provider>
-    </AgentContext.Provider>
+    </AgentProvider>
     </FeedbackProvider>
   )
 }
@@ -848,62 +844,6 @@ function Subline({
   )
 }
 
-type AgentLaunch = {
-  /** Resolves true once the agent's tab is showing its session. */
-  launch: (pr: PullRequest, request: AgentRequest) => Promise<boolean>
-  pending: string | null
-  error: string | null
-}
-
-function launchTag(pr: PullRequest, request: AgentRequest): string {
-  return `${pr.key}:${request.kind}`
-}
-
-function useAgentLaunch(): AgentLaunch {
-  const start = useContext(AgentContext)
-  const [pending, setPending] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  async function launch(pr: PullRequest, request: AgentRequest): Promise<boolean> {
-    setError(null)
-    setPending(launchTag(pr, request))
-    // Open during the click so the browser allows the tab. Paint the loading
-    // page before any await, while this document can still write to it. Leave
-    // opener set until the session URL is assigned; clearing it first keeps
-    // this tab and opens the session in a second one.
-    const agent = window.open('', '_blank')
-    if (agent) {
-      try {
-        paintCursorLoading(agent, agentWork(request.kind))
-      } catch {
-        // The tab still redirects when the session URL is ready.
-      }
-    }
-    try {
-      const result = await start(pr.key, request)
-      if (!agent) {
-        setError('Cursor started, but the new tab was blocked. Open the session from the Agents column.')
-        return false
-      }
-      agent.location.replace(result.url)
-      try {
-        agent.opener = null
-      } catch {
-        // Navigation can make the tab cross-origin before this runs.
-      }
-      return true
-    } catch (caught) {
-      agent?.close()
-      setError(caught instanceof Error ? caught.message : 'Could not start Cursor.')
-      return false
-    } finally {
-      setPending(null)
-    }
-  }
-
-  return { launch, pending, error }
-}
-
 function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
   const conflicts = prs.filter((pr) => pr.conflict)
   const { launch, pending, error } = useAgentLaunch()
@@ -951,7 +891,7 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
                     aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with Cursor` : undefined}
                     onClick={() => void launch(pr, request)}
                   >
-                    {pending === launchTag(pr, request) ? 'Starting Cursor…' : 'Resolve with Cursor'}
+                    {pending === launchTag(pr.key, request) ? 'Starting Cursor…' : 'Resolve with Cursor'}
                   </button>
                 )}
               </div>
@@ -1295,7 +1235,7 @@ function RowMenuBody(props: RowMenuProps) {
               })
             }}
           >
-            {agents.pending === launchTag(item, request)
+            {agents.pending === launchTag(item.key, request)
               ? 'Starting Cursor…'
               : running
                 ? `Cursor is investigating CI on #${item.number}`
@@ -1753,10 +1693,10 @@ function CiAgentActions({ prs }: { prs: PullRequest[] }) {
                 key={pr.key}
                 type="button"
                 disabled={pending !== null}
-                aria-busy={pending === launchTag(pr, request)}
+                aria-busy={pending === launchTag(pr.key, request)}
                 onClick={() => void launch(pr, request)}
               >
-                {pending === launchTag(pr, request)
+                {pending === launchTag(pr.key, request)
                   ? 'Starting Cursor…'
                   : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with Cursor`}
               </button>

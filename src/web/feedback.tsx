@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { PROMPT_LIMIT, type AgentRequest, type ThreadFix } from '../shared/agents.ts'
 import {
   asNote,
   asThread,
   summarizeNotes,
   threadKinds,
+  threadPermalink,
   type FeedbackCounts,
   type FeedbackDetail,
   type FeedbackNote,
@@ -12,6 +14,7 @@ import {
   type FeedbackThread,
 } from '../shared/feedback.ts'
 import type { PullRequest } from '../shared/types.ts'
+import { useAgentLaunch } from './agent-launch.tsx'
 import { api } from './api.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
@@ -271,6 +274,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
                 />
               ) : (
                 <ThreadList
+                  prKey={section.target.key}
                   detail={section.detail}
                   threadIds={section.threadIds}
                   prUrl={section.target.url}
@@ -303,12 +307,14 @@ function unansweredId(detail: FeedbackDetail, viewer: string): string | null {
 }
 
 function ThreadList({
+  prKey,
   detail,
   threadIds,
   prUrl,
   onReply,
   onResolve,
 }: {
+  prKey: string
   detail: FeedbackDetail
   threadIds: string[]
   prUrl: string
@@ -332,18 +338,20 @@ function ThreadList({
         </p>
       ) : null}
       {threads.map((thread) => (
-        <ThreadCard key={thread.id} thread={thread} prUrl={prUrl} onReply={onReply} onResolve={onResolve} />
+        <ThreadCard key={thread.id} prKey={prKey} thread={thread} prUrl={prUrl} onReply={onReply} onResolve={onResolve} />
       ))}
     </>
   )
 }
 
 function ThreadCard({
+  prKey,
   thread,
   prUrl,
   onReply,
   onResolve,
 }: {
+  prKey: string
   thread: FeedbackThread
   prUrl: string
   onReply: (threadId: string, body: string) => Promise<void>
@@ -429,13 +437,169 @@ function ThreadCard({
           }
         }}
         extra={
-          <button type="button" className="ghost" onClick={() => void resolve()} disabled={pending !== null}>
-            {pending === 'resolve' ? (thread.isResolved ? 'Unresolving' : 'Resolving') : thread.isResolved ? 'Unresolve' : 'Resolve'}
-          </button>
+          <>
+            <button type="button" className="ghost" onClick={() => void resolve()} disabled={pending !== null}>
+              {pending === 'resolve' ? (thread.isResolved ? 'Unresolving' : 'Resolving') : thread.isResolved ? 'Unresolve' : 'Resolve'}
+            </button>
+            <FixWithCursor prKey={prKey} thread={thread} />
+          </>
         }
       />
       </div>
     </article>
+  )
+}
+
+function threadFix(thread: FeedbackThread): ThreadFix {
+  return {
+    path: thread.path,
+    line: thread.line,
+    startLine: thread.startLine,
+    url: thread.url ?? threadPermalink(thread.comments),
+    outdated: thread.isOutdated,
+    diffHunk: thread.diffHunk,
+    truncated: thread.commentsTruncated,
+    comments: thread.comments.map((comment) => ({
+      author: comment.author?.login ?? null,
+      body: comment.body,
+    })),
+  }
+}
+
+function FixWithCursor({ prKey, thread }: { prKey: string; thread: FeedbackThread }) {
+  const { launch, pending, error } = useAgentLaunch()
+  const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLButtonElement>(null)
+  const busy = pending !== null
+  const place = locationLabel(thread)
+
+  function run(prompt: string | null) {
+    const request: AgentRequest = { kind: 'thread', thread: threadFix(thread), prompt }
+    void launch({ key: prKey }, request).then((opened) => {
+      if (opened) setOpen(false)
+    })
+  }
+
+  return (
+    <>
+      <div className="fix-thread">
+        <div className="split-fix">
+          <button
+            type="button"
+            className="primary"
+            disabled={busy}
+            aria-busy={busy}
+            aria-label={`Fix ${place} with Cursor`}
+            onClick={() => {
+              setOpen(false)
+              run(null)
+            }}
+          >
+            {busy && !open ? 'Starting Cursor…' : 'Fix with Cursor'}
+          </button>
+          <button
+            ref={anchor}
+            type="button"
+            className="primary caret"
+            aria-expanded={open}
+            aria-label={`Fix ${place} with a prompt`}
+            disabled={busy}
+            onClick={() => setOpen((current) => !current)}
+          >
+            ▾
+          </button>
+        </div>
+      </div>
+      {open && anchor.current ? (
+        <FixPrompt anchor={anchor.current} busy={busy} error={error} onClose={() => setOpen(false)} onStart={run} />
+      ) : null}
+      {error && !open ? <p className="launch-error">{error}</p> : null}
+    </>
+  )
+}
+
+function FixPrompt({
+  anchor,
+  busy,
+  error,
+  onClose,
+  onStart,
+}: {
+  anchor: HTMLElement
+  busy: boolean
+  error: string | null
+  onClose: () => void
+  onStart: (prompt: string) => void
+}) {
+  const panel = useRef<HTMLFormElement>(null)
+  const [text, setText] = useState('')
+  const rect = anchor.getBoundingClientRect()
+  const width = Math.min(360, window.innerWidth - 24)
+  const height = 280
+  let left = rect.right - width
+  if (left < 12) left = 12
+  if (left + width > window.innerWidth - 12) left = Math.max(12, window.innerWidth - width - 12)
+  const below = rect.bottom + 6
+  const top = below + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 6) : below
+  const ready = text.trim().length > 0 && text.length <= PROMPT_LIMIT
+
+  useEffect(() => {
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target
+      if (target instanceof Node && (anchor.contains(target) || panel.current?.contains(target))) return
+      onClose()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      onClose()
+    }
+    window.addEventListener('mousedown', onDoc)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('mousedown', onDoc)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [anchor, onClose])
+
+  return createPortal(
+    <form
+      ref={panel}
+      className="popover thread-fix"
+      style={{ top, left }}
+      onMouseDown={(event) => event.stopPropagation()}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!ready || busy) return
+        onStart(text.trim())
+      }}
+    >
+      <h3>Fix with a prompt</h3>
+      <p>Cursor still gets this thread and the pull request. These instructions are added on top.</p>
+      <textarea
+        aria-label="Prompt for Cursor"
+        placeholder="What should Cursor do with this thread?"
+        rows={4}
+        autoFocus
+        value={text}
+        disabled={busy}
+        maxLength={PROMPT_LIMIT}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault()
+            event.currentTarget.form?.requestSubmit()
+          }
+        }}
+      />
+      <p className="faint reply-hint">⌘↵ to start</p>
+      <button type="submit" className="primary resolve-cta" disabled={!ready || busy}>
+        {busy ? 'Starting Cursor…' : 'Fix with Cursor'}
+      </button>
+      {error ? <p className="launch-error">{error}</p> : null}
+    </form>,
+    document.body,
   )
 }
 

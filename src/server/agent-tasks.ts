@@ -1,4 +1,4 @@
-import { failingChecks, type AgentRequest } from '../shared/agents.ts'
+import { failingChecks, threadPlace, type AgentRequest, type ThreadFix } from '../shared/agents.ts'
 import type { PullRequest } from '../shared/types.ts'
 
 export type AgentTask = { name: string; prompt: string }
@@ -44,7 +44,39 @@ export function agentTask(pr: PullRequest, request: AgentRequest): AgentTask {
         name: `#${pr.number}: ${headline(request.prompt)}`,
         prompt: [request.prompt.trim(), '', ...context(pr)].join('\n'),
       }
+    case 'thread': {
+      const extra = request.prompt?.trim() ?? ''
+      const place = threadPlace(request.thread)
+      return {
+        name: named(extra ? `#${pr.number}: ${headline(extra)}` : `Fix #${pr.number} ${place}`),
+        prompt: threadPrompt(pr, request.thread, extra),
+      }
+    }
   }
+}
+
+function threadPrompt(pr: PullRequest, thread: ThreadFix, extra: string): string {
+  const lines = [
+    `Fix the issue raised in this review thread on pull request #${pr.number}.`,
+    'Read the comments and the diff, make the change they ask for, run the relevant checks, and push it to the existing branch.',
+    'If the request is ambiguous, or a correct fix is not clear, do not push. Explain what is unclear instead.',
+  ]
+  if (extra) lines.push('', 'Additional instructions:', extra)
+  lines.push('', 'Review thread:', `- ${threadPlace(thread)}${thread.outdated ? ' (outdated)' : ''}`)
+  if (thread.url) lines.push(`- ${thread.url}`)
+  if (thread.diffHunk?.trim()) lines.push('', 'Diff:', '```diff', thread.diffHunk.trimEnd(), '```')
+  const comments = thread.comments.filter((comment) => comment.body.trim())
+  if (comments.length) {
+    lines.push('', 'Comments:')
+    for (const comment of comments) lines.push('', `${comment.author ?? 'Someone'}:`, comment.body.trim())
+  }
+  if (thread.truncated) lines.push('', 'Part of this thread was left out.')
+  lines.push('', ...context(pr))
+  return lines.join('\n')
+}
+
+function named(text: string): string {
+  return text.length > 80 ? `${text.slice(0, 79)}…` : text
 }
 
 function context(pr: PullRequest): string[] {

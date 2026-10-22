@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { agentBlocker, parseAgentRequest } from '../src/shared/agents.ts'
+import { agentBlocker, parseAgentRequest, sessionNote, type ThreadFix } from '../src/shared/agents.ts'
 import { cursorLinks, cursorPushedBranch, cursorSessionStatus, cursorStatusLabel, leadingCursorStatus } from '../src/shared/cursor.ts'
 import type { Check, CursorSession, PullRequest } from '../src/shared/types.ts'
 import { agentTask } from '../src/server/agent-tasks.ts'
@@ -178,6 +178,14 @@ describe('agent shortcuts', () => {
     expect(parseAgentRequest({ kind: 'ci' })).toEqual({ kind: 'ci' })
     expect(parseAgentRequest({ kind: 'prompt', prompt: 'Rename it' })).toEqual({ kind: 'prompt', prompt: 'Rename it' })
     expect(parseAgentRequest({ kind: 'prompt' })).toBeNull()
+    expect(parseAgentRequest({ kind: 'thread', thread: thread(), prompt: 'Keep the name' })).toEqual({
+      kind: 'thread',
+      thread: thread(),
+      prompt: 'Keep the name',
+    })
+    expect(parseAgentRequest({ kind: 'thread', thread: thread() })).toEqual({ kind: 'thread', thread: thread(), prompt: null })
+    expect(parseAgentRequest({ kind: 'thread', prompt: 'Missing the thread' })).toBeNull()
+    expect(parseAgentRequest({ kind: 'thread', thread: { ...thread(), outdated: 'yes' } })).toBeNull()
     expect(parseAgentRequest({ kind: 'deploy' })).toBeNull()
     expect(parseAgentRequest(null)).toBeNull()
   })
@@ -197,6 +205,13 @@ describe('agent shortcuts', () => {
     const busy = pull({ cursorSessions: [session({ kind: 'prompt', prompt: 'One' })] })
     expect(agentBlocker(busy, { kind: 'prompt', prompt: 'Two' })).toBeNull()
     expect(agentBlocker(busy, { kind: 'prompt', prompt: '   ' })).toMatch(/Write a prompt/)
+
+    expect(agentBlocker(pull(), { kind: 'thread', thread: thread(), prompt: null })).toBeNull()
+    expect(agentBlocker(pull(), { kind: 'thread', thread: thread({ comments: [{ author: 'ada', body: '   ' }] }), prompt: null })).toMatch(
+      /nothing for Cursor/,
+    )
+    expect(agentBlocker(pull(), { kind: 'thread', thread: thread(), prompt: 'x'.repeat(8001) })).toMatch(/under 8,000/)
+    expect(agentBlocker(busy, { kind: 'thread', thread: thread(), prompt: 'Look again' })).toBeNull()
   })
 
   it('attaches the pull request to every prompt', () => {
@@ -221,4 +236,54 @@ describe('agent shortcuts', () => {
     expect(ci.prompt).toContain('gh run view <run> --repo acme/app --log-failed')
     expect(ci.prompt).toContain('do not push. Report what you found instead.')
   })
+
+  it('asks Cursor to fix a review thread, and adds a custom prompt on top', () => {
+    const pr = pull()
+    const naive = agentTask(pr, { kind: 'thread', thread: thread(), prompt: null })
+    expect(naive.name).toBe('Fix #1 src/web/queue.tsx:12-18')
+    expect(naive.prompt).toContain('Fix the issue raised in this review thread on pull request #1.')
+    expect(naive.prompt).toContain('src/web/queue.tsx:12-18 (outdated)')
+    expect(naive.prompt).toContain('https://github.com/acme/app/pull/1#discussion_r1')
+    expect(naive.prompt).toContain('ada:\nPlease rename this.')
+    expect(naive.prompt).toContain('```diff')
+    expect(naive.prompt).toContain('do not push')
+    expect(naive.prompt).not.toContain('Additional instructions:')
+    expect(sessionNote({ kind: 'thread', thread: thread(), prompt: null })).toBe('src/web/queue.tsx:12-18')
+
+    const custom = agentTask(pr, { kind: 'thread', thread: thread(), prompt: '  Keep the public name.\nAdd a test.  ' })
+    expect(custom.name).toBe('#1: Keep the public name.')
+    expect(custom.prompt).toContain('Additional instructions:\nKeep the public name.\nAdd a test.')
+    expect(custom.prompt).toContain('https://github.com/acme/app/pull/1')
+    expect(custom.prompt).toContain('Do not create a separate pull request.')
+    expect(sessionNote({ kind: 'thread', thread: thread(), prompt: '  Keep the public name.  ' })).toBe(
+      'src/web/queue.tsx:12-18\n\nKeep the public name.',
+    )
+  })
+
+  it('shortens a huge review thread before the agent sees it', () => {
+    const parsed = parseAgentRequest({
+      kind: 'thread',
+      thread: thread({ diffHunk: 'x'.repeat(20_000), comments: [{ author: 'ada', body: 'y'.repeat(7_000) }] }),
+    })
+    expect(parsed?.kind).toBe('thread')
+    if (parsed?.kind !== 'thread') return
+    expect(parsed.thread.truncated).toBe(true)
+    expect(parsed.thread.diffHunk).toHaveLength(16_000)
+    expect(parsed.thread.comments[0]?.body).toHaveLength(6_000)
+    expect(agentTask(pull(), parsed).prompt).toContain('Part of this thread was left out.')
+  })
 })
+
+function thread(patch: Partial<ThreadFix> = {}): ThreadFix {
+  return {
+    path: 'src/web/queue.tsx',
+    line: 18,
+    startLine: 12,
+    url: 'https://github.com/acme/app/pull/1#discussion_r1',
+    outdated: true,
+    diffHunk: '@@ -1 +1 @@\n-old\n+new\n',
+    truncated: false,
+    comments: [{ author: 'ada', body: 'Please rename this.' }],
+    ...patch,
+  }
+}
