@@ -14,21 +14,32 @@ export function SettingsPage({
   syncing: boolean
   onFullSync: () => void
 }) {
-  const graphql = status?.graphql
-  const points = graphql?.remaining == null ? 'Waiting for the next GitHub response' : `${graphql.remaining} of ${graphql.limit ?? '—'}`
+  const windows = status?.graphql.windows ?? []
   return (
     <div className="settings">
       <section>
         <h2>GitHub</h2>
         <p>
           The list you are looking at refreshes every 3 minutes. Thread replies load after that, and again only when that pull request changes.
-          Those refreshes pause while fewer than 200 GraphQL points remain. Refresh on a row reloads just that pull request.
+          Those refreshes pause while the lowest window has fewer than 200 points left. Refresh on a row reloads just that pull request.
         </p>
-        <p>
-          <strong>{points}</strong>
-          {graphql?.paused && graphql.message ? ` · ${graphql.message}` : ''}
-          {!graphql?.paused && graphql?.resetAt ? ` · resets ${formatExact(graphql.resetAt)}` : ''}
-        </p>
+        {windows.length === 0 ? (
+          <p>
+            <strong>Waiting for the next GitHub response</strong>
+          </p>
+        ) : (
+          <ul>
+            {windows.map((window) => (
+              <li key={window.resetAt}>
+                <strong>
+                  {window.remaining} of {window.limit}
+                </strong>
+                {` · resets ${formatExact(window.resetAt)}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        {status?.graphql.paused && status.graphql.message ? <p>{status.graphql.message}</p> : null}
       </section>
       <section>
         <h2>Lists</h2>

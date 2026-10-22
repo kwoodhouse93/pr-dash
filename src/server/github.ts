@@ -11,7 +11,7 @@ import {
   type FeedbackPayload,
 } from '../shared/feedback.ts'
 import { summarizeReviews } from '../shared/approval.ts'
-import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, preferGraphqlBudget, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
+import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, rememberWindow, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
 import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
 import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
@@ -36,10 +36,10 @@ export class GraphqlPaused extends Error {
   }
 }
 
-let graphqlBudget: GraphqlBudget | null = null
+let graphqlWindows: GraphqlBudget[] = []
 
 export function graphqlStatus(floor = GRAPHQL_SINGLE_FLOOR, now = Date.now()): GraphqlView {
-  return graphqlView(graphqlBudget, now, floor)
+  return graphqlView(graphqlWindows, now, floor)
 }
 
 export function assertGraphql(floor = GRAPHQL_SINGLE_FLOOR, now = Date.now()) {
@@ -47,17 +47,16 @@ export function assertGraphql(floor = GRAPHQL_SINGLE_FLOOR, now = Date.now()) {
   if (view.paused && view.message) throw new GraphqlPaused(view.message)
 }
 
-function rememberGraphql(response: Response) {
+function rememberGraphql(response: Response): GraphqlBudget | null {
   const next = budgetFromHeaders(response.headers)
-  if (next) graphqlBudget = preferGraphqlBudget(graphqlBudget, next)
+  if (!next) return null
+  graphqlWindows = rememberWindow(graphqlWindows, next)
+  return graphqlWindows.find((window) => window.resetAt === next.resetAt) ?? next
 }
 
-function markGraphqlSpent(resetAt = Date.now() + 60_000) {
-  graphqlBudget = {
-    limit: graphqlBudget?.limit ?? 5000,
-    remaining: 0,
-    resetAt: graphqlBudget && graphqlBudget.resetAt > Date.now() ? graphqlBudget.resetAt : resetAt,
-  }
+function markGraphqlSpent(seen: GraphqlBudget | null, resetAt = Date.now() + 60_000) {
+  const when = seen && seen.resetAt > Date.now() ? seen.resetAt : resetAt
+  graphqlWindows = rememberWindow(graphqlWindows, { limit: seen?.limit ?? 5000, remaining: 0, resetAt: when })
 }
 
 async function graphql<T>(token: string, query: string, variables?: Record<string, unknown>, partial = false): Promise<T> {
@@ -72,13 +71,13 @@ async function graphql<T>(token: string, query: string, variables?: Record<strin
     body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(60_000),
   })
-  rememberGraphql(response)
+  const seen = rememberGraphql(response)
   const text = await response.text()
   if (!response.ok) throw new Error(`GitHub ${response.status}: ${text.slice(0, 280)}`)
   const body = JSON.parse(text) as { data?: T; errors?: { message: string }[] }
   if (body.errors?.length) {
     if (body.errors.some((error) => /rate limit/i.test(error.message))) {
-      markGraphqlSpent()
+      markGraphqlSpent(seen)
       throw new GraphqlPaused(graphqlStatus().message ?? body.errors.map((error) => error.message).join('; '))
     }
     if (!partial || !body.data) throw new Error(body.errors.map((error) => error.message).join('; '))

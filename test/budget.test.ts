@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { GRAPHQL_PAUSE_BELOW, GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, preferGraphqlBudget } from '../src/shared/budget.ts'
+import { GRAPHQL_PAUSE_BELOW, GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, rememberWindow } from '../src/shared/budget.ts'
 import { carryThreadFeedback } from '../src/shared/feedback.ts'
 import { applyThreadDetails, mapPullRequest, type GitHubPull, type ThreadDetail } from '../src/shared/map.ts'
 import { rulesFresh } from '../src/shared/rules.ts'
@@ -14,30 +14,35 @@ describe('graphql budget', () => {
   const budget = { limit: 5000, remaining: 180, resetAt: Date.parse('2026-10-21T14:00:00Z') }
 
   it('pauses list refreshes below 200 points and still allows one pull request', () => {
-    expect(graphqlView(budget, now, GRAPHQL_PAUSE_BELOW).paused).toBe(true)
-    expect(graphqlView(budget, now, GRAPHQL_SINGLE_FLOOR).paused).toBe(false)
-    expect(graphqlView({ ...budget, remaining: 0 }, now).message).toMatch(/paused until/i)
+    expect(graphqlView([budget], now, GRAPHQL_PAUSE_BELOW).paused).toBe(true)
+    expect(graphqlView([budget], now, GRAPHQL_SINGLE_FLOOR).paused).toBe(false)
+    expect(graphqlView([{ ...budget, remaining: 0 }], now).message).toMatch(/paused until/i)
   })
 
   it('clears the pause after the window resets', () => {
-    const view = graphqlView(budget, budget.resetAt, GRAPHQL_PAUSE_BELOW)
+    const view = graphqlView([budget], budget.resetAt, GRAPHQL_PAUSE_BELOW)
     expect(view.paused).toBe(false)
     expect(view.remaining).toBeNull()
+    expect(view.windows).toEqual([])
   })
 
-  it('keeps the lower of the two GraphQL windows', () => {
+  it('keeps both GraphQL windows and pauses from the lower one', () => {
     const earlier = { limit: 5000, remaining: 4956, resetAt: Date.parse('2026-10-22T08:38:58Z') }
-    const later = { limit: 5000, remaining: 4931, resetAt: Date.parse('2026-10-22T08:58:06Z') }
+    const later = { limit: 5000, remaining: 180, resetAt: Date.parse('2026-10-22T08:58:06Z') }
     const now = Date.parse('2026-10-22T08:02:00Z')
-    expect(preferGraphqlBudget(earlier, later, now)).toEqual(later)
-    expect(preferGraphqlBudget(later, earlier, now)).toEqual(later)
-    expect(preferGraphqlBudget(later, { ...later, remaining: 4920 }, now).remaining).toBe(4920)
+    const both = rememberWindow(rememberWindow([], earlier, now), later, now)
+    expect(both).toEqual([earlier, later])
+    expect(rememberWindow(both, { ...later, remaining: 4000 }, now)).toEqual(both)
+    const view = graphqlView(both, now, GRAPHQL_PAUSE_BELOW)
+    expect(view.paused).toBe(true)
+    expect(view.remaining).toBe(180)
+    expect(view.windows.map((window) => window.remaining)).toEqual([4956, 180])
   })
 
-  it('accepts a fresh window after the one on screen has reset', () => {
+  it('drops a window once it has reset', () => {
     const spent = { limit: 5000, remaining: 40, resetAt: Date.parse('2026-10-22T08:38:58Z') }
     const renewed = { limit: 5000, remaining: 4990, resetAt: Date.parse('2026-10-22T09:38:58Z') }
-    expect(preferGraphqlBudget(spent, renewed, spent.resetAt)).toEqual(renewed)
+    expect(rememberWindow([spent], renewed, spent.resetAt)).toEqual([renewed])
   })
 
   it('reads the graphql headers', () => {

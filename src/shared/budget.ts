@@ -10,24 +10,28 @@ export type GraphqlBudget = {
   resetAt: number
 }
 
+export type GraphqlWindowView = {
+  limit: number
+  remaining: number
+  resetAt: string
+}
+
 export type GraphqlView = {
   paused: boolean
   limit: number | null
   remaining: number | null
   resetAt: string | null
   message: string | null
+  windows: GraphqlWindowView[]
 }
 
-/**
- * One token can be charged against two GraphQL windows with different reset times.
- * Hold the smaller remaining count until its reset, so the counter does not flip between them.
- */
-export function preferGraphqlBudget(current: GraphqlBudget | null, next: GraphqlBudget, now = Date.now()): GraphqlBudget {
-  if (!current || now >= current.resetAt) return next
-  if (now >= next.resetAt) return current
-  if (next.remaining < current.remaining) return next
-  if (next.remaining > current.remaining) return current
-  return next.resetAt >= current.resetAt ? next : current
+/** Keep every open window. A repeated reading of one window cannot raise its remaining count. */
+export function rememberWindow(windows: GraphqlBudget[], next: GraphqlBudget, now = Date.now()): GraphqlBudget[] {
+  const open = windows.filter((window) => window.resetAt > now)
+  if (next.resetAt <= now) return open
+  const current = open.find((window) => window.resetAt === next.resetAt)
+  const chosen = current && current.remaining < next.remaining ? current : next
+  return [...open.filter((window) => window.resetAt !== next.resetAt), chosen].sort((a, b) => a.resetAt - b.resetAt)
 }
 
 export function budgetFromHeaders(headers: { get(name: string): string | null }): GraphqlBudget | null {
@@ -52,10 +56,18 @@ export function pauseMessage(resetAt: string | null, remaining: number | null): 
   return `GitHub GraphQL refreshes are paused until ${when}${left}.`
 }
 
-export function graphqlView(budget: GraphqlBudget | null, now: number, floor = GRAPHQL_PAUSE_BELOW): GraphqlView {
-  if (!budget || now >= budget.resetAt) {
-    return { paused: false, limit: budget?.limit ?? null, remaining: null, resetAt: null, message: null }
-  }
+export function graphqlView(windows: GraphqlBudget[], now: number, floor = GRAPHQL_PAUSE_BELOW): GraphqlView {
+  const open = windows.filter((window) => window.resetAt > now).sort((a, b) => a.resetAt - b.resetAt)
+  const shown = open.map((window) => ({
+    limit: window.limit,
+    remaining: window.remaining,
+    resetAt: new Date(window.resetAt).toISOString(),
+  }))
+  const budget = open.reduce<GraphqlBudget | null>((lowest, window) => {
+    if (!lowest || window.remaining < lowest.remaining) return window
+    return lowest
+  }, null)
+  if (!budget) return { paused: false, limit: null, remaining: null, resetAt: null, message: null, windows: shown }
   const resetAt = new Date(budget.resetAt).toISOString()
   const paused = budget.remaining < floor
   return {
@@ -64,5 +76,6 @@ export function graphqlView(budget: GraphqlBudget | null, now: number, floor = G
     remaining: budget.remaining,
     resetAt,
     message: paused ? pauseMessage(resetAt, budget.remaining) : null,
+    windows: shown,
   }
 }
