@@ -283,6 +283,32 @@ describe('restart', () => {
 })
 
 describe('queue store', () => {
+  it('persists and updates merge-when-ready watches', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-watch-'))
+    const file = path.join(dir, 'dash.sqlite')
+    const first = openDatabase(file)
+    first.queue.armWatch({
+      key: 'acme/app#2',
+      scope: 'downstack',
+      repo: 'acme/app',
+      keys: ['acme/app#2', 'acme/app#1'],
+    })
+    first.queue.setWatchDetail('acme/app#2', '#1 is missing a required approval.')
+
+    const reopened = openDatabase(file)
+    expect(reopened.queue.snapshot().watches).toMatchObject([
+      {
+        key: 'acme/app#2',
+        scope: 'downstack',
+        keys: ['acme/app#2', 'acme/app#1'],
+        detail: '#1 is missing a required approval.',
+      },
+    ])
+    reopened.queue.disarmWatch('acme/app#2')
+    expect(reopened.queue.snapshot().watches).toEqual([])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('pauses on failure and resumes when that entry is cancelled', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-queue-'))
     const db = openDatabase(path.join(dir, 'dash.sqlite'))

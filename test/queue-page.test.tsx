@@ -46,7 +46,7 @@ function entry(logs: MergeEntry['logs']): MergeEntry {
 }
 
 function snapshot(logs: MergeEntry['logs']): QueueSnapshot {
-  return { paused: false, pauseReason: null, entries: [entry(logs)], history: [] }
+  return { paused: false, pauseReason: null, entries: [entry(logs)], history: [], watches: [] }
 }
 
 describe('merge queue logs', () => {

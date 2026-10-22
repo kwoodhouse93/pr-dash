@@ -115,8 +115,14 @@ describe('queue menu', () => {
     document.body.innerHTML = ''
   })
 
-  async function render(onQueue: (key: string) => Promise<void>) {
-    const pr = pull()
+  async function render(
+    onQueue: (key: string) => Promise<void>,
+    options: {
+      pr?: Partial<PullRequest>
+      onSetMergeWhenReady?: (key: string, scope: 'pr' | 'downstack', enabled: boolean) => Promise<void>
+    } = {},
+  ) {
+    const pr = { ...pull(), ...options.pr }
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -140,7 +146,9 @@ describe('queue menu', () => {
             onMerge={async () => {}}
             onQueue={onQueue}
             onStackMerge={async () => {}}
+            onSetMergeWhenReady={options.onSetMergeWhenReady ?? (async () => {})}
             queueByKey={new Map()}
+            watchesByKey={new Map()}
             holds={new Map()}
             onRerun={async () => ''}
             onStartAgent={async () => ({ url: 'https://example.test' })}
@@ -203,5 +211,21 @@ describe('queue menu', () => {
     })
     expect(document.querySelector('button[role="menuitem"]')).toBeNull()
     expect(queued).toEqual([])
+  })
+
+  it('offers merge when ready while a pull request is not mergeable', async () => {
+    const changes: [string, string, boolean][] = []
+    await render(async () => {}, {
+      pr: { mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' },
+      onSetMergeWhenReady: async (key, scope, enabled) => {
+        changes.push([key, scope, enabled])
+      },
+    })
+    const toggle = document.querySelector<HTMLInputElement>('label.merge-ready-toggle input')
+    expect(toggle).not.toBeNull()
+    await act(async () => {
+      toggle!.click()
+    })
+    expect(changes).toEqual([['acme/app#7', 'pr', true]])
   })
 })

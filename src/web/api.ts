@@ -73,6 +73,8 @@ export const api = {
   merge: (key: string) => post<Snapshot>('/api/merge', { key }),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),
   enqueue: (key: string, scope: 'pr' | 'downstack') => post<QueueSnapshot>('/api/merge-queue', { key, scope }),
+  setMergeWhenReady: (key: string, scope: 'pr' | 'downstack', enabled: boolean) =>
+    post<QueueSnapshot>('/api/merge-when-ready', { key, scope, enabled }),
   cancelMerge: (id: string) => post<QueueSnapshot>(`/api/merge-queue/${id}/cancel`, {}),
   moveMerge: (id: string, direction: 'up' | 'down') => post<QueueSnapshot>(`/api/merge-queue/${id}/move`, { direction }),
   linearStatuses: (query: { teamId?: string | null; issue: string }) => {

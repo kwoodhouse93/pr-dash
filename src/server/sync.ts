@@ -8,6 +8,7 @@ import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
 import { rulesFresh } from '../shared/rules.ts'
 import { refreshCursorSessions } from './cursor.ts'
 import type { DashboardDb } from './db.ts'
+import { processMergeWatches } from './merge-worker.ts'
 import {
   GraphqlPaused,
   assertGraphql,
@@ -248,6 +249,7 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
     linearConfigured: Boolean(process.env.LINEAR_API_KEY),
     warning,
   })
+  await processMergeWatches(db)
   return warning
 }
 
@@ -381,7 +383,7 @@ async function readOne(db: DashboardDb, key: string): Promise<Snapshot> {
     }
     const latest = db.snapshot()
     const replace = (list: PullRequest[]) => list.map((pr) => (pr.key === mapped.key ? mapped : pr))
-    return db.saveSnapshot({
+    db.saveSnapshot({
       viewer: viewer || latest.viewer || '',
       syncedAt: new Date().toISOString(),
       pullRequests: replace(latest.pullRequests),
@@ -391,6 +393,8 @@ async function readOne(db: DashboardDb, key: string): Promise<Snapshot> {
       mineSyncedAt: latest.mineSyncedAt,
       reviewSyncedAt: latest.reviewSyncedAt,
     })
+    await processMergeWatches(db)
+    return db.snapshot()
   } finally {
     syncStatus.running = false
     note('Idle')

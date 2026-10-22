@@ -47,6 +47,7 @@ export async function enqueuePull(db: DashboardDb, key: string) {
     title: pr.title,
     steps: [stepOf(pr, live, 'merge')],
   })
+  db.queue.disarmWatch(key)
   kickMergeWorker()
 }
 
@@ -80,7 +81,112 @@ export async function enqueueDownstack(db: DashboardDb, key: string) {
       ...[...parts.restack].reverse().map((pr) => stepOf(pr, live.get(pr.key)!, 'restack')),
     ],
   })
+  db.queue.disarmWatch(key)
   kickMergeWorker()
+}
+
+export async function setMergeWhenReady(
+  db: DashboardDb,
+  key: string,
+  scope: 'pr' | 'downstack',
+  enabled: boolean,
+) {
+  if (!enabled) {
+    db.queue.disarmWatch(key)
+    return
+  }
+  const pr = findPull(db, key)
+  if (db.queue.blocksKey(key)) throw new MergeRejected(`#${pr.number} is already in the merge queue.`)
+  if (scope === 'pr') {
+    if (!pr.squashMergeAllowed) throw new MergeRejected(`Squash merge is disabled for ${pr.repoName}.`)
+    if (pr.baseRef !== pr.defaultBranch) throw new MergeRejected(`#${pr.number} does not target ${pr.defaultBranch}.`)
+    db.queue.armWatch({ key, scope, repo: pr.repo, keys: [key] })
+  } else {
+    const stack = buildStacks(db.snapshot().pullRequests).find((item) => item.prs.some((item) => item.key === key))
+    const parts = stack ? sliceParts(stack.prs, key) : null
+    if (!parts) throw new MergeRejected('That pull request does not have a downstack to merge.')
+    const affected = [...parts.merge, ...parts.restack]
+    if (affected.some((item) => db.queue.blocksKey(item.key))) {
+      throw new MergeRejected('Part of this stack is already in the merge queue.')
+    }
+    db.queue.armWatch({ key, scope, repo: pr.repo, keys: affected.map((item) => item.key) })
+  }
+  await processMergeWatches(db)
+}
+
+let watchPass: Promise<void> | null = null
+let watchAgain = false
+
+export function processMergeWatches(db: DashboardDb): Promise<void> {
+  if (watchPass) {
+    watchAgain = true
+    return watchPass
+  }
+  watchPass = (async () => {
+    do {
+      watchAgain = false
+      await runMergeWatches(db)
+    } while (watchAgain)
+  })().finally(() => {
+    watchPass = null
+  })
+  return watchPass
+}
+
+async function runMergeWatches(db: DashboardDb) {
+  for (const watch of db.queue.watches()) {
+    const snap = db.snapshot()
+    const pr = snap.pullRequests.find((item) => item.key === watch.key)
+    if (!pr) {
+      db.queue.disarmWatch(watch.key)
+      continue
+    }
+    if (watch.scope === 'pr') {
+      const reason = pullWatchBlock(pr)
+      db.queue.setWatchDetail(watch.key, reason)
+      if (reason) continue
+    } else {
+      const stack = buildStacks(snap.pullRequests).find((item) => item.prs.some((item) => item.key === watch.key))
+      const parts = stack ? sliceParts(stack.prs, watch.key) : null
+      const keys = parts ? [...parts.merge, ...parts.restack].map((item) => item.key) : []
+      if (!parts || keys.length !== watch.keys.length || keys.some((key, index) => key !== watch.keys[index])) {
+        db.queue.setWatchDetail(watch.key, 'Stack changed. Turn merge when ready off and on again to use the new stack.')
+        continue
+      }
+      const reason = sliceWatchBlock(parts.merge)
+      db.queue.setWatchDetail(watch.key, reason)
+      if (reason) continue
+    }
+    try {
+      if (watch.scope === 'pr') await enqueuePull(db, watch.key)
+      else await enqueueDownstack(db, watch.key)
+    } catch (error) {
+      db.queue.setWatchDetail(
+        watch.key,
+        error instanceof Error ? error.message : 'Could not queue this merge yet.',
+      )
+    }
+  }
+}
+
+function pullWatchBlock(pr: PullRequest): string | null {
+  if (pr.baseRef !== pr.defaultBranch) return `#${pr.number} no longer targets ${pr.defaultBranch}.`
+  const reason = upstackBlock(pr, stackReviewBar(pr))
+  if (reason) return reason
+  if (!canSquashMerge(pr)) return `#${pr.number} is waiting for GitHub to mark it mergeable.`
+  return null
+}
+
+function sliceWatchBlock(mergeTopToBottom: PullRequest[]): string | null {
+  const bottom = mergeTopToBottom[mergeTopToBottom.length - 1]
+  if (!bottom) return 'This stack no longer has pull requests to merge.'
+  const bar = stackReviewBar(bottom)
+  for (const pr of [...mergeTopToBottom].reverse()) {
+    const reason = upstackBlock(pr, bar)
+    if (reason) return reason
+  }
+  if (!canSquashMerge(bottom)) return `#${bottom.number} is waiting for GitHub to mark it mergeable.`
+  return null
 }
 
 export function cancelEntry(db: DashboardDb, id: string) {

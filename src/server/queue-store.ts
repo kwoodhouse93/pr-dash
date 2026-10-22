@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import type { PullRequest } from '../shared/types.ts'
-import type { EntryStatus, MergeEntry, MergeLog, MergeStep, QueueSnapshot, StepStatus } from '../shared/queue.ts'
+import type { EntryStatus, MergeEntry, MergeLog, MergeStep, MergeWatch, QueueSnapshot, StepStatus } from '../shared/queue.ts'
 
 export type NewStep = {
   prKey: string
@@ -111,6 +111,14 @@ export function attachQueue(db: DatabaseSync) {
     );
     CREATE TABLE IF NOT EXISTS merge_hold_releases (
       pr_key TEXT PRIMARY KEY
+    );
+    CREATE TABLE IF NOT EXISTS merge_watches (
+      root_key TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      keys TEXT NOT NULL,
+      detail TEXT,
+      created_at TEXT NOT NULL
     );
   `)
   db.prepare('INSERT INTO merge_worker (id, paused) VALUES (1, 0) ON CONFLICT(id) DO NOTHING').run()
@@ -222,6 +230,24 @@ export function attachQueue(db: DatabaseSync) {
     db.prepare('DELETE FROM merge_hold_releases WHERE pr_key = ?').run(prKey)
   }
 
+  function watches(): MergeWatch[] {
+    return (
+      db.prepare('SELECT root_key, scope, keys, detail, created_at FROM merge_watches ORDER BY created_at ASC').all() as {
+        root_key: string
+        scope: MergeWatch['scope']
+        keys: string
+        detail: string | null
+        created_at: string
+      }[]
+    ).map((row) => ({
+      key: row.root_key,
+      scope: row.scope,
+      keys: JSON.parse(row.keys) as string[],
+      detail: row.detail,
+      createdAt: row.created_at,
+    }))
+  }
+
   const store = {
     snapshot(): QueueSnapshot {
       const state = worker()
@@ -242,6 +268,7 @@ export function attachQueue(db: DatabaseSync) {
         pauseReason: state.pause_reason,
         entries,
         history,
+        watches: watches(),
       }
     },
 
@@ -269,6 +296,7 @@ export function attachQueue(db: DatabaseSync) {
         const repo = pullKeyRepo(row.pr_key)
         if (repo) names.add(repo)
       }
+      for (const row of db.prepare('SELECT repo FROM merge_watches').all() as { repo: string }[]) names.add(row.repo)
       return [...names]
     },
 
@@ -286,6 +314,30 @@ export function attachQueue(db: DatabaseSync) {
       db.prepare(`DELETE FROM merge_steps WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
       db.prepare(`DELETE FROM merge_retained WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
       db.prepare(`DELETE FROM merge_hold_releases WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+      db.prepare('DELETE FROM merge_watches WHERE repo = ?').run(repo)
+    },
+
+    watches,
+
+    armWatch(input: { key: string; scope: MergeWatch['scope']; repo: string; keys: string[] }) {
+      db.prepare(
+        `INSERT INTO merge_watches (root_key, scope, repo, keys, detail, created_at)
+         VALUES (?, ?, ?, ?, NULL, ?)
+         ON CONFLICT(root_key) DO UPDATE SET
+           scope = excluded.scope,
+           repo = excluded.repo,
+           keys = excluded.keys,
+           detail = NULL,
+           created_at = excluded.created_at`,
+      ).run(input.key, input.scope, input.repo, JSON.stringify(input.keys), new Date().toISOString())
+    },
+
+    setWatchDetail(key: string, detail: string | null) {
+      db.prepare('UPDATE merge_watches SET detail = ? WHERE root_key = ?').run(detail, key)
+    },
+
+    disarmWatch(key: string) {
+      db.prepare('DELETE FROM merge_watches WHERE root_key = ?').run(key)
     },
 
     isPaused(): boolean {

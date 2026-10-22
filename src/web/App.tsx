@@ -573,6 +573,7 @@ export function App() {
               expanded={new Set(prefs.expanded)}
               collapsed={new Set(prefs.collapsed)}
               queueByKey={rowMarks(queue?.entries ?? [])}
+              watchesByKey={new Map((queue?.watches ?? []).map((watch) => [watch.key, watch]))}
               onSort={chooseSort}
               onToggle={(id) =>
                 setPrefs((current) => ({
@@ -615,6 +616,9 @@ export function App() {
               }}
               onStackMerge={async (key) => {
                 setQueue(await api.enqueue(key, 'downstack'))
+              }}
+              onSetMergeWhenReady={async (key, scope, enabled) => {
+                setQueue(await api.setMergeWhenReady(key, scope, enabled))
               }}
               holds={holds}
               onRerun={async (keys, mode) => {

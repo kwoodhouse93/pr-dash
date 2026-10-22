@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
 import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
-import { canMergeSlice, canSquashMerge } from '../shared/merge.ts'
-import { stepLabel, type RowMark, type StepStatus } from '../shared/queue.ts'
+import { canMergeSlice, canSquashMerge, sliceParts } from '../shared/merge.ts'
+import { stepLabel, type MergeWatch, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { StackSummary } from '../shared/stacks.ts'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
@@ -63,7 +63,9 @@ export function PrTable({
   onMerge,
   onQueue,
   onStackMerge,
+  onSetMergeWhenReady,
   queueByKey,
+  watchesByKey,
   holds,
   onRerun,
   onStartAgent,
@@ -91,7 +93,9 @@ export function PrTable({
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
+  onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
   queueByKey: Map<string, RowMark>
+  watchesByKey: Map<string, MergeWatch>
   holds: Map<string, CheckHold[]>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onStartAgent: StartAgent
@@ -119,7 +123,9 @@ export function PrTable({
     onMerge,
     onQueue,
     onStackMerge,
+    onSetMergeWhenReady,
     queueByKey,
+    watchesByKey,
     onRerun,
     onRebase,
     onRefreshPr,
@@ -235,7 +241,9 @@ type RowShared = {
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
+  onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
   queueByKey: Map<string, RowMark>
+  watchesByKey: Map<string, MergeWatch>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onRebase: (key: string) => Promise<void>
   onRefreshPr: (key: string) => Promise<void>
@@ -445,7 +453,9 @@ function BlockRows({
           onMerge={shared.onMerge}
           onQueue={shared.onQueue}
           onStackMerge={shared.onStackMerge}
+          onSetMergeWhenReady={shared.onSetMergeWhenReady}
           queueByKey={shared.queueByKey}
+          watchesByKey={shared.watchesByKey}
           onRerun={shared.onRerun}
           onRebase={shared.onRebase}
           onRefreshPr={shared.onRefreshPr}
@@ -477,7 +487,9 @@ function BlockRows({
       onMerge={shared.onMerge}
       onQueue={shared.onQueue}
       onStackMerge={shared.onStackMerge}
+      onSetMergeWhenReady={shared.onSetMergeWhenReady}
       queueByKey={shared.queueByKey}
+      watchesByKey={shared.watchesByKey}
     />
     )
   return <StackLockContext.Provider value={stackLock}>{rows}</StackLockContext.Provider>
@@ -501,7 +513,9 @@ function DataRow({
   onMerge,
   onQueue,
   onStackMerge,
+  onSetMergeWhenReady,
   queueByKey,
+  watchesByKey,
   onRerun,
   onRebase,
   onRefreshPr,
@@ -524,7 +538,9 @@ function DataRow({
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
+  onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
   queueByKey: Map<string, RowMark>
+  watchesByKey: Map<string, MergeWatch>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onRebase: (key: string) => Promise<void>
   onRefreshPr: (key: string) => Promise<void>
@@ -596,6 +612,8 @@ function DataRow({
             onMerge={onMerge}
             onQueue={onQueue}
             onStackMerge={onStackMerge}
+            watch={watchesByKey.get(pr.key) ?? null}
+            onSetMergeWhenReady={onSetMergeWhenReady}
           />
         </td>
       ) : null}
@@ -637,7 +655,9 @@ function SummaryRow({
   onMerge,
   onQueue,
   onStackMerge,
+  onSetMergeWhenReady,
   queueByKey,
+  watchesByKey,
 }: {
   mode: 'mine' | 'review'
   block: StackBlock
@@ -660,7 +680,9 @@ function SummaryRow({
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
+  onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
   queueByKey: Map<string, RowMark>
+  watchesByKey: Map<string, MergeWatch>
 }) {
   const holds = useHolds()
   const summary = block.summary
@@ -743,6 +765,8 @@ function SummaryRow({
             onMerge={onMerge}
             onQueue={onQueue}
             onStackMerge={onStackMerge}
+            watch={watchesByKey.get(top.key) ?? null}
+            onSetMergeWhenReady={onSetMergeWhenReady}
           />
         ) : mark ? (
           <QueueStatus mark={mark} progress />
@@ -1344,24 +1368,75 @@ function MergeControls({
   pr,
   ordered,
   mark,
+  watch,
   progress = false,
   onMerge,
   onQueue,
   onStackMerge,
+  onSetMergeWhenReady,
 }: {
   pr: PullRequest
   ordered: PullRequest[]
   mark: RowMark | null
+  watch: MergeWatch | null
   progress?: boolean
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
+  onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
 }) {
   if (mark) return <QueueStatus mark={mark} progress={progress} />
+  if (watch) {
+    return <MergeWhenReady pr={pr} scope={watch.scope} watch={watch} onChange={onSetMergeWhenReady} />
+  }
   const count = canMergeSlice(ordered, pr.key)
   if (count != null) return <StackMergeButton count={count} pr={pr} onStackMerge={onStackMerge} />
   if (canSquashMerge(pr)) return <SplitMerge pr={pr} onMerge={onMerge} onQueue={onQueue} />
+  const scope = sliceParts(ordered, pr.key) ? 'downstack' : pr.squashMergeAllowed && pr.baseRef === pr.defaultBranch ? 'pr' : null
+  if (scope) return <MergeWhenReady pr={pr} scope={scope} watch={null} onChange={onSetMergeWhenReady} />
   return null
+}
+
+function MergeWhenReady({
+  pr,
+  scope,
+  watch,
+  onChange,
+}: {
+  pr: PullRequest
+  scope: MergeWatch['scope']
+  watch: MergeWatch | null
+  onChange: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
+}) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { locked } = useStackLock()
+  const checked = watch != null
+  return (
+    <div className="merge-action">
+      <label className="merge-ready-toggle">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={pending || locked}
+          onChange={(event) => {
+            const enabled = event.currentTarget.checked
+            setPending(true)
+            setError(null)
+            void onChange(pr.key, scope, enabled)
+              .catch((caught: unknown) => {
+                setError(caught instanceof Error ? caught.message : 'Could not update merge when ready')
+              })
+              .finally(() => setPending(false))
+          }}
+        />
+        <span aria-hidden="true" />
+        Merge when ready
+      </label>
+      {watch?.detail ? <p className="merge-watch-detail">{watch.detail}</p> : null}
+      {error ? <p className="merge-error">{error}</p> : null}
+    </div>
+  )
 }
 
 function QueueStatus({ mark, progress }: { mark: RowMark; progress: boolean }) {
