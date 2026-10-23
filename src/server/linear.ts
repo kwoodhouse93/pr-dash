@@ -1,3 +1,4 @@
+import { isLinearIdentifier } from '../shared/linear.ts'
 import type { LinearAssignee, LinearIssue, LinearStatus, PullRequest } from '../shared/types.ts'
 import { requestSignal } from './request-signal.ts'
 
@@ -127,6 +128,60 @@ export async function updateLinearIssue(
   )
   if (!data.issueUpdate.success || !data.issueUpdate.issue) throw new Error('Linear did not update that issue.')
   return mapIssue(data.issueUpdate.issue)
+}
+
+export type LinearIssueMatch = {
+  identifier: string
+  title: string | null
+  url: string | null
+}
+
+export async function searchLinearIssues(token: string, term: string): Promise<LinearIssueMatch[]> {
+  const query = term.trim()
+  if (query.length < 2) return []
+  const matches: LinearIssueMatch[] = []
+  if (isLinearIdentifier(query.toUpperCase())) {
+    const issue = await fetchIssue(token, query.toUpperCase())
+    if (issue) matches.push({ identifier: issue.identifier, title: issue.title, url: issue.url })
+  }
+  try {
+    const data = await linear<{ searchIssues: { nodes: { identifier: string; title: string; url: string }[] } }>(
+      token,
+      `query($term: String!) {
+        searchIssues(term: $term, first: 8) {
+          nodes { identifier title url }
+        }
+      }`,
+      { term: query },
+    )
+    for (const node of data.searchIssues.nodes) {
+      const identifier = node.identifier.toUpperCase()
+      if (matches.some((issue) => issue.identifier === identifier)) continue
+      matches.push({ identifier, title: node.title || null, url: node.url || null })
+    }
+  } catch (error) {
+    if (matches.length === 0) throw error
+  }
+  return matches
+}
+
+export async function linkGitHubPullRequest(
+  token: string,
+  identifier: string,
+  url: string,
+  title: string,
+): Promise<LinearIssue> {
+  const data = await linear<{ attachmentLinkGitHubPR: { success: boolean } }>(
+    token,
+    `mutation($issueId: String!, $url: String!, $title: String, $linkKind: GitLinkKind) {
+      attachmentLinkGitHubPR(issueId: $issueId, url: $url, title: $title, linkKind: $linkKind) { success }
+    }`,
+    { issueId: identifier, url, title, linkKind: 'links' },
+  )
+  if (!data.attachmentLinkGitHubPR.success) throw new Error('Linear did not link that pull request.')
+  const issue = await fetchIssue(token, identifier)
+  if (!issue) throw new Error(`Linear issue ${identifier} was not found.`)
+  return issue
 }
 
 async function fetchIssue(token: string, identifier: string): Promise<LinearIssue | null> {

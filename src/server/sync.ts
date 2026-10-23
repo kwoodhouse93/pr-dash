@@ -1,4 +1,5 @@
 import { carryThreadFeedback } from '../shared/feedback.ts'
+import { mergeLinkedIssues } from '../shared/linear.ts'
 import { applyThreadDetails, mapPullRequest } from '../shared/map.ts'
 import { refreshSteps, stepIndex, type RefreshStep } from '../shared/progress.ts'
 import { pullKeyRepo, replaceRepoPulls } from '../shared/repos.ts'
@@ -330,7 +331,7 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
   }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
   }))
-  const warning = await withLinear(fetched.pullRequests, fetched.warning)
+  const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   await confirmLandedMerges(db, token, fetched.pullRequests)
   const current = db.snapshot()
   const next = db.queue.overlay(omitMerged(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr))))
@@ -355,7 +356,7 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
   }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
   }))
-  const warning = await withLinear(fetched.pullRequests, fetched.warning)
+  const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   const current = db.snapshot()
   db.saveSnapshot({
     viewer: fetched.viewer || current.viewer || '',
@@ -389,7 +390,8 @@ async function confirmLandedMerges(db: DashboardDb, token: string, pullRequests:
   }
 }
 
-async function withLinear(pullRequests: PullRequest[], warning: string | null): Promise<string | null> {
+async function withLinear(db: DashboardDb, pullRequests: PullRequest[], warning: string | null): Promise<string | null> {
+  applyRememberedLinks(db, pullRequests)
   const linearKey = process.env.LINEAR_API_KEY
   if (!linearKey) return warning
   note('Reading Linear projects')
@@ -469,6 +471,7 @@ async function readOne(db: DashboardDb, key: string, signal: AbortSignal): Promi
     const viewer = viewerState.login || snap.viewer || ''
     let mapped = mapOne(current, loaded, viewer, viewerState.teams, rule)
     mapped = keepLinear(current, mapped)
+    mapped = mergeLinkedIssues(mapped, db.linearLinks().get(mapped.key) ?? [])
     const linearKey = process.env.LINEAR_API_KEY
     if (linearKey) {
       try {
@@ -515,6 +518,15 @@ function mapOne(
     suites: loaded.suites,
     behindBy: loaded.behindBy,
   })
+}
+
+function applyRememberedLinks(db: DashboardDb, pullRequests: PullRequest[]): void {
+  const links = db.linearLinks()
+  if (links.size === 0) return
+  for (const pr of pullRequests) {
+    const merged = mergeLinkedIssues(pr, links.get(pr.key) ?? [])
+    if (merged !== pr) pr.linearIssues = merged.linearIssues
+  }
 }
 
 function keepLinear(previous: PullRequest, next: PullRequest): PullRequest {

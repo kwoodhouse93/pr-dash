@@ -182,6 +182,40 @@ describe('forgetting a repository', () => {
     expect(db.storedRepos()).toEqual(['keep/other'])
   })
 
+  it('keeps a linked Linear issue after a refresh replaces the pull request', () => {
+    const db = database()
+    const issue = {
+      identifier: 'eng-12',
+      title: 'Login',
+      url: 'https://linear.app/acme/issue/ENG-12',
+      projectId: 'p1',
+      projectName: 'Updates',
+      teamId: 'team',
+      status: { id: 's1', name: 'Todo', type: 'unstarted', color: '#ccc' },
+      assignee: null,
+    }
+    db.saveSnapshot({
+      viewer: 'ada',
+      syncedAt: '2026-10-21T00:00:00Z',
+      pullRequests: [{ ...pr('acme/app', 4), linearIssues: [] }],
+      linearConfigured: true,
+      warning: null,
+    })
+    const linked = db.attachLinearIssue('acme/app#4', issue)
+    expect(linked.pullRequests[0]?.linearIssues.map((item) => item.identifier)).toEqual(['ENG-12'])
+    expect(linked.pullRequests[0]?.linearIssues[0]?.title).toBe('Login')
+    db.saveSnapshot({
+      viewer: 'ada',
+      syncedAt: '2026-10-21T00:01:00Z',
+      pullRequests: [{ ...pr('acme/app', 4), linearIssues: [] }],
+      linearConfigured: true,
+      warning: null,
+    })
+    expect(db.snapshot().pullRequests[0]?.linearIssues.map((item) => item.identifier)).toEqual(['ENG-12'])
+    db.forgetRepo('acme/app')
+    expect(db.linearLinks().size).toBe(0)
+  })
+
   it('refuses to remove a repository with a merge in progress', () => {
     const db = database()
     db.watchRepo('acme/app')

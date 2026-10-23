@@ -136,9 +136,14 @@ describe('agents', () => {
     root = null
     document.body.innerHTML = ''
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
-  async function render(pr: PullRequest, onStartAgent: (key: string, request: AgentRequest) => Promise<{ url: string }> = async () => ({ url: '' })) {
+  async function render(
+    pr: PullRequest,
+    onStartAgent: (key: string, request: AgentRequest) => Promise<{ url: string }> = async () => ({ url: '' }),
+    options: { linearConfigured?: boolean; onLinkIssue?: (key: string, identifier: string) => Promise<void> } = {},
+  ) {
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -172,8 +177,9 @@ describe('agents', () => {
             onRebase={async () => {}}
             byIssue={false}
             onRefreshPr={async () => {}}
-            linearConfigured={false}
+            linearConfigured={options.linearConfigured ?? false}
             onUpdateIssue={async () => {}}
+            onLinkIssue={options.onLinkIssue ?? (async () => {})}
             viewer={null}
             onFeedback={() => {}}
           />
@@ -254,6 +260,43 @@ describe('agents', () => {
     await click(button('Investigate CI failure on #7'))
     expect(started).toEqual([{ kind: 'ci' }])
     expect(opened).toEqual(['https://cursor.com/agents/bc-4'])
+  })
+
+  it('links a Linear issue from the row menu', async () => {
+    const linked: { key: string; identifier: string }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/api/linear/issues')) {
+          return new Response(
+            JSON.stringify({ issues: [{ identifier: 'ENG-12', title: 'Login', url: 'https://linear.app/acme/issue/ENG-12' }] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          )
+        }
+        return new Response('{}', { status: 404 })
+      }),
+    )
+    await render(pull(), async () => ({ url: '' }), {
+      linearConfigured: true,
+      onLinkIssue: async (key, identifier) => {
+        linked.push({ key, identifier })
+      },
+    })
+    await click(document.querySelector('button.row-menu'))
+    await click(button('Link Linear issue'))
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Find a Linear issue"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'ENG-12')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(button('ENG-12')).toBeTruthy()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    })
+    await click(button('ENG-12 · Login'))
+    expect(linked).toEqual([{ key: 'acme/app#7', identifier: 'ENG-12' }])
+    expect(document.querySelector('.link-issue')).toBeNull()
   })
 
   it('holds the CI shortcut while one is already running', async () => {

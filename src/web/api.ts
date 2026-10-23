@@ -112,6 +112,11 @@ export const api = {
   linearUsers: () => cached(userRequest, 'users', () => request<{ users: LinearAssignee[] }>('/api/linear/users').then((body) => body.users)),
   updateLinearIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) =>
     post<Snapshot>(`/api/linear/issues/${encodeURIComponent(identifier)}`, patch),
+  searchLinearIssues: (query: string) =>
+    request<{ issues: { identifier: string; title: string | null; url: string | null }[] }>(
+      `/api/linear/issues?q=${encodeURIComponent(query)}`,
+    ).then((body) => body.issues),
+  linkLinearIssue: (key: string, identifier: string) => post<Snapshot>('/api/linear/links', { key, identifier }),
   pullFeedback: (key: string) => request<FeedbackPayload>(`/api/feedback?key=${encodeURIComponent(key)}`),
   replyToThread: (key: string, threadId: string, body: string) => post<FeedbackPayload>('/api/feedback/reply', { key, threadId, body }),
   replyToNote: (key: string, noteId: string, body: string) => post<FeedbackPayload>('/api/feedback/note', { key, noteId, body }),

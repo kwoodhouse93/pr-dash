@@ -12,7 +12,7 @@ import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.t
 import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen, graphitePrUrl } from './format.ts'
-import { isLinearIdentifier, IssueControls } from './issue-controls.tsx'
+import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
 import { Markdown } from './markdown.tsx'
@@ -76,6 +76,7 @@ export function PrTable({
   onRefreshPr,
   linearConfigured,
   onUpdateIssue,
+  onLinkIssue,
   viewer,
   onFeedback,
 }: {
@@ -107,6 +108,7 @@ export function PrTable({
   onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+  onLinkIssue: (key: string, identifier: string) => Promise<void>
   viewer: string | null
   onFeedback: (key: string, counts: FeedbackCounts) => void
 }) {
@@ -135,6 +137,7 @@ export function PrTable({
     onRefreshPr,
     linearConfigured,
     onUpdateIssue,
+    onLinkIssue,
   }
   return (
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
@@ -259,6 +262,7 @@ type RowShared = {
   onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+  onLinkIssue: (key: string, identifier: string) => Promise<void>
 }
 
 function SectionBand({
@@ -474,6 +478,7 @@ function BlockRows({
           onRebase={shared.onRebase}
           onRefreshPr={shared.onRefreshPr}
           onUpdateIssue={shared.onUpdateIssue}
+          onLinkIssue={shared.onLinkIssue}
         />
       )
     })
@@ -498,6 +503,7 @@ function BlockRows({
       onRebase={shared.onRebase}
       onRefreshPr={shared.onRefreshPr}
       onUpdateIssue={shared.onUpdateIssue}
+      onLinkIssue={shared.onLinkIssue}
       onMerge={shared.onMerge}
       onQueue={shared.onQueue}
       onStackMerge={shared.onStackMerge}
@@ -536,6 +542,7 @@ function DataRow({
   onRebase,
   onRefreshPr,
   onUpdateIssue,
+  onLinkIssue,
 }: {
   mode: 'mine' | 'review'
   pr: PullRequest
@@ -562,6 +569,7 @@ function DataRow({
   onRebase: (key: string) => Promise<void>
   onRefreshPr: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+  onLinkIssue: (key: string, identifier: string) => Promise<void>
 }) {
   const holds = useHolds()
   const { locked } = useStackLock()
@@ -647,6 +655,8 @@ function DataRow({
         onAssign={onAssign}
         onCreate={onCreateAssigned}
         onRefresh={onRefreshPr}
+        linearConfigured={linearConfigured}
+        onLinkIssue={onLinkIssue}
       />
     </tr>
   )
@@ -671,6 +681,7 @@ function SummaryRow({
   onRebase,
   onRefreshPr,
   onUpdateIssue,
+  onLinkIssue,
   onMerge,
   onQueue,
   onStackMerge,
@@ -697,6 +708,7 @@ function SummaryRow({
   onRebase: (key: string) => Promise<void>
   onRefreshPr: (key: string) => Promise<void>
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+  onLinkIssue: (key: string, identifier: string) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
@@ -807,6 +819,8 @@ function SummaryRow({
         onAssign={onAssign}
         onCreate={onCreateAssigned}
         onRefresh={onRefreshPr}
+        linearConfigured={linearConfigured}
+        onLinkIssue={onLinkIssue}
       />
     </tr>
   )
@@ -1234,6 +1248,8 @@ type RowMenuProps = {
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreate: (name: string, keys: string[]) => Promise<void>
   onRefresh: (key: string) => Promise<void>
+  linearConfigured: boolean
+  onLinkIssue: (key: string, identifier: string) => Promise<void>
 }
 
 function RowMenu(props: RowMenuProps) {
@@ -1259,7 +1275,7 @@ function RowMenu(props: RowMenuProps) {
 }
 
 function RowMenuBody(props: RowMenuProps) {
-  const [view, setView] = useState<'menu' | 'initiative' | 'prompt'>('menu')
+  const [view, setView] = useState<'menu' | 'initiative' | 'prompt' | 'issue'>('menu')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const close = useMenuClose()
@@ -1283,6 +1299,9 @@ function RowMenuBody(props: RowMenuProps) {
   }
   if (view === 'prompt') {
     return <AgentPromptForm prs={promptTargets} initialKey={props.primaryKey} onStarted={close} />
+  }
+  if (view === 'issue') {
+    return <LinkIssueForm prs={promptTargets} initialKey={props.primaryKey} onLink={props.onLinkIssue} />
   }
   return (
     <>
@@ -1333,6 +1352,11 @@ function RowMenuBody(props: RowMenuProps) {
           </button>
         )
       })}
+      {props.linearConfigured && promptTargets.length ? (
+        <button type="button" className="menu-item" onClick={() => setView('issue')}>
+          Link Linear issue…
+        </button>
+      ) : null}
       <button type="button" className="menu-item" onClick={() => setView('initiative')}>
         Set initiative
       </button>

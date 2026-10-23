@@ -657,6 +657,7 @@ export function App() {
               viewer={viewer}
               onFeedback={applyFeedback}
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
+              onLinkIssue={(key, identifier) => mutate(() => api.linkLinearIssue(key, identifier))}
               onMerge={async (key) => {
                 await api.merge(key)
                 mergedKeys.current.add(key)

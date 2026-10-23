@@ -1,4 +1,35 @@
-import type { LinearIssue } from './types.ts'
+import type { LinearIssue, PullRequest } from './types.ts'
+
+const ISSUE_ID = /^[A-Z][A-Z0-9]+-\d+$/
+
+export function isLinearIdentifier(value: string): boolean {
+  return ISSUE_ID.test(value)
+}
+
+export function blankIssue(identifier: string): LinearIssue {
+  return {
+    identifier: identifier.toUpperCase(),
+    title: null,
+    url: null,
+    projectId: null,
+    projectName: null,
+    teamId: null,
+    status: null,
+    assignee: null,
+  }
+}
+
+/** Keep issues linked from this dashboard when GitHub has not echoed them yet. */
+export function mergeLinkedIssues(pr: PullRequest, identifiers: string[]): PullRequest {
+  if (identifiers.length === 0) return pr
+  const current = pr.linearIssues ?? []
+  const have = new Set(current.map((issue) => issue.identifier.toUpperCase()))
+  const extra = identifiers
+    .map((identifier) => identifier.toUpperCase())
+    .filter((identifier, index, all) => isLinearIdentifier(identifier) && !have.has(identifier) && all.indexOf(identifier) === index)
+  if (extra.length === 0) return pr
+  return { ...pr, linearIssues: [...current, ...extra.map(blankIssue)] }
+}
 
 const SUMMARY_ANCHOR =
   /<summary>\s*<a href="(https:\/\/linear\.app\/[^"]+\/issue\/([A-Z][A-Z0-9]+-\d+)[^"]*)">([^<]+)<\/a>/gi

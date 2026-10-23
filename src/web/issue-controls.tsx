@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { LinearAssignee, LinearIssue, LinearStatus } from '../shared/types.ts'
+import { isLinearIdentifier } from '../shared/linear.ts'
+import type { LinearAssignee, LinearIssue, LinearStatus, PullRequest } from '../shared/types.ts'
 import { api } from './api.ts'
 import { ClickCard, useMenuClose } from './menus.tsx'
 
-const ISSUE_ID = /^[A-Z][A-Z0-9]+-\d+$/
-
-export function isLinearIdentifier(value: string): boolean {
-  return ISSUE_ID.test(value)
-}
+export { isLinearIdentifier }
 
 export function IssueControls({
   menuKey,
@@ -53,6 +50,137 @@ export function IssueControls({
         <AssigneeMenu issue={issue} onUpdate={onUpdate} />
       </ClickCard>
     </span>
+  )
+}
+
+type IssueMatch = { identifier: string; title: string | null; url: string | null }
+
+export function LinkIssueForm({
+  prs,
+  initialKey,
+  onLink,
+}: {
+  prs: PullRequest[]
+  initialKey: string
+  onLink: (key: string, identifier: string) => Promise<void>
+}) {
+  const close = useMenuClose()
+  const [key, setKey] = useState(prs.some((pr) => pr.key === initialKey) ? initialKey : prs[0]!.key)
+  const [query, setQuery] = useState('')
+  const [matches, setMatches] = useState<IssueMatch[]>([])
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const pr = prs.find((item) => item.key === key) ?? prs[0]!
+  const linked = new Set(pr.linearIssues.map((issue) => issue.identifier.toUpperCase()))
+
+  useEffect(() => {
+    const term = query.trim()
+    if (term.length < 2) {
+      setMatches([])
+      setSearching(false)
+      setError(null)
+      return
+    }
+    let cancel = false
+    setSearching(true)
+    setError(null)
+    const timer = window.setTimeout(() => {
+      api
+        .searchLinearIssues(term)
+        .then((next) => {
+          if (!cancel) setMatches(next)
+        })
+        .catch((caught: unknown) => {
+          if (!cancel) {
+            setMatches([])
+            setError(caught instanceof Error ? caught.message : 'Could not search Linear')
+          }
+        })
+        .finally(() => {
+          if (!cancel) setSearching(false)
+        })
+    }, 200)
+    return () => {
+      cancel = true
+      window.clearTimeout(timer)
+    }
+  }, [query])
+
+  async function choose(identifier: string) {
+    if (linked.has(identifier) || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await onLink(pr.key, identifier)
+      close()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not link that issue')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const typed = query.trim().toUpperCase()
+  const typedId = isLinearIdentifier(typed) ? typed : null
+  const shown =
+    typedId && !matches.some((issue) => issue.identifier === typedId)
+      ? [{ identifier: typedId, title: null, url: null }, ...matches]
+      : matches
+
+  return (
+    <form
+      className="picker link-issue"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (typedId) void choose(typedId)
+      }}
+    >
+      <h3>Link Linear issue</h3>
+      <p>Attaches this pull request on the issue.</p>
+      {prs.length > 1 ? (
+        <label className="agent-target">
+          Pull request
+          <select className="select" value={key} disabled={busy} onChange={(event) => setKey(event.target.value)}>
+            {prs.map((item) => (
+              <option key={item.key} value={item.key}>
+                #{item.number} {item.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <input
+        className="search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="ENG-123 or a title"
+        aria-label="Find a Linear issue"
+        autoFocus
+        disabled={busy}
+      />
+      {error ? <p>{error}</p> : null}
+      {searching ? <p>Searching…</p> : null}
+      {shown.map((issue) => {
+        const already = linked.has(issue.identifier)
+        return (
+          <button
+            key={issue.identifier}
+            type="button"
+            className="option"
+            disabled={busy || already}
+            onClick={() => void choose(issue.identifier)}
+          >
+            <span>
+              {issue.identifier}
+              {issue.title ? ` · ${issue.title}` : ''}
+              {already ? ' · Already linked' : ''}
+            </span>
+          </button>
+        )
+      })}
+      {!searching && query.trim().length >= 2 && shown.length === 0 && !error ? <p>No matching issues.</p> : null}
+    </form>
   )
 }
 

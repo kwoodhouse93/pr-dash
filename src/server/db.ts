@@ -3,6 +3,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
+import { mergeLinkedIssues } from '../shared/linear.ts'
 import type { CursorSession, Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
@@ -37,6 +38,8 @@ export type DashboardDb = {
   deleteInitiative(id: string): void
   setAssignments(initiativeId: string, prKeys: string[], action: 'add' | 'remove'): void
   updateLinearIssue(identifier: string, patch: LinearIssue): Snapshot
+  linearLinks(): Map<string, string[]>
+  attachLinearIssue(prKey: string, issue: LinearIssue): Snapshot
   patchFeedback(key: string, counts: FeedbackCounts & { feedbackAt?: string | null }): void
   saveCursorSession(prKey: string, session: CursorSession): void
   cursorSessions(): { prKey: string; session: CursorSession }[]
@@ -105,6 +108,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS agent_sessions_pr ON agent_sessions (pr_key, created_at);
+    CREATE TABLE IF NOT EXISTS linear_links (
+      pr_key TEXT NOT NULL,
+      identifier TEXT NOT NULL,
+      PRIMARY KEY (pr_key, identifier)
+    );
   `)
 
   const legacySessions = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cursor_sessions'").get()
@@ -212,12 +220,30 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     return map
   }
 
-  function decorate(list: PullRequest[], tags: Map<string, string[]>, sessions: Map<string, CursorSession[]>): PullRequest[] {
-    return list.map((pr) => ({
-      ...pr,
-      initiativeIds: tags.get(pr.key) ?? [],
-      cursorSessions: sessions.get(pr.key) ?? [],
-    }))
+  function linearLinks(): Map<string, string[]> {
+    const map = new Map<string, string[]>()
+    for (const row of db.prepare('SELECT pr_key, identifier FROM linear_links').all() as { pr_key: string; identifier: string }[]) {
+      const list = map.get(row.pr_key) ?? []
+      list.push(row.identifier)
+      map.set(row.pr_key, list)
+    }
+    return map
+  }
+
+  function decorate(
+    list: PullRequest[],
+    tags: Map<string, string[]>,
+    sessions: Map<string, CursorSession[]>,
+    links: Map<string, string[]>,
+  ): PullRequest[] {
+    return list.map((pr) => {
+      const merged = mergeLinkedIssues(pr, links.get(pr.key) ?? [])
+      return {
+        ...merged,
+        initiativeIds: tags.get(pr.key) ?? [],
+        cursorSessions: sessions.get(pr.key) ?? [],
+      }
+    })
   }
 
   function parseList(raw: string | null | undefined): PullRequest[] {
@@ -229,6 +255,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     const row = readSnapshotRow.get() as SnapshotRow | undefined
     const tags = assignments()
     const sessions = sessionsByPull()
+    const links = linearLinks()
     const held = queue.heldKeys()
     const visible = (list: PullRequest[]) => (held.size === 0 ? list : list.filter((pr) => !held.has(pr.key)))
     return {
@@ -237,8 +264,8 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       mineSyncedAt: row?.mine_synced_at ?? null,
       reviewSyncedAt: row?.review_synced_at ?? null,
       repos: watchedRepos(),
-      pullRequests: row ? visible(decorate(parseList(row.pull_requests), tags, sessions)) : [],
-      reviewPullRequests: row ? visible(decorate(parseList(row.review_pull_requests), tags, sessions)) : [],
+      pullRequests: row ? visible(decorate(parseList(row.pull_requests), tags, sessions, links)) : [],
+      reviewPullRequests: row ? visible(decorate(parseList(row.review_pull_requests), tags, sessions, links)) : [],
       initiatives: initiatives(),
       linearConfigured: row ? row.linear_configured === 1 : Boolean(process.env.LINEAR_API_KEY),
       warning: row?.warning ?? null,
@@ -279,6 +306,8 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     snapshot,
     saveSnapshot(input) {
       const strip = stripStored
+      const links = linearLinks()
+      const keep = (list: PullRequest[]) => list.map((pr) => mergeLinkedIssues(pr, links.get(pr.key) ?? []))
       const existing = readSnapshotRow.get() as SnapshotRow | undefined
       const review = input.reviewPullRequests ?? parseList(existing?.review_pull_requests)
       const mineSyncedAt = input.mineSyncedAt === undefined ? (existing?.mine_synced_at ?? null) : input.mineSyncedAt
@@ -302,8 +331,8 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         reviewSyncedAt,
         input.linearConfigured ? 1 : 0,
         input.warning,
-        JSON.stringify(strip(input.pullRequests)),
-        JSON.stringify(strip(review)),
+        JSON.stringify(strip(keep(input.pullRequests))),
+        JSON.stringify(strip(keep(review))),
       )
       return snapshot()
     },
@@ -357,6 +386,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.prepare('DELETE FROM repo_rules WHERE repo = ?').run(repo)
         db.prepare(`DELETE FROM agent_sessions WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM initiative_pull_requests WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+        db.prepare(`DELETE FROM linear_links WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare('DELETE FROM watched_repos WHERE repo = ?').run(repo)
         if (row) {
           const mine = stripStored(parseList(row.pull_requests).filter((pr) => pr.repo !== repo))
@@ -470,6 +500,40 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         JSON.stringify(strip(pullRequests)),
         JSON.stringify(strip(reviewPullRequests)),
       )
+      return snapshot()
+    },
+    linearLinks,
+    attachLinearIssue(prKey, issue) {
+      const row = readSnapshotRow.get() as SnapshotRow | undefined
+      if (!row) throw new Error('Refresh pull requests before linking an issue.')
+      const stored = { ...issue, identifier: issue.identifier.toUpperCase() }
+      let found = false
+      const add = (list: PullRequest[]) =>
+        list.map((pr) => {
+          if (pr.key !== prKey) return pr
+          found = true
+          const issues = pr.linearIssues ?? []
+          const index = issues.findIndex((item) => item.identifier.toUpperCase() === stored.identifier)
+          const linearIssues =
+            index === -1 ? [...issues, stored] : issues.map((item, position) => (position === index ? { ...item, ...stored } : item))
+          return { ...pr, linearIssues }
+        })
+      const pullRequests = add(parseList(row.pull_requests))
+      const reviewPullRequests = add(parseList(row.review_pull_requests))
+      if (!found) throw new Error('That pull request is no longer in this list.')
+      const strip = (list: PullRequest[]) => list.map((pr) => ({ ...pr, initiativeIds: [] }))
+      db.exec('BEGIN')
+      try {
+        db.prepare('INSERT INTO linear_links (pr_key, identifier) VALUES (?, ?) ON CONFLICT DO NOTHING').run(prKey, stored.identifier)
+        db.prepare('UPDATE snapshot SET pull_requests = ?, review_pull_requests = ? WHERE id = 1').run(
+          JSON.stringify(strip(pullRequests)),
+          JSON.stringify(strip(reviewPullRequests)),
+        )
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
       return snapshot()
     },
   }

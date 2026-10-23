@@ -29,7 +29,8 @@ import {
   setMergeWhenReady,
   startMergeWorker,
 } from './merge-worker.ts'
-import { listStatuses, listUsers, updateLinearIssue } from './linear.ts'
+import { isLinearIdentifier } from '../shared/linear.ts'
+import { linkGitHubPullRequest, listStatuses, listUsers, searchLinearIssues, updateLinearIssue } from './linear.ts'
 import type { FeedbackDetail } from '../shared/feedback.ts'
 import { canSquashMerge } from '../shared/merge.ts'
 import { cancelQueuedSync, describeSync, enqueueSync, markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, SyncCancelled } from './sync.ts'
@@ -208,6 +209,36 @@ app.get('/api/linear/users', async (c) => {
   if (!token) return c.json({ error: 'Set LINEAR_API_KEY to update Linear.' }, 400)
   try {
     return c.json({ users: await listUsers(token) })
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.get('/api/linear/issues', async (c) => {
+  const token = linearToken()
+  if (!token) return c.json({ error: 'Set LINEAR_API_KEY to update Linear.' }, 400)
+  const query = c.req.query('q')?.trim() ?? ''
+  if (query.length < 2) return c.json({ issues: [] })
+  try {
+    return c.json({ issues: await searchLinearIssues(token, query) })
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.post('/api/linear/links', async (c) => {
+  const token = linearToken()
+  if (!token) return c.json({ error: 'Set LINEAR_API_KEY to update Linear.' }, 400)
+  try {
+    const body = await c.req.json<{ key?: string; identifier?: string }>()
+    const key = body.key?.trim() ?? ''
+    const identifier = body.identifier?.trim().toUpperCase() ?? ''
+    if (!key || !isLinearIdentifier(identifier)) return c.json({ error: 'A pull request and a Linear issue identifier are required.' }, 400)
+    const snap = db.snapshot()
+    const pr = [...snap.pullRequests, ...snap.reviewPullRequests].find((item) => item.key === key)
+    if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
+    const issue = await linkGitHubPullRequest(token, identifier, pr.url, pr.title)
+    return c.json(db.attachLinearIssue(pr.key, issue))
   } catch (error) {
     return c.json({ error: messageOf(error) }, 502)
   }

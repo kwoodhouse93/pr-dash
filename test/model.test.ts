@@ -18,7 +18,7 @@ import {
 import { feedbackCounts, quoteReply, summarizeNotes, summarizeThreads, threadKinds, threadPermalink } from '../src/shared/feedback.ts'
 import { checksFromRaw, isBehindBase, mapPullRequest, type GitHubPull, type RawCheckSuite } from '../src/shared/map.ts'
 import { reviewSearchQueries } from '../src/shared/repos.ts'
-import { parseLinear } from '../src/shared/linear.ts'
+import { mergeLinkedIssues, parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
 import { buildStacks, restackChain, summarize } from '../src/shared/stacks.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
@@ -561,6 +561,14 @@ describe('linear', () => {
         assignee: null,
       },
     ])
+  })
+
+  it('keeps a dashboard link that GitHub has not echoed', () => {
+    const row = pr({ id: '1', number: 1, baseRef: 'main', headRef: 'topic', linearIssues: [] })
+    const merged = mergeLinkedIssues(row, ['eng-4', 'ENG-4', 'nope'])
+    expect(merged.linearIssues.map((issue) => issue.identifier)).toEqual(['ENG-4'])
+    expect(mergeLinkedIssues(merged, ['ENG-4'])).toBe(merged)
+    expect(mergeLinkedIssues(merged, ['ENG-9']).linearIssues.map((issue) => issue.identifier)).toEqual(['ENG-4', 'ENG-9'])
   })
 })
 

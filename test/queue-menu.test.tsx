@@ -158,6 +158,7 @@ describe('queue menu', () => {
             onRefreshPr={async () => {}}
             linearConfigured={false}
             onUpdateIssue={async () => {}}
+            onLinkIssue={async () => {}}
             viewer={null}
             onFeedback={() => {}}
           />
