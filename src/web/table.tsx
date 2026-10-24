@@ -12,6 +12,7 @@ import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.t
 import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
 import { formatCount, formatExact, formatWhen, graphitePrUrl } from './format.ts'
+import { usePrHref } from './pr-links.tsx'
 import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
@@ -575,6 +576,7 @@ function DataRow({
   const { locked } = useStackLock()
   const mark = queueByKey.get(pr.key) ?? null
   const ci = shownLevel([pr], holds)
+  const prHref = usePrHref(pr.url)
   return (
     <tr
       className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
@@ -586,14 +588,14 @@ function DataRow({
     >
       <Grip spine={spine} />
       <td className="num">
-        <a href={pr.url} target="_blank" rel="noreferrer">
+        <a href={prHref} target="_blank" rel="noreferrer">
           {pr.number}
         </a>
       </td>
       <td className="title-block">
         <div className="title-line">
           {pr.isDraft ? <span className="pill draft">Draft</span> : null}
-          <a href={pr.url} target="_blank" rel="noreferrer">
+          <a href={prHref} target="_blank" rel="noreferrer">
             {pr.title}
           </a>
         </div>
@@ -719,6 +721,7 @@ function SummaryRow({
 }) {
   const holds = useHolds()
   const summary = block.summary
+  const summaryHref = usePrHref(summary.url)
   const ci = shownLevel(visible, holds)
   const issues = hideIssue ? [] : sharedIssues(visible)
   const ordered = orderedStack(block, prByKey)
@@ -735,7 +738,7 @@ function SummaryRow({
     >
       <Grip spine={spine} />
       <td className="num">
-        <a href={summary.url} target="_blank" rel="noreferrer">
+        <a href={summaryHref} target="_blank" rel="noreferrer">
           {summary.number}
         </a>
       </td>
@@ -744,7 +747,7 @@ function SummaryRow({
           {summary.draftCount > 0 ? (
             <span className="pill draft">{summary.draftCount === visible.length ? 'Draft' : `${summary.draftCount} draft`}</span>
           ) : null}
-          <a href={summary.url} target="_blank" rel="noreferrer">
+          <a href={summaryHref} target="_blank" rel="noreferrer">
             {summary.title}
           </a>
           {summary.extra > 0 ? <span className="pill">+{summary.extra}</span> : null}

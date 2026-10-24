@@ -127,4 +127,33 @@ describe('settings sync queue', () => {
     expect(document.body.textContent).toContain('Nothing running.')
     expect(document.body.textContent).toContain('No full or ruleset syncs yet.')
   })
+
+  it('stores the default pull request host', async () => {
+    const hosts: string[] = []
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <SettingsPage
+          status={status()}
+          repos={[]}
+          mineSyncedAt={null}
+          reviewSyncedAt={null}
+          onEnqueue={() => undefined}
+          onCancelSync={() => undefined}
+          onAddRepo={async () => undefined}
+          onRemoveRepo={async () => undefined}
+          prLinks="github"
+          onPrLinks={(host) => hosts.push(host)}
+        />,
+      )
+    })
+
+    expect(document.querySelector('[aria-label="Default pull request links"] button[aria-pressed="true"]')?.textContent).toBe('GitHub')
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('[aria-label="Default pull request links"] button:last-child')?.click()
+    })
+    expect(hosts).toEqual(['graphite'])
+  })
 })

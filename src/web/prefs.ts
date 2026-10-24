@@ -1,4 +1,5 @@
 import { DEFAULT_FILTERS, DEFAULT_SORT, type Filters, type Sort, type SortKey } from '../shared/types.ts'
+import type { PrLinkHost } from './pr-links.tsx'
 
 const KEY = 'pr-dash.preferences.v1'
 const SORT_KEYS = new Set<SortKey>(['updated', 'created', 'size', 'title', 'repo', 'ci'])
@@ -17,6 +18,7 @@ export type Preferences = {
   expanded: string[]
   collapsed: string[]
   page: DashboardPage
+  prLinks: PrLinkHost
 }
 
 export function loadPreferences(): Preferences {
@@ -41,6 +43,7 @@ export function loadPreferences(): Preferences {
       expanded: Array.isArray(raw.expanded) ? raw.expanded.filter((id) => typeof id === 'string') : [],
       collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
       page,
+      prLinks: raw.prLinks === 'graphite' ? 'graphite' : 'github',
     }
   } catch {
     return fresh()
@@ -61,6 +64,7 @@ function fresh(): Preferences {
     expanded: [],
     collapsed: [],
     page: 'mine',
+    prLinks: 'github',
   }
 }
 

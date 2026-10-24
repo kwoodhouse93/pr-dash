@@ -11,6 +11,7 @@ import { ManageInitiatives } from './editors.tsx'
 import { formatExact, repoColors } from './format.ts'
 import { ClickCard, MenuProvider } from './menus.tsx'
 import { loadPreferences, savePreferences, type DashboardPage } from './prefs.ts'
+import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
 import { PrTable } from './table.tsx'
@@ -391,6 +392,7 @@ export function App() {
   }
 
   return (
+    <PrLinksProvider host={prefs.prLinks}>
     <MenuProvider>
       <Toasts />
       <div className="app">
@@ -566,6 +568,8 @@ export function App() {
                   toastError(caught instanceof Error ? caught.message : 'Could not cancel that sync')
                 })
               }}
+              prLinks={prefs.prLinks}
+              onPrLinks={(prLinks) => setPrefs((current) => ({ ...current, prLinks }))}
               onAddRepo={async (repo) => {
                 const snap = await api.addRepo(repo)
                 setData(adopt(snap))
@@ -725,6 +729,7 @@ export function App() {
         </div>
       </div>
     </MenuProvider>
+    </PrLinksProvider>
   )
 }
 

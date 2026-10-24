@@ -18,6 +18,7 @@ import { useAgentLaunch } from './agent-launch.tsx'
 import { api } from './api.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
+import { linkHostName, noteAnchor, prHref, threadAnchor, usePrHref, usePrLinkHost } from './pr-links.tsx'
 
 export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'threads' | 'comments' | 'review-comments'
 
@@ -231,6 +232,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
   }
 
   const single = targets.length === 1 ? targets[0] : null
+  const host = usePrLinkHost()
   return createPortal(
     <div
       className="drawer-back"
@@ -248,7 +250,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
           <div>
             <p className="eyebrow" id="feedback-title">{FOCUS_TITLE[focus]}</p>
             {single ? (
-              <a className="drawer-pr external" href={single.url} target="_blank" rel="noreferrer">
+              <a className="drawer-pr external" href={prHref(single.url, host)} target="_blank" rel="noreferrer">
                 #{single.number} {single.title}
               </a>
             ) : (
@@ -269,7 +271,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
             <section key={section.target.key} className="feedback-section">
               {targets.length > 1 ? (
                 <h3>
-                  <a className="external" href={section.target.url} target="_blank" rel="noreferrer">
+                  <a className="external" href={prHref(section.target.url, host)} target="_blank" rel="noreferrer">
                     #{section.target.number} {section.target.title}
                   </a>
                 </h3>
@@ -334,13 +336,14 @@ function ThreadList({
     const thread = detail.threads.find((item) => item.id === id)
     return thread ? [thread] : []
   })
+  const openHref = usePrHref(prUrl)
   if (threads.length === 0) return <p className="faint">No review threads in this list.</p>
   return (
     <>
       {detail.threadsTruncated ? (
         <p className="faint">
           Showing the first 60 threads.{' '}
-          <a className="external" href={prUrl} target="_blank" rel="noreferrer">
+          <a className="external" href={openHref} target="_blank" rel="noreferrer">
             Open the pull request
           </a>{' '}
           for the rest.
@@ -370,8 +373,9 @@ function ThreadCard({
   const [pending, setPending] = useState<'reply' | 'resolve' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const lock = useRef(false)
-  const href = thread.url ?? prUrl
+  const href = usePrHref(thread.url ?? prUrl, threadAnchor(thread))
   const label = locationLabel(thread)
+  const hostName = linkHostName(href)
   async function resolve() {
     if (lock.current) return
     lock.current = true
@@ -406,7 +410,7 @@ function ThreadCard({
             <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <a className="file-link external" href={href} target="_blank" rel="noreferrer" title="Open this diff on GitHub">
+        <a className="file-link external" href={href} target="_blank" rel="noreferrer" title={`Open this diff on ${hostName}`}>
           {label}
         </a>
         {thread.isOutdated ? <span className="pill">Outdated</span> : null}
@@ -649,13 +653,15 @@ function NoteCard({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lock = useRef(false)
+  const href = usePrHref(note.url ?? '', noteAnchor(note))
+  const hostName = linkHostName(href)
   return (
     <article className="thread-card">
       <div className="thread-file">
         <span className="note-kind">{note.kind === 'review' ? 'Review' : 'Comment'}</span>
         {note.url ? (
-          <a className="external" href={note.url} target="_blank" rel="noreferrer">
-            View on GitHub
+          <a className="external" href={href} target="_blank" rel="noreferrer">
+            View on {hostName}
           </a>
         ) : null}
       </div>

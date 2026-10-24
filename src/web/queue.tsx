@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { stepLabel, type MergeEntry, type MergeLog, type QueueSnapshot } from '../shared/queue.ts'
 import { formatExact } from './format.ts'
+import { prHref, usePrLinkHost } from './pr-links.tsx'
 
 export function MergeQueuePage({
   queue,
@@ -68,6 +69,7 @@ function QueueCard({
   onMove: (id: string, direction: 'up' | 'down') => Promise<void>
 }) {
   const open = interactive && (entry.status === 'queued' || entry.status === 'active' || entry.status === 'failed')
+  const host = usePrLinkHost()
   return (
     <article className={`queue-card ${entry.status}`}>
       <header>
@@ -104,7 +106,7 @@ function QueueCard({
         {entry.steps.map((step) => (
           <li key={step.id}>
             <span className={`pill queue ${step.status}`}>{stepLabel(step.status)}</span>
-            <a className="external" href={step.url} target="_blank" rel="noreferrer">
+            <a className="external" href={prHref(step.url, host)} target="_blank" rel="noreferrer">
               #{step.number} {step.title}
             </a>
             <span className="meta">

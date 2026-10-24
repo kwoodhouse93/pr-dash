@@ -600,6 +600,7 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }
 .menu-item:disabled:hover { background: transparent; }
 .settings { padding: 8px 22px 40px; max-width: 680px; }
+.settings .segmented { margin-top: 10px; width: fit-content; }
 .settings section { margin-top: 28px; }
 .settings h2 { margin: 0 0 8px; font-family: "Source Serif 4", Georgia, serif; font-weight: 500; font-size: 22px; }
 .settings p, .settings li { color: var(--muted); }

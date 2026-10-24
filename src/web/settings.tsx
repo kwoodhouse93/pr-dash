@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ownersFromRepos, parseRepoName, removalWarning, repoLeaf, repoOwner, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatExact } from './format.ts'
+import type { PrLinkHost } from './pr-links.tsx'
 
 export function SettingsPage({
   status,
@@ -12,6 +13,8 @@ export function SettingsPage({
   onCancelSync,
   onAddRepo,
   onRemoveRepo,
+  prLinks = 'github',
+  onPrLinks = () => {},
 }: {
   status: SyncStatus | null
   repos: string[]
@@ -21,6 +24,8 @@ export function SettingsPage({
   onCancelSync: (id: string) => void
   onAddRepo: (repo: string) => Promise<void>
   onRemoveRepo: (repo: string) => Promise<void>
+  prLinks?: PrLinkHost
+  onPrLinks?: (host: PrLinkHost) => void
 }) {
   const [catalog, setCatalog] = useState<RepoCatalog | null>(null)
   const [owner, setOwner] = useState<string | null>(null)
@@ -124,6 +129,21 @@ export function SettingsPage({
 
   return (
     <div className="settings">
+      <section>
+        <h2>Pull request links</h2>
+        <p>
+          Titles, numbers, the merge queue, and feedback open in the host you pick. The Open column still has both.
+          A review thread, inline comment, conversation comment, or review summary opens that same item on Graphite when Graphite is selected.
+        </p>
+        <div className="segmented" role="group" aria-label="Default pull request links">
+          <button type="button" aria-pressed={prLinks === 'github'} onClick={() => onPrLinks('github')}>
+            GitHub
+          </button>
+          <button type="button" aria-pressed={prLinks === 'graphite'} onClick={() => onPrLinks('graphite')}>
+            Graphite
+          </button>
+        </div>
+      </section>
       <section>
         <h2>Repositories</h2>
         <p>

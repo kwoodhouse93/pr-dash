@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FeedbackPayload } from '../src/shared/feedback.ts'
 import { api } from '../src/web/api.ts'
 import { Feedback, type FeedbackTarget } from '../src/web/feedback.tsx'
+import { PrLinksProvider } from '../src/web/pr-links.tsx'
 
 vi.mock('../src/web/api.ts', () => ({
   api: { pullFeedback: vi.fn() },
@@ -171,5 +172,23 @@ describe('feedback drawer', () => {
     })
     expect(hits).toBe(0)
     expect(document.querySelector('.drawer')).toBeNull()
+  })
+
+  it('opens a thread on Graphite when that host is the default', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <PrLinksProvider host="graphite">
+          <Feedback mode="review" targets={[target]} />
+        </PrLinksProvider>,
+      )
+    })
+    await openThreads()
+    const link = document.querySelector<HTMLAnchorElement>('.file-link')
+    expect(link?.href).toBe('https://app.graphite.com/github/pr/acme/app/7/changes#comment-open-comment')
+    expect(link?.title).toBe('Open this diff on Graphite')
+    expect(document.querySelector<HTMLAnchorElement>('.drawer-pr')?.href).toBe('https://app.graphite.com/github/pr/acme/app/7')
   })
 })

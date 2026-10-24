@@ -36,4 +36,15 @@ describe('dashboard preferences', () => {
     expect(loaded.views.mine.byIssue).toBe(false)
     expect(loaded.views.review.byIssue).toBe(false)
   })
+
+  it('keeps the pull request link host, and defaults to GitHub', () => {
+    expect(loadPreferences().prLinks).toBe('github')
+    const prefs = loadPreferences()
+    prefs.prLinks = 'graphite'
+    savePreferences(prefs)
+    expect(loadPreferences().prLinks).toBe('graphite')
+
+    localStorage.setItem('pr-dash.preferences.v1', JSON.stringify({ prLinks: 'elsewhere', page: 'mine' }))
+    expect(loadPreferences().prLinks).toBe('github')
+  })
 })
