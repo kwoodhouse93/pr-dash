@@ -104,6 +104,107 @@ describe('ci', () => {
     expect(ciLevel(selected)).toBe('pending')
   })
 
+  it('ignores a cancelled matrix placeholder once a later run of that workflow finished', () => {
+    const checks = [
+      check({
+        name: 'test',
+        conclusion: 'CANCELLED',
+        workflowName: 'Test',
+        workflowRunId: 1,
+        completedAt: '2026-10-27T11:51:39Z',
+      }),
+      check({
+        name: 'build',
+        conclusion: 'CANCELLED',
+        workflowName: 'Test',
+        workflowRunId: 1,
+        completedAt: '2026-10-27T11:51:39Z',
+      }),
+      check({
+        name: 'build',
+        conclusion: 'SUCCESS',
+        workflowName: 'Test',
+        workflowRunId: 2,
+        completedAt: '2026-10-27T11:52:51Z',
+        required: true,
+      }),
+      check({
+        name: 'test (./app/domain/...)',
+        conclusion: 'SUCCESS',
+        workflowName: 'Test',
+        workflowRunId: 2,
+        completedAt: '2026-10-27T11:53:54Z',
+        required: true,
+      }),
+      check({ name: 'CodeRabbit', conclusion: 'SUCCESS', completedAt: '2026-10-27T11:57:47Z' }),
+    ]
+    expect(selectChecks(checks).map((item) => item.name).sort()).toEqual(
+      ['CodeRabbit', 'build', 'test (./app/domain/...)'].sort(),
+    )
+    expect(ciLevel(checks)).toBe('green')
+  })
+
+  it('hides a cancelled placeholder while a later run is in progress, and keeps a real failure', () => {
+    const checks = [
+      check({
+        name: 'test',
+        conclusion: 'CANCELLED',
+        workflowName: 'Test',
+        workflowRunId: 1,
+        completedAt: '2026-10-27T11:51:39Z',
+        required: true,
+      }),
+      check({
+        name: 'build',
+        conclusion: 'FAILURE',
+        workflowName: 'Test',
+        workflowRunId: 1,
+        completedAt: '2026-10-27T11:40:00Z',
+        required: true,
+      }),
+      check({
+        name: 'lint',
+        conclusion: null,
+        status: 'IN_PROGRESS',
+        workflowName: 'Test',
+        workflowRunId: 2,
+        startedAt: '2026-10-27T11:52:10Z',
+        completedAt: null,
+        required: true,
+      }),
+    ]
+    expect(selectChecks(checks).map((item) => item.name)).toEqual(['build', 'lint'])
+    expect(ciLevel(checks)).toBe('red')
+  })
+
+  it('drops a check that only the replaced workflow run reported', () => {
+    const checks = [
+      check({
+        name: 'test',
+        conclusion: 'CANCELLED',
+        workflowName: 'Test',
+        workflowRunId: 1,
+        completedAt: '2026-10-27T11:51:39Z',
+      }),
+      check({
+        name: 'lint',
+        conclusion: 'SUCCESS',
+        workflowName: 'Test',
+        workflowRunId: 2,
+        completedAt: '2026-10-27T11:55:00Z',
+        required: true,
+      }),
+    ]
+    expect(selectChecks(checks).map((item) => item.name)).toEqual(['lint'])
+    expect(ciLevel(checks)).toBe('green')
+  })
+
+  it('keeps a cancelled check when that workflow has no later run', () => {
+    const checks = [check({ name: 'test', conclusion: 'CANCELLED', workflowName: 'Test', workflowRunId: 1, required: true })]
+    expect(selectChecks(checks)).toHaveLength(1)
+    expect(ciLevel(checks)).toBe('red')
+  })
+
   it('keeps the latest run of a check name', () => {
     const selected = selectChecks([
       check({ name: 'Check', conclusion: 'FAILURE', completedAt: '2026-10-20T10:00:00Z' }),

@@ -28,13 +28,60 @@ export function checkPhase(check: Check): CheckPhase {
 
 function stamp(check: Check): number {
   const raw = check.completedAt ?? check.startedAt
-  return raw ? Date.parse(raw) : 0
+  const time = raw ? Date.parse(raw) : 0
+  return Number.isNaN(time) ? 0 : time
+}
+
+type WorkflowRun = { id: number; at: number; pending: boolean }
+
+/** Latest run of each workflow. A tie keeps the higher run id, which is the later run GitHub created. */
+function latestWorkflowRuns(checks: Check[]): Map<string, WorkflowRun> {
+  const runs = new Map<string, Map<number, WorkflowRun>>()
+  for (const check of checks) {
+    if (!check.workflowName || check.workflowRunId == null) continue
+    const byRun = runs.get(check.workflowName) ?? new Map<number, WorkflowRun>()
+    const current = byRun.get(check.workflowRunId) ?? { id: check.workflowRunId, at: 0, pending: false }
+    byRun.set(check.workflowRunId, {
+      id: check.workflowRunId,
+      at: Math.max(current.at, stamp(check)),
+      pending: current.pending || checkPhase(check) === 'pending',
+    })
+    runs.set(check.workflowName, byRun)
+  }
+  const latest = new Map<string, WorkflowRun>()
+  for (const [workflow, byRun] of runs) {
+    let best: WorkflowRun | null = null
+    for (const run of byRun.values()) {
+      if (!best || run.at > best.at || (run.at === best.at && run.id > best.id)) best = run
+    }
+    if (best) latest.set(workflow, best)
+  }
+  return latest
+}
+
+/**
+ * Checks GitHub still shows for this commit.
+ * The pull request page follows the latest run of each workflow. A run cancelled
+ * before a matrix expands leaves a check under the bare job name, and the
+ * replacement run reports `name (matrix value)` instead, so the cancelled check
+ * would otherwise stay failed. While the replacement is still running, a real
+ * failure from the earlier run stays until that run reports the same name.
+ */
+function checksOnLatestRuns(checks: Check[]): Check[] {
+  const latest = latestWorkflowRuns(checks)
+  return checks.filter((check) => {
+    if (!check.workflowName || check.workflowRunId == null) return true
+    const run = latest.get(check.workflowName)
+    if (!run || check.workflowRunId === run.id) return true
+    if (run.pending && (check.conclusion ?? '').toUpperCase() !== 'CANCELLED') return true
+    return false
+  })
 }
 
 /** Latest non-skipped run of each check name. A newer skip drops the check. */
 export function selectChecks(checks: Check[]): Check[] {
   const groups = new Map<string, Check[]>()
-  for (const check of checks) {
+  for (const check of checksOnLatestRuns(checks)) {
     const list = groups.get(check.name) ?? []
     list.push(check)
     groups.set(check.name, list)

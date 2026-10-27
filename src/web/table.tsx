@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
+import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, selectChecks, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
 import { approvedByLogin } from '../shared/approval.ts'
 import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
@@ -1791,7 +1791,7 @@ function CiPanel({
   const holds = useHolds()
   const invalidated = (pr: PullRequest, check: Check) =>
     (holds.get(pr.key) ?? EMPTY_HOLDS).some((hold) => hold.name === check.name && hold.stamp === checkStamp(check))
-  const checks = prs.flatMap((pr) => pr.checks.map((check) => ({ pr, check })))
+  const checks = prs.flatMap((pr) => selectChecks(pr.checks).map((check) => ({ pr, check })))
   checks.sort((a, b) => {
     const rank = Number(invalidated(b.pr, b.check)) - Number(invalidated(a.pr, a.check))
     return rank || compareChecks(a.check, b.check) || a.pr.number - b.pr.number
@@ -1803,7 +1803,7 @@ function CiPanel({
     list.push(item)
     grouped.set(name, list)
   }
-  const heading = level === 'invalidated' ? ciDetail(level) : prs.length === 1 ? ciDetail(prs[0]!.ci) : 'Checks across this stack'
+  const heading = prs.length === 1 || level === 'invalidated' ? ciDetail(level) : 'Checks across this stack'
   return (
     <div>
       <h3>{heading}</h3>

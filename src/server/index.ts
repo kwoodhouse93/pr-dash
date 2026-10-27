@@ -35,7 +35,7 @@ import type { FeedbackDetail } from '../shared/feedback.ts'
 import { canSquashMerge } from '../shared/merge.ts'
 import { cancelQueuedSync, describeSync, enqueueSync, markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, SyncCancelled } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
-import { checkPhase } from '../shared/ci.ts'
+import { checkPhase, selectChecks } from '../shared/ci.ts'
 import { agentBlocker, parseAgentRequest } from '../shared/agents.ts'
 import { startCursorAgent } from './cursor.ts'
 import { rebasePull, RebaseRejected } from './rebase.ts'
@@ -460,7 +460,7 @@ function listedPulls(snap: Snapshot): PullRequest[] {
 function collectRuns(prs: PullRequest[], mode: 'failed' | 'all'): { repo: string; runId: number }[] {
   const runs: { repo: string; runId: number }[] = []
   for (const pr of prs) {
-    for (const check of pr.checks) {
+    for (const check of selectChecks(pr.checks)) {
       if (!check.workflowRunId) continue
       if (mode === 'failed' && checkPhase(check) !== 'fail') continue
       runs.push({ repo: pr.repo, runId: check.workflowRunId })

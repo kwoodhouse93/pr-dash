@@ -3,6 +3,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
+import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
 import type { CursorSession, Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
@@ -238,8 +239,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   ): PullRequest[] {
     return list.map((pr) => {
       const merged = mergeLinkedIssues(pr, links.get(pr.key) ?? [])
+      const checks = Array.isArray(pr.checks) ? selectChecks(pr.checks) : pr.checks
       return {
         ...merged,
+        checks,
+        ci: Array.isArray(checks) ? ciLevel(checks) : pr.ci,
         initiativeIds: tags.get(pr.key) ?? [],
         cursorSessions: sessions.get(pr.key) ?? [],
       }
