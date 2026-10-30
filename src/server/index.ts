@@ -144,7 +144,7 @@ app.post('/api/pulls/ready', async (c) => {
     const pr = snap.pullRequests.find((item) => item.key === key)
     if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
     if (!pr.isDraft) return c.json({ error: 'That pull request is already ready for review.' }, 409)
-    await markPullReadyForReview(loadGithubToken(), pr.repo, pr.number)
+    await markPullReadyForReview(loadGithubToken(), pr.id)
     return c.json(await refreshPull(db, key))
   } catch (error) {
     if (error instanceof SyncCancelled) return c.json({ error: 'Sync cancelled' }, 409)

@@ -776,11 +776,25 @@ export async function updatePullBase(token: string, repo: string, number: number
   throw new Error(messageFrom(text, response.status))
 }
 
-export async function markPullReadyForReview(token: string, repo: string, number: number): Promise<void> {
-  const response = await rest(token, `/repos/${repo}/pulls/${number}`, 'PATCH', { draft: false })
-  if (response.ok) return
-  const text = await response.text()
-  throw new Error(messageFrom(text, response.status))
+const MARK_READY = `
+  mutation MarkReady($id: ID!) {
+    markPullRequestReadyForReview(input: { pullRequestId: $id }) {
+      pullRequest { isDraft }
+    }
+  }
+`
+
+/**
+ * REST `PATCH` with `draft: false` returns success and leaves the pull request a draft.
+ * GitHub only clears draft status through this mutation.
+ */
+export async function markPullReadyForReview(token: string, pullRequestId: string): Promise<void> {
+  const data = await graphql<{
+    markPullRequestReadyForReview: { pullRequest: { isDraft: boolean } | null } | null
+  }>(token, MARK_READY, { id: pullRequestId })
+  if (data.markPullRequestReadyForReview?.pullRequest?.isDraft !== false) {
+    throw new Error('GitHub left that pull request as a draft.')
+  }
 }
 
 export async function updatePullBranch(token: string, repo: string, number: number, expectedHeadSha: string): Promise<void> {
