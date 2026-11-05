@@ -132,6 +132,47 @@ export function refreshSnapshot(
   return options?.interactive ? jobs.enqueueInteractive(spec) : jobs.enqueue(spec)
 }
 
+/** The list a connected dashboard is showing. Background refresh keeps that one warm first. */
+let watchedFocus: RefreshFocus = 'mine'
+
+export function noteListFocus(focus: RefreshFocus) {
+  watchedFocus = focus
+}
+
+const BACKGROUND_MS = 60_000
+
+function listAge(db: DashboardDb, focus: RefreshFocus): number {
+  const snap = db.snapshot()
+  const stamp = focus === 'review' ? snap.reviewSyncedAt : snap.mineSyncedAt
+  if (!stamp) return Number.POSITIVE_INFINITY
+  const at = Date.parse(stamp)
+  return Number.isFinite(at) ? Date.now() - at : Number.POSITIVE_INFINITY
+}
+
+function refreshIfDue(db: DashboardDb, focus: RefreshFocus) {
+  if (listAge(db, focus) < BACKGROUND_MS - 5_000) return
+  void refreshSnapshot(db, focus).catch(() => undefined)
+}
+
+/**
+ * Keep the open list moving while this process is up, including when the browser tab is hidden.
+ * Only that list runs here. The other one refreshes when it is opened, so a long review search
+ * cannot sit ahead of the list on screen.
+ */
+export function startBackgroundSync(db: DashboardDb) {
+  const run = () => {
+    if (db.watchedRepos().length === 0) return
+    if (pauseNow()) return
+    refreshIfDue(db, watchedFocus)
+  }
+  const first = setTimeout(run, 3_000)
+  const timer = setInterval(run, BACKGROUND_MS)
+  return () => {
+    clearTimeout(first)
+    clearInterval(timer)
+  }
+}
+
 export function enqueueSync(db: DashboardDb, kind: 'full' | 'rules', focus: RefreshFocus = 'mine') {
   jobs.enqueueUser({
     kind,
@@ -323,14 +364,25 @@ function reposIn(snap: Snapshot): string[] {
   return [...new Set([...snap.pullRequests, ...snap.reviewPullRequests].map((pr) => pr.repo))]
 }
 
+function knownPulls(db: DashboardDb): PullRequest[] {
+  const snap = db.snapshot()
+  const byId = new Map<string, PullRequest>()
+  for (const pr of [...snap.pullRequests, ...snap.reviewPullRequests]) {
+    const current = byId.get(pr.id)
+    if (!current || (!current.checkCursor && pr.checkCursor)) byId.set(pr.id, pr)
+  }
+  return [...byId.values()]
+}
+
 async function refreshMine(db: DashboardDb, token: string, forceRules: boolean): Promise<string | null> {
   const watched = db.watchedRepos()
-  const previous = new Map(db.snapshot().pullRequests.map((pr) => [pr.key, pr]))
+  const stored = db.snapshot().pullRequests
+  const previous = new Map(stored.map((pr) => [pr.key, pr]))
   const fetched = await fetchAuthoredPullRequests(token, (message) => {
     note(message)
   }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
-  }))
+  }), { previous: knownPulls(db), forceChecks: forceRules })
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   await confirmLandedMerges(db, token, fetched.pullRequests)
   const current = db.snapshot()
@@ -355,7 +407,7 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
     note(message)
   }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
-  }))
+  }), { previous: knownPulls(db), forceChecks: forceRules })
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   const current = db.snapshot()
   db.saveSnapshot({
@@ -507,7 +559,7 @@ function mapOne(
   teams: string[],
   rule: RepoRules | undefined,
 ): PullRequest {
-  return mapPullRequest(loaded.pull, {
+  const mapped = mapPullRequest(loaded.pull, {
     viewer,
     teams,
     requiredNames: rule?.checks ?? current.requiredCheckNames,
@@ -518,6 +570,7 @@ function mapOne(
     suites: loaded.suites,
     behindBy: loaded.behindBy,
   })
+  return loaded.cursor ? { ...mapped, checkCursor: loaded.cursor } : mapped
 }
 
 function applyRememberedLinks(db: DashboardDb, pullRequests: PullRequest[]): void {

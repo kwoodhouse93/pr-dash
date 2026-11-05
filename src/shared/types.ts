@@ -14,6 +14,18 @@ export type Check = {
   unreported?: boolean
 }
 
+/** Head commit and combined check rollup. A later read can skip the full check list when this still matches. */
+export type CheckRollup = {
+  oid: string
+  rollup: string | null
+  count: number
+}
+
+/** Rollup from the last full check read, and when that read happened. */
+export type CheckCursor = CheckRollup & {
+  readAt: string
+}
+
 export type MergeMark = 'met' | 'unmet' | 'draft' | 'none'
 
 export type Mergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
@@ -85,6 +97,8 @@ export type PullRequest = {
   conflict: boolean
   behind: boolean
   checks: Check[]
+  /** Set once checks have been read in full. Absent on snapshots saved before that. */
+  checkCursor?: CheckCursor | null
   ci: CiLevel
   threadCount: number
   unresolvedCount: number

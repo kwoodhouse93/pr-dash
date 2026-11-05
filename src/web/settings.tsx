@@ -239,7 +239,9 @@ export function SettingsPage({
       <section>
         <h2>GitHub</h2>
         <p>
-          The list you are looking at refreshes every 3 minutes. Thread replies load after that, and again only when that pull request changes.
+          The list you are looking at refreshes about every minute, including while this tab is in the background. Finished checks stay
+          put when that pull request and its check rollup have not changed. Running checks are read again, and each refresh also rereads
+          the checks that were fetched least recently. Thread replies load after that, and again only when that pull request changes.
           Those refreshes pause while the lowest window has fewer than 200 points left. Refresh on a row reloads just that pull request.
         </p>
         {windows.length === 0 ? (

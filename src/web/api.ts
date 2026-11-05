@@ -66,7 +66,7 @@ export type FeedbackLoad = {
 }
 
 export const api = {
-  snapshot: () => request<Snapshot>('/api/snapshot'),
+  snapshot: (focus?: 'mine' | 'review') => request<Snapshot>(focus ? `/api/snapshot?focus=${focus}` : '/api/snapshot'),
   status: () => request<SyncStatus>('/api/status'),
   repos: () => request<RepoCatalog>('/api/repos'),
   addRepo: (repo: string) => post<Snapshot>('/api/repos', { repo }),

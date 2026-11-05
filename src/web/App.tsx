@@ -18,9 +18,23 @@ import { PrTable } from './table.tsx'
 import { Toasts, clearActionError, dismissToast, toastError, toastSticky, toastSuccess, toastWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
 
-const REFRESH_MS = 3 * 60 * 1000
+/** Skip another GitHub pull when the saved list is newer than this. The server refreshes the list more often. */
+const REFRESH_MS = 2 * 60 * 1000
+const SNAPSHOT_POLL_MS = 4_000
 const FRESH_MS = 10 * 60 * 1000
 const STALE_MS = 30 * 60 * 1000
+
+function snapshotKey(snap: Snapshot): string {
+  return JSON.stringify([
+    snap.mineSyncedAt,
+    snap.reviewSyncedAt,
+    snap.warning,
+    snap.repos,
+    snap.initiatives,
+    snap.pullRequests,
+    snap.reviewPullRequests,
+  ])
+}
 
 type RefreshProgress = { completed: number; total: number }
 
@@ -41,20 +55,40 @@ export function App() {
   const watchedRef = useRef<string[]>([])
   const pageRef = useRef<DashboardPage>(prefs.page)
   pageRef.current = prefs.page
-  const refreshedAt = useRef<{ mine: number; review: number }>({ mine: 0, review: 0 })
+  const dataRef = useRef<Snapshot | null>(null)
+  const painted = useRef('')
   const previousPage = useRef(prefs.page)
   const syncBusy = useRef(false)
 
   function adopt(snap: Snapshot): Snapshot {
     const reviewPullRequests = snap.reviewPullRequests ?? []
     watchedRef.current = snap.repos ?? []
-    if (mergedKeys.current.size === 0) return { ...snap, reviewPullRequests }
-    const keep = (pr: Snapshot['pullRequests'][number]) => !mergedKeys.current.has(pr.key)
-    return {
-      ...snap,
-      pullRequests: snap.pullRequests.filter(keep),
-      reviewPullRequests: reviewPullRequests.filter(keep),
-    }
+    const next =
+      mergedKeys.current.size === 0
+        ? { ...snap, reviewPullRequests }
+        : {
+            ...snap,
+            pullRequests: snap.pullRequests.filter((pr) => !mergedKeys.current.has(pr.key)),
+            reviewPullRequests: reviewPullRequests.filter((pr) => !mergedKeys.current.has(pr.key)),
+          }
+    dataRef.current = next
+    return next
+  }
+
+  function listedFocus(): 'mine' | 'review' | undefined {
+    const page = pageRef.current
+    if (page === 'review') return 'review'
+    if (page === 'mine') return 'mine'
+    return undefined
+  }
+
+  function showIfChanged(snap: Snapshot, id: number) {
+    if (id !== applyId.current) return
+    const next = adopt(snap)
+    const key = snapshotKey(next)
+    if (key === painted.current) return
+    painted.current = key
+    setData(next)
   }
 
   useEffect(() => savePreferences(prefs), [prefs])
@@ -90,7 +124,9 @@ export function App() {
     if (watchedRef.current.length === 0 && !options.force) return false
     const feedback = options.feedback ?? 'if-ran'
     if (!options.full && !listed && !options.force) return false
-    const recent = !options.force && !options.full && Date.now() - refreshedAt.current[focus] < REFRESH_MS
+    const stamp = focus === 'review' ? dataRef.current?.reviewSyncedAt : dataRef.current?.mineSyncedAt
+    const syncedMs = stamp ? Date.parse(stamp) : Number.NaN
+    const recent = !options.force && !options.full && Number.isFinite(syncedMs) && Date.now() - syncedMs < REFRESH_MS
     if (recent) {
       if (feedback === 'always') await showFeedback(focus)
       return false
@@ -100,21 +136,18 @@ export function App() {
     clearActionError()
     setStatus('Starting refresh')
     setProgress(null)
-    const started = Date.now()
     const poll = window.setInterval(() => {
-      void api.snapshot().then((snap) => {
-        if (id === applyId.current) setData(adopt(snap))
+      void api.snapshot(listedFocus()).then((snap) => {
+        showIfChanged(snap, id)
       }).catch(() => undefined)
     }, 800)
     try {
       const snap = await api.refresh(focus, options.full === true, options.force === true || options.full === true)
-      if (options.full) {
-        refreshedAt.current.mine = started
-        refreshedAt.current.review = started
-      } else {
-        refreshedAt.current[focus] = started
+      if (id === applyId.current) {
+        const next = adopt(snap)
+        painted.current = snapshotKey(next)
+        setData(next)
       }
-      if (id === applyId.current) setData(adopt(snap))
       if (id === applyId.current) {
         try {
           if (options.full) {
@@ -131,7 +164,6 @@ export function App() {
       return true
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Refresh failed'
-      if (!options.full) refreshedAt.current[focus] = 0
       if (message !== 'Sync cancelled' && id === applyId.current) toastError(message)
       return false
     } finally {
@@ -181,11 +213,32 @@ export function App() {
 
   useEffect(() => {
     let cancel = false
+    const pull = () => {
+      if (cancel || document.visibilityState !== 'visible') return
+      const id = applyId.current
+      void api.snapshot(listedFocus()).then((snap) => {
+        if (!cancel) showIfChanged(snap, id)
+      }).catch(() => undefined)
+    }
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      const id = applyId.current
+      const page = pageRef.current
+      void api.snapshot(listedFocus()).then((snap) => {
+        if (cancel || id !== applyId.current) return
+        showIfChanged(snap, id)
+        if (page === 'mine' || page === 'review') void refresh()
+      }).catch(() => undefined)
+    }
     ;(async () => {
       let snap: Snapshot | null = null
       try {
-        snap = await api.snapshot()
-        if (!cancel) setData(adopt(snap))
+        snap = await api.snapshot(listedFocus())
+        if (!cancel) {
+          const next = adopt(snap)
+          painted.current = snapshotKey(next)
+          setData(next)
+        }
       } catch (caught) {
         if (!cancel) toastError(caught instanceof Error ? caught.message : 'Could not load the saved snapshot')
       } finally {
@@ -193,17 +246,14 @@ export function App() {
       }
       const page = pageRef.current
       if (!snap || snap.repos.length === 0) return
-      if (page === 'mine' || page === 'review') await refresh({ force: true })
+      if (page === 'mine' || page === 'review') await refresh()
     })()
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return
-      const page = pageRef.current
-      if (page !== 'mine' && page !== 'review') return
-      void refresh()
-    }, 30_000)
+    const timer = window.setInterval(pull, SNAPSHOT_POLL_MS)
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancel = true
       window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 
@@ -253,8 +303,8 @@ export function App() {
           if (next.total > 0) setProgress({ completed: next.completed, total: next.total })
         }
         if (busy || finished) {
-          void api.snapshot().then((snap) => {
-            if (!cancel) setData(adopt(snap))
+          void api.snapshot(listedFocus()).then((snap) => {
+            if (!cancel) showIfChanged(snap, applyId.current)
           }).catch(() => undefined)
         }
         if (finished && !refreshing) {

@@ -12,11 +12,17 @@ import {
 } from '../shared/feedback.ts'
 import { summarizeReviews } from '../shared/approval.ts'
 import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, rememberWindow, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
+import {
+  needsFreshBehind,
+  planCheckReads,
+  readsAfterProbe,
+  reuseChecks,
+} from '../shared/freshness.ts'
 import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
 import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { authoredSearchQueries, reviewSearchQueries } from '../shared/repos.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
-import type { PullRequest } from '../shared/types.ts'
+import type { CheckCursor, CheckRollup, PullRequest } from '../shared/types.ts'
 import { requestSignal } from './request-signal.ts'
 
 export function loadGithubToken(): string {
@@ -156,17 +162,62 @@ const ACTION_SUITES = `
 `
 
 type CommitChecks = {
+  oid?: string | null
   committedDate?: string | null
-  statusCheckRollup?: { contexts: { nodes: Array<RawCheck | null> } } | null
+  statusCheckRollup?: {
+    state?: string | null
+    contexts: { totalCount?: number; nodes?: Array<RawCheck | null> }
+  } | null
   checkSuites?: { nodes: Array<RawCheckSuite | null> | null } | null
 }
 
-function readCommitChecks(commit: CommitChecks | null | undefined): { committedAt: string | null; checks: RawCheck[]; suites: RawCheckSuite[] } {
+function readCommitChecks(commit: CommitChecks | null | undefined): {
+  committedAt: string | null
+  checks: RawCheck[]
+  suites: RawCheckSuite[]
+  rollup: CheckRollup | null
+} {
   return {
     committedAt: commit?.committedDate ?? null,
     checks: (commit?.statusCheckRollup?.contexts.nodes ?? []).filter((node): node is RawCheck => node != null),
     suites: (commit?.checkSuites?.nodes ?? []).filter((suite): suite is RawCheckSuite => suite != null),
+    rollup: rollupOf(commit),
   }
+}
+
+function rollupOf(commit: CommitChecks | null | undefined): CheckRollup | null {
+  const oid = commit?.oid
+  if (!oid) return null
+  const rollup = commit.statusCheckRollup
+  if (!rollup) return { oid, rollup: null, count: 0 }
+  if (rollup.state === undefined && rollup.contexts?.totalCount === undefined) return null
+  return {
+    oid,
+    rollup: rollup.state ?? null,
+    count: rollup.contexts?.totalCount ?? 0,
+  }
+}
+
+function stampCursor(rollup: CheckRollup | null, readAt = new Date().toISOString()): CheckCursor | null {
+  if (!rollup) return null
+  return { ...rollup, readAt }
+}
+
+async function eachBatch<T>(items: T[], size: number, concurrency: number, run: (batch: T[]) => Promise<void>): Promise<void> {
+  const batches: T[][] = []
+  for (let index = 0; index < items.length; index += size) batches.push(items.slice(index, index + size))
+  let next = 0
+  async function worker() {
+    while (next < batches.length) {
+      const batch = batches[next]
+      next += 1
+      if (!batch) return
+      await run(batch)
+    }
+  }
+  const workers = Math.min(Math.max(concurrency, 1), batches.length)
+  if (workers === 0) return
+  await Promise.all(Array.from({ length: workers }, () => worker()))
 }
 
 const SEARCH_QUERY = `
@@ -287,12 +338,26 @@ type CheckData = Record<string, {
   commits?: { nodes: Array<{ commit: CommitChecks | null } | null> }
 } | null>
 
-async function fetchChecks(token: string, ids: string[], onProgress: (message: string) => void) {
-  const bundles = new Map<string, { committedAt: string | null; checks: RawCheck[]; suites: RawCheckSuite[] }>()
-  const batchSize = 4
-  for (let index = 0; index < ids.length; index += batchSize) {
-    const batch = ids.slice(index, index + batchSize)
-    onProgress(`Fetching checks ${Math.min(index + batch.length, ids.length)} of ${ids.length}`)
+type CheckBundle = {
+  committedAt: string | null
+  checks: RawCheck[]
+  suites: RawCheckSuite[]
+  cursor: CheckCursor | null
+}
+
+async function fetchChecks(
+  token: string,
+  ids: string[],
+  onProgress: (message: string) => void,
+  unchanged = 0,
+) {
+  const bundles = new Map<string, CheckBundle>()
+  if (ids.length === 0) return bundles
+  let done = 0
+  const kept = unchanged > 0 ? `, ${unchanged} unchanged` : ''
+  const note = () => onProgress(`Fetching checks ${Math.min(done, ids.length)} of ${ids.length}${kept}`)
+  note()
+  await eachBatch(ids, 4, 2, async (batch) => {
     const varDefs = batch.map((_, number) => `$id${number}: ID!`).join(', ')
     const fields = batch
       .map(
@@ -303,9 +368,12 @@ async function fetchChecks(token: string, ids: string[], onProgress: (message: s
             commits(last: 1) {
               nodes {
                 commit {
+                  oid
                   committedDate
                   statusCheckRollup {
+                    state
                     contexts(first: 80) {
+                      totalCount
                       nodes {
                         __typename
                         ... on CheckRun {
@@ -328,11 +396,54 @@ async function fetchChecks(token: string, ids: string[], onProgress: (message: s
       .join('\n')
     const variables = Object.fromEntries(batch.map((id, number) => [`id${number}`, id]))
     const data = await graphql<CheckData>(token, `query Checks(${varDefs}) { ${fields} }`, variables)
+    const readAt = new Date().toISOString()
     batch.forEach((id, number) => {
-      bundles.set(id, readCommitChecks(data[`p${number}`]?.commits?.nodes?.[0]?.commit))
+      const loaded = readCommitChecks(data[`p${number}`]?.commits?.nodes?.[0]?.commit)
+      bundles.set(id, {
+        committedAt: loaded.committedAt,
+        checks: loaded.checks,
+        suites: loaded.suites,
+        cursor: stampCursor(loaded.rollup, readAt),
+      })
     })
-  }
+    done += batch.length
+    note()
+  })
   return bundles
+}
+
+type CursorData = Record<string, {
+  id?: string
+  commits?: { nodes: Array<{ commit: CommitChecks | null } | null> }
+} | null>
+
+/** Head oid and combined rollup, without the individual checks. One miss does not fail the rest. */
+async function fetchCheckCursors(token: string, ids: string[]): Promise<Map<string, CheckRollup | null>> {
+  const found = new Map<string, CheckRollup | null>()
+  await eachBatch(ids, 12, 3, async (batch) => {
+    const varDefs = batch.map((_, number) => `$id${number}: ID!`).join(', ')
+    const fields = batch
+      .map(
+        (_, number) => `
+        p${number}: node(id: $id${number}) {
+          ... on PullRequest {
+            id
+            commits(last: 1) {
+              nodes { commit { oid statusCheckRollup { state contexts { totalCount } } } }
+            }
+          }
+        }
+      `,
+      )
+      .join('\n')
+    const variables = Object.fromEntries(batch.map((id, number) => [`id${number}`, id]))
+    const data = await graphql<CursorData>(token, `query Cursors(${varDefs}) { ${fields} }`, variables, true)
+    batch.forEach((id, number) => {
+      const node = data[`p${number}`]
+      found.set(id, node?.id ? rollupOf(node.commits?.nodes?.[0]?.commit) : null)
+    })
+  })
+  return found
 }
 
 type BehindNode = {
@@ -346,9 +457,7 @@ type BehindNode = {
  */
 async function fetchBehind(token: string, pulls: { id: string; number: number }[]): Promise<Map<string, number>> {
   const found = new Map<string, number>()
-  const batchSize = 8
-  for (let index = 0; index < pulls.length; index += batchSize) {
-    const batch = pulls.slice(index, index + batchSize)
+  await eachBatch(pulls, 8, 3, async (batch) => {
     const varDefs = batch.map((_, number) => `$id${number}: ID!, $head${number}: String!`).join(', ')
     const fields = batch
       .map(
@@ -373,7 +482,7 @@ async function fetchBehind(token: string, pulls: { id: string; number: number }[
       const behindBy = node?.baseRef?.compare?.behindBy
       if (node?.id && typeof behindBy === 'number') found.set(node.id, behindBy)
     })
-  }
+  })
   return found
 }
 
@@ -405,6 +514,43 @@ async function readRulesets(token: string, repo: string): Promise<Parameters<typ
   return rulesets.filter((ruleset) => ruleset != null) as Parameters<typeof reviewPolicy>[0]
 }
 
+function keptBehind(previous: PullRequest): number {
+  return previous.behind ? 1 : 0
+}
+
+async function loadCheckBundles(
+  token: string,
+  nodes: GitHubPull[],
+  previous: Map<string, PullRequest>,
+  forceChecks: boolean,
+  onProgress: (message: string) => void,
+): Promise<{ bundles: Map<string, CheckBundle>; reuseIds: string[] }> {
+  const plan = planCheckReads(
+    nodes.map((node) => ({ id: node.id, updatedAt: node.updatedAt })),
+    previous,
+    forceChecks,
+  )
+  let fetchIds = plan.fetch
+  let reuseIds: string[] = []
+  if (plan.probe.length > 0) {
+    onProgress(`Comparing checks for ${plan.probe.length} pull requests`)
+    try {
+      const seen = await fetchCheckCursors(token, plan.probe)
+      const decided = readsAfterProbe(plan.probe, previous, seen, Date.now())
+      fetchIds = [...plan.fetch, ...decided.fetch]
+      reuseIds = decided.reuse
+    } catch (error) {
+      if (error instanceof GraphqlPaused) throw error
+      if (error instanceof Error && error.name === 'AbortError') throw error
+      fetchIds = nodes.map((node) => node.id)
+      reuseIds = []
+    }
+  }
+  if (fetchIds.length === 0 && nodes.length > 0) onProgress(`Checks unchanged for ${reuseIds.length} pull requests`)
+  const bundles = await fetchChecks(token, fetchIds, onProgress, reuseIds.length)
+  return { bundles, reuseIds }
+}
+
 async function hydrate(
   token: string,
   viewer: string,
@@ -413,32 +559,51 @@ async function hydrate(
   onProgress: (message: string) => void,
   extraWarning: string | null,
   loadRules: RulesLoader,
+  previous: PullRequest[] = [],
+  forceChecks = false,
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
+  const previousById = new Map(previous.map((pr) => [pr.id, pr]))
   const repos = [...new Set(nodes.map((node) => node.repository.nameWithOwner))]
-  const [bundles, behind, required] = await Promise.all([
-    fetchChecks(token, nodes.map((node) => node.id), onProgress),
+  const behindPulls = nodes.filter((node) =>
+    needsFreshBehind(previousById.get(node.id), {
+      updatedAt: node.updatedAt,
+      mergeStateStatus: node.mergeStateStatus,
+      mergeable: node.mergeable,
+    }),
+  )
+  const [loaded, behind, required] = await Promise.all([
+    loadCheckBundles(token, nodes, previousById, forceChecks, onProgress),
     fetchBehind(
       token,
-      nodes.map((node) => ({ id: node.id, number: node.number })),
+      behindPulls.map((node) => ({ id: node.id, number: node.number })),
     ),
     loadRules(repos),
   ])
+  const reuseIds = new Set(loaded.reuseIds)
   const warnings: string[] = extraWarning ? [extraWarning] : []
   const pullRequests = nodes.map((node) => {
-    const bundle = bundles.get(node.id)
+    const bundle = loaded.bundles.get(node.id)
+    const prior = previousById.get(node.id)
     const rules = required.get(node.repository.nameWithOwner)
-    if (!bundle) warnings.push(`${node.repository.nameWithOwner}#${node.number} is missing checks`)
-    return mapPullRequest(node, {
+    const behindBy = behind.has(node.id) ? (behind.get(node.id) ?? null) : prior && !needsFreshBehind(prior, node) ? keptBehind(prior) : null
+    if (!bundle && !reuseIds.has(node.id)) warnings.push(`${node.repository.nameWithOwner}#${node.number} is missing checks`)
+    const mapped = mapPullRequest(node, {
       viewer,
       teams,
       requiredNames: rules?.checks ?? [],
       requiredApprovals: rules?.requiredApprovals ?? 0,
       dismissStale: rules?.dismissStale ?? false,
-      committedAt: bundle?.committedAt ?? null,
+      committedAt: bundle?.committedAt ?? prior?.committedAt ?? null,
       checks: bundle?.checks ?? [],
       suites: bundle?.suites ?? [],
-      behindBy: behind.get(node.id) ?? null,
+      behindBy,
     })
+    if (bundle) return { ...mapped, checkCursor: bundle.cursor }
+    if (prior && reuseIds.has(node.id)) {
+      const kept = reuseChecks(prior, rules?.checks ?? prior.requiredCheckNames)
+      return { ...mapped, ...kept }
+    }
+    return mapped
   })
   return {
     viewer,
@@ -447,16 +612,23 @@ async function hydrate(
   }
 }
 
+export type ListHydration = {
+  previous?: PullRequest[]
+  /** Read every check list again. A full sync uses this so required checks are rebuilt from the rules. */
+  forceChecks?: boolean
+}
+
 export async function fetchAuthoredPullRequests(
   token: string,
   onProgress: (message: string) => void,
   repos: string[],
   loadRules: RulesLoader = (needed) => fetchRepoRules(token, needed, onProgress),
+  hydration: ListHydration = {},
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   if (repos.length === 0) return { viewer: '', pullRequests: [], warning: null }
   const viewer = await loginFor(token)
   const nodes = keptRepos(await fetchSearchNodes(token, authoredSearchQueries(repos), onProgress, 'Fetching your pull requests'), repos)
-  return hydrate(token, viewer, [], nodes, onProgress, null, loadRules)
+  return hydrate(token, viewer, [], nodes, onProgress, null, loadRules, hydration.previous ?? [], hydration.forceChecks === true)
 }
 
 export async function fetchReviewPullRequests(
@@ -464,10 +636,11 @@ export async function fetchReviewPullRequests(
   onProgress: (message: string) => void,
   repos: string[],
   loadRules: RulesLoader = (needed) => fetchRepoRules(token, needed, onProgress),
+  hydration: ListHydration = {},
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   if (repos.length === 0) return { viewer: '', pullRequests: [], warning: null }
   const { viewer, teams, nodes, warning } = await fetchReviewNodes(token, repos, onProgress)
-  return hydrate(token, viewer, teams, nodes, onProgress, warning, loadRules)
+  return hydrate(token, viewer, teams, nodes, onProgress, warning, loadRules, hydration.previous ?? [], hydration.forceChecks === true)
 }
 
 let accessibleCache: { at: number; names: string[]; truncated: boolean } | null = null
@@ -528,8 +701,12 @@ const ONE_QUERY = `
         commits(last: 1) {
           nodes {
             commit {
+              oid
               committedDate
-              statusCheckRollup { contexts(first: 80) { nodes { ${CHECK_NODES} } } }
+              statusCheckRollup {
+                state
+                contexts(first: 80) { totalCount nodes { ${CHECK_NODES} } }
+              }
               ${ACTION_SUITES}
             }
           }
@@ -558,13 +735,22 @@ export async function fetchOnePull(
   checks: RawCheck[]
   suites: RawCheckSuite[]
   behindBy: number | null
+  cursor: CheckCursor | null
 } | null> {
   const data = await graphql<OneData>(token, ONE_QUERY, { id })
   const node = data.node
   if (!node) return null
   const commit = readCommitChecks(node.commits?.nodes?.[0]?.commit)
   const behind = await fetchBehind(token, [{ id: node.id, number: node.number }])
-  return { pull: node, open: node.state == null || node.state === 'OPEN', ...commit, behindBy: behind.get(node.id) ?? null }
+  return {
+    pull: node,
+    open: node.state == null || node.state === 'OPEN',
+    committedAt: commit.committedAt,
+    checks: commit.checks,
+    suites: commit.suites,
+    behindBy: behind.get(node.id) ?? null,
+    cursor: stampCursor(commit.rollup),
+  }
 }
 
 const THREAD_QUERY = `

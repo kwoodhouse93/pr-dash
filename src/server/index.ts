@@ -33,7 +33,7 @@ import { isLinearIdentifier } from '../shared/linear.ts'
 import { linkGitHubPullRequest, listStatuses, listUsers, searchLinearIssues, updateLinearIssue } from './linear.ts'
 import type { FeedbackDetail } from '../shared/feedback.ts'
 import { canSquashMerge } from '../shared/merge.ts'
-import { cancelQueuedSync, describeSync, enqueueSync, markMerged, loadThreadFeedback, refreshPull, refreshSnapshot, SyncCancelled } from './sync.ts'
+import { cancelQueuedSync, describeSync, enqueueSync, markMerged, loadThreadFeedback, noteListFocus, refreshPull, refreshSnapshot, startBackgroundSync, SyncCancelled } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase, selectChecks } from '../shared/ci.ts'
 import { agentBlocker, parseAgentRequest } from '../shared/agents.ts'
@@ -45,7 +45,11 @@ loadEnv()
 const db = openDatabase()
 const app = new Hono()
 
-app.get('/api/snapshot', (c) => c.json(db.snapshot()))
+app.get('/api/snapshot', (c) => {
+  const focus = c.req.query('focus')
+  if (focus === 'mine' || focus === 'review') noteListFocus(focus)
+  return c.json(db.snapshot())
+})
 
 app.get('/api/status', (c) => c.json(describeSync(db)))
 
@@ -89,6 +93,7 @@ app.post('/api/sync', async (c) => {
   const body = await c.req.json<{ kind?: string; focus?: string }>().catch(() => ({ kind: undefined, focus: undefined }))
   if (body.kind !== 'full' && body.kind !== 'rules') return c.json({ error: 'Choose a full sync or a ruleset sync.' }, 400)
   const focus = body.focus === 'review' ? 'review' : 'mine'
+  noteListFocus(focus)
   return c.json(enqueueSync(db, body.kind, focus))
 })
 
@@ -100,6 +105,7 @@ app.post('/api/refresh', async (c) => {
       .json<{ focus?: string; full?: boolean; interactive?: boolean }>()
       .catch(() => ({ focus: undefined, full: undefined, interactive: undefined }))
     const focus = body.focus === 'review' ? 'review' : 'mine'
+    noteListFocus(focus)
     return c.json(
       await refreshSnapshot(db, focus, {
         full: body.full === true,
@@ -432,6 +438,7 @@ if (existsSync(path.join(webRoot, 'index.html'))) {
 }
 
 startMergeWorker(db)
+startBackgroundSync(db)
 
 const port = Number(process.env.PORT ?? 4317)
 const hostname = process.env.HOST ?? '127.0.0.1'
