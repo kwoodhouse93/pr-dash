@@ -2046,7 +2046,7 @@ function humanReviewTitle(changes: boolean, mine: boolean, human: boolean, waiti
 }
 
 function approvedBy(prs: PullRequest[], login: string | null): boolean {
-  return prs.some((pr) => approvedByLogin(pr, login))
+  return prs.every((pr) => approvedByLogin(pr, login))
 }
 
 function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; summary?: StackSummary }) {
@@ -2097,7 +2097,7 @@ function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; s
         <p>
           Grey means no review is required. White is still waiting. Green outline is a human approval; a filled green circle means you approved.
           Red means changes are still requested. The check is any approval, the person is a human approval, and the arrow is GitHub’s merge
-          requirement.
+          requirement. On a collapsed stack, the check and person show only when every pull request has that approval.
         </p>
       </div>
     </HoverCard>

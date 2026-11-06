@@ -765,6 +765,13 @@ describe('stacks and grouping', () => {
     expect(summary.url).toBe('https://github.com/initech/frontend/pull/3')
   })
 
+  it('shows a collapsed stack as approved only when every pull request is', () => {
+    const top = pr({ id: 'c', number: 3, baseRef: 'branch-b', headRef: 'branch-c', anyApproval: true, humanApproval: true })
+    const bottom = pr({ id: 'b', number: 2, baseRef: 'branch-a', headRef: 'branch-b', anyApproval: true, humanApproval: false })
+    expect(summarize([top, bottom], false)).toMatchObject({ anyApproval: true, humanApproval: false })
+    expect(summarize([top, { ...bottom, anyApproval: false }], false)).toMatchObject({ anyApproval: false, humanApproval: false })
+  })
+
   it('restacks the chosen pull request and everything above it', () => {
     const ordered = buildStacks(stack)[0]!.prs
     expect(restackChain(ordered, ordered[2]!.key)?.map((item) => item.number)).toEqual([1, 2, 3])
