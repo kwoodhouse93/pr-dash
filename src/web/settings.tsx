@@ -132,7 +132,7 @@ export function SettingsPage({
       <section>
         <h2>Pull request links</h2>
         <p>
-          Titles, numbers, the merge queue, and feedback open in the host you pick. The Open column still has both.
+          Titles, the merge queue, and feedback open in the host you pick. The Open column still has both.
           A review thread, inline comment, conversation comment, or review summary opens that same item on Graphite when Graphite is selected.
         </p>
         <div className="segmented" role="group" aria-label="Default pull request links">

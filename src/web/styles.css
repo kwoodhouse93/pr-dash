@@ -758,6 +758,42 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .pill.draft { color: var(--yellow); }
 .tag-btn { cursor: pointer; background: transparent; }
 .num, .when, .size { font-variant-numeric: tabular-nums; font-family: "Source Code Pro", ui-monospace, monospace; font-weight: 300; font-size: 14px; }
+th.num,
+td.num {
+  width: 1%;
+  white-space: nowrap;
+}
+.num-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  line-height: inherit;
+}
+.num-copy:hover .num-value,
+.num-copy:focus-visible .num-value {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.num-copy .copy-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  opacity: 0;
+  color: var(--muted);
+}
+tr:hover .num-copy .copy-icon,
+.num-copy:focus-visible .copy-icon {
+  opacity: 1;
+}
+.num-copy:hover .copy-icon,
+.num-copy:focus-visible .copy-icon {
+  color: var(--text);
+}
 th.open,
 td.open {
   width: 1%;

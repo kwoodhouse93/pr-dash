@@ -6,18 +6,19 @@ import { approvedByLogin } from '../shared/approval.ts'
 import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge, sliceParts } from '../shared/merge.ts'
 import { stepLabel, type MergeWatch, type RowMark, type StepStatus } from '../shared/queue.ts'
-import type { StackSummary } from '../shared/stacks.ts'
+import { downstackChain, type StackSummary } from '../shared/stacks.ts'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
 import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
-import { formatCount, formatExact, formatWhen, graphitePrUrl } from './format.ts'
+import { copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
 import { usePrHref } from './pr-links.tsx'
 import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
 import { Markdown } from './markdown.tsx'
 import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
+import { toastError, toastSuccess } from './toasts.tsx'
 
 type StackLock = {
   locked: boolean
@@ -587,11 +588,7 @@ function DataRow({
       }}
     >
       <Grip spine={spine} />
-      <td className="num">
-        <a href={prHref} target="_blank" rel="noreferrer">
-          {pr.number}
-        </a>
-      </td>
+      <CopyNumber repoName={pr.repoName} number={pr.number} />
       <td className="title-block">
         <div className="title-line">
           {pr.isDraft ? <span className="pill draft">Draft</span> : null}
@@ -737,11 +734,7 @@ function SummaryRow({
       }}
     >
       <Grip spine={spine} />
-      <td className="num">
-        <a href={summaryHref} target="_blank" rel="noreferrer">
-          {summary.number}
-        </a>
-      </td>
+      <CopyNumber repoName={summary.repoName} number={summary.number} />
       <td className="title-block">
         <div className="title-line">
           {summary.draftCount > 0 ? (
@@ -827,6 +820,66 @@ function SummaryRow({
       />
     </tr>
   )
+}
+
+function CopyNumber({ repoName, number }: { repoName: string; number: number }) {
+  const id = prCopyId(repoName, number)
+  return (
+    <td className="num">
+      <button
+        type="button"
+        className="num-copy"
+        title={`Copy ${id}`}
+        aria-label={`Copy ${id}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          void copyPlain(id, `Copied ${id}`)
+        }}
+      >
+        <span className="num-value">{number}</span>
+        <CopyIcon />
+      </button>
+    </td>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg className="copy-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="5.25" y="5.25" width="8.5" height="8.5" rx="1.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M10.75 5.25V3.15A1.15 1.15 0 0 0 9.6 2H3.15A1.15 1.15 0 0 0 2 3.15V9.6c0 .64.51 1.15 1.15 1.15H5.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+async function copyPlain(text: string, confirmation: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    toastSuccess(confirmation)
+    return true
+  } catch {
+    toastError('Could not copy to the clipboard')
+    return false
+  }
+}
+
+function downstackTargets(
+  stackKeys: string[],
+  primaryKey: string,
+  prByKey: Map<string, PullRequest>,
+  shown: PullRequest[],
+): PullRequest[] {
+  const ordered = stackKeys.flatMap((key) => {
+    const pr = prByKey.get(key)
+    return pr ? [pr] : []
+  })
+  return downstackChain(ordered, primaryKey) ?? downstackChain(shown, primaryKey) ?? []
 }
 
 function Grip({ spine }: { spine: Spine | null }) {
@@ -1286,6 +1339,7 @@ function RowMenuBody(props: RowMenuProps) {
   const pr = props.prByKey.get(props.primaryKey)
   const promptTargets = props.prs.length ? props.prs : pr ? [pr] : []
   const failing = props.prs.filter((item) => failingChecks(item).length > 0)
+  const copyTargets = downstackTargets(props.stackKeys, props.primaryKey, props.prByKey, props.prs)
 
   if (view === 'initiative') {
     return (
@@ -1325,6 +1379,21 @@ function RowMenuBody(props: RowMenuProps) {
           }}
         >
           {pending ? 'Refreshing…' : `Refresh #${pr.number}`}
+        </button>
+      ) : null}
+      {copyTargets.length ? (
+        <button
+          type="button"
+          className="menu-item"
+          onClick={() => {
+            const text = prCopyList(copyTargets)
+            const confirmation = copyTargets.length === 1 ? `Copied ${text}` : `Copied ${copyTargets.length} PR IDs`
+            void copyPlain(text, confirmation).then((copied) => {
+              if (copied) close()
+            })
+          }}
+        >
+          {copyPrIdsLabel(copyTargets.length)}
         </button>
       ) : null}
       {promptTargets.length ? (

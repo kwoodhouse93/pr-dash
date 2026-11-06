@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import { graphitePrUrl } from './format.ts'
 
-/** Where number, title, queue, and feedback links open. The Open column stays both hosts. */
+/** Where title, queue, and feedback links open. The Open column stays both hosts. */
 export type PrLinkHost = 'github' | 'graphite'
 
 /**

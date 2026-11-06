@@ -45,3 +45,17 @@ export function formatExact(iso: string): string {
 export function graphitePrUrl(repo: string, number: number): string {
   return `https://app.graphite.com/github/pr/${repo}/${number}`
 }
+
+/** Plain-text id, `repo#number`. */
+export function prCopyId(repoName: string, number: number): string {
+  return `${repoName}#${number}`
+}
+
+/** Trunk first, then each pull request above it, separated by a comma and a space. */
+export function prCopyList(prs: { repoName: string; number: number }[]): string {
+  return prs.map((pr) => prCopyId(pr.repoName, pr.number)).join(', ')
+}
+
+export function copyPrIdsLabel(count: number): string {
+  return `Copy ${count} PR ID${count === 1 ? '' : 's'}`
+}

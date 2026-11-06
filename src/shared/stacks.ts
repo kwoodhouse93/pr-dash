@@ -54,6 +54,13 @@ export function restackChain(orderedTopToBottom: PullRequest[], key: string): Pu
   return orderedTopToBottom.slice(0, index + 1).reverse()
 }
 
+/** The chosen pull request and each one below it, closest to the trunk first. */
+export function downstackChain(orderedTopToBottom: PullRequest[], key: string): PullRequest[] | null {
+  const index = orderedTopToBottom.findIndex((pr) => pr.key === key)
+  if (index < 0) return null
+  return orderedTopToBottom.slice(index).reverse()
+}
+
 export function buildStacks(prs: PullRequest[]): Stack[] {
   const byRepo = new Map<string, PullRequest[]>()
   for (const pr of prs) {

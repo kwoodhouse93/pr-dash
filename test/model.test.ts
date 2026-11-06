@@ -20,7 +20,7 @@ import { checksFromRaw, isBehindBase, mapPullRequest, type GitHubPull, type RawC
 import { reviewSearchQueries } from '../src/shared/repos.ts'
 import { mergeLinkedIssues, parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
-import { buildStacks, restackChain, summarize } from '../src/shared/stacks.ts'
+import { buildStacks, downstackChain, restackChain, summarize } from '../src/shared/stacks.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { buildOutline } from '../src/shared/view.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT } from '../src/shared/types.ts'
@@ -771,6 +771,14 @@ describe('stacks and grouping', () => {
     expect(restackChain(ordered, ordered[1]!.key)?.map((item) => item.number)).toEqual([2, 3])
     expect(restackChain(ordered, ordered[0]!.key)?.map((item) => item.number)).toEqual([3])
     expect(restackChain(ordered, 'missing')).toBeNull()
+  })
+
+  it('lists the chosen pull request and everything below it, trunk first', () => {
+    const ordered = buildStacks(stack)[0]!.prs
+    expect(downstackChain(ordered, ordered[0]!.key)?.map((item) => item.number)).toEqual([1, 2, 3])
+    expect(downstackChain(ordered, ordered[1]!.key)?.map((item) => item.number)).toEqual([1, 2])
+    expect(downstackChain(ordered, ordered[2]!.key)?.map((item) => item.number)).toEqual([1])
+    expect(downstackChain(ordered, 'missing')).toBeNull()
   })
 
   it('does not link pull requests across repositories', () => {
