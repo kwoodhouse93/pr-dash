@@ -770,6 +770,8 @@ describe('stacks and grouping', () => {
     const bottom = pr({ id: 'b', number: 2, baseRef: 'branch-a', headRef: 'branch-b', anyApproval: true, humanApproval: false })
     expect(summarize([top, bottom], false)).toMatchObject({ anyApproval: true, humanApproval: false })
     expect(summarize([top, { ...bottom, anyApproval: false }], false)).toMatchObject({ anyApproval: false, humanApproval: false })
+    expect(summarize([{ ...top, mergeMark: 'none' }, { ...bottom, mergeMark: 'met' }], false).mergeMark).toBe('unmet')
+    expect(summarize([{ ...top, mergeMark: 'met' }, { ...bottom, mergeMark: 'met' }], false).mergeMark).toBe('met')
   })
 
   it('restacks the chosen pull request and everything above it', () => {

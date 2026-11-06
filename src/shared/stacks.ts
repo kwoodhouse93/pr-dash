@@ -154,8 +154,14 @@ function worstMerge(prs: PullRequest[]): { mark: MergeMark; detail: string } {
   if (prs.some((pr) => pr.mergeMark === 'draft')) {
     return { mark: 'draft', detail: 'A pull request in this stack is still a draft.' }
   }
+  if (prs.every((pr) => pr.mergeMark === 'met')) {
+    return { mark: 'met', detail: 'Review requirements are met on every pull request in this stack.' }
+  }
   if (prs.some((pr) => pr.mergeMark === 'met')) {
-    return { mark: 'met', detail: 'Review requirements are met on the pull requests in this stack.' }
+    return {
+      mark: 'unmet',
+      detail: 'Only some pull requests in this stack meet review requirements. The rest will need review once they target the trunk.',
+    }
   }
   return { mark: 'none', detail: 'No review requirement applies to the pull requests in this stack.' }
 }
