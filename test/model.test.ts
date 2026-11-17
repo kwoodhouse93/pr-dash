@@ -16,7 +16,7 @@ import {
   withoutHolds,
 } from '../src/shared/ci.ts'
 import { feedbackCounts, quoteReply, summarizeNotes, summarizeThreads, threadKinds, threadPermalink } from '../src/shared/feedback.ts'
-import { checksFromRaw, isBehindBase, mapPullRequest, type GitHubPull, type RawCheckSuite } from '../src/shared/map.ts'
+import { checksFromRaw, isBehindBase, mapPullRequest, shadowedRuns, type GitHubPull, type RawCheckSuite } from '../src/shared/map.ts'
 import { reviewSearchQueries } from '../src/shared/repos.ts'
 import { mergeLinkedIssues, parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
@@ -289,6 +289,41 @@ describe('ci', () => {
     const checks = applyRequired([check({ name: 'Check', conclusion: 'FAILURE', required: false })], ['Check', 'Run'])
     expect(checks[0]?.required).toBe(true)
     expect(ciLevel(checks)).toBe('red')
+  })
+
+  describe('a cancelled duplicate run that GitHub counts over the run that passed', () => {
+    const run = (workflow: string, id: number, name: string, conclusion: string | null, status = 'COMPLETED') => ({
+      __typename: 'CheckRun',
+      name,
+      status,
+      conclusion,
+      checkSuite: { workflowRun: { databaseId: id, workflow: { name: workflow } } },
+    })
+    const required = ['GitHub Actions static analysis', 'build']
+
+    it('finds the newer run when it was the one cancelled', () => {
+      const nodes = [
+        run('zizmor', 44123170119, 'GitHub Actions static analysis', 'SUCCESS'),
+        run('zizmor', 44123170365, 'GitHub Actions static analysis', 'CANCELLED'),
+        run('Test', 44123169634, 'build', 'CANCELLED'),
+        run('Test', 44123170415, 'build', 'SUCCESS'),
+      ]
+      expect(shadowedRuns(nodes, required)).toEqual([{ runId: 44123170365, workflow: 'zizmor' }])
+    })
+
+    it('waits while the workflow still has a run in progress', () => {
+      const nodes = [
+        run('zizmor', 44123170119, 'GitHub Actions static analysis', null, 'IN_PROGRESS'),
+        run('zizmor', 44123170365, 'GitHub Actions static analysis', 'CANCELLED'),
+      ]
+      expect(shadowedRuns(nodes, required)).toEqual([])
+    })
+
+    it('leaves a cancelled run alone when no earlier run passed a required check', () => {
+      expect(shadowedRuns([run('zizmor', 44123170365, 'GitHub Actions static analysis', 'CANCELLED')], required)).toEqual([])
+      const optional = [run('Preview', 1, 'deploy', 'SUCCESS'), run('Preview', 2, 'deploy', 'CANCELLED')]
+      expect(shadowedRuns(optional, required)).toEqual([])
+    })
   })
 
   it('shows a workflow that failed before creating jobs, and the required checks it never reported', () => {

@@ -6,7 +6,7 @@ import { buildStacks } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { abortRebases, GitCancelled, interruptGit, mirrorPath, rebaseOnto } from './git.ts'
-import { fetchLivePull, loadGithubToken, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
+import { fetchLivePull, loadGithubToken, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
 
 const POLL_MS = 20_000
 
@@ -408,6 +408,7 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merg
   let updatedFor = ''
   let lastReason = ''
   let cancelledSince: number | null = null
+  const rerun = new Set<number>()
   for (;;) {
     if (stopped(entry.id)) return 'stop'
     const names = namesFor(step)
@@ -454,6 +455,27 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merg
         return 'stop'
       }
       continue
+    }
+    const shadowed = (live.shadowed ?? []).filter((run) => !rerun.has(run.runId))
+    if (shadowed.length > 0) {
+      for (const run of shadowed) rerun.add(run.runId)
+      const workflows = shadowed.map((run) => run.workflow).join(', ')
+      store.log(entry.id, 'info', `Rerunning ${workflows} on #${step.number}. GitHub counts a cancelled duplicate run over the one that passed.`)
+      const result = await rerunWorkflows(
+        loadGithubToken(),
+        shadowed.map((run) => ({ repo: entry.repo, runId: run.runId })),
+        'all',
+      ).catch((error: unknown) => ({ errors: [error instanceof Error ? error.message : 'GitHub request failed'] }))
+      for (const message of result.errors) store.log(entry.id, 'error', `Could not rerun. ${message}`)
+      if (result.errors.length === 0) {
+        unexplained = 0
+        cancelledSince = null
+        if (!(await pause(entry.id))) {
+          stopped(entry.id)
+          return 'stop'
+        }
+        continue
+      }
     }
     if (decision.unexplained) {
       unexplained += 1

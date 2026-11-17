@@ -1,4 +1,4 @@
-import { isBehindBase } from './map.ts'
+import { isBehindBase, type ShadowedRun } from './map.ts'
 import { requiredCheckGate } from './merge.ts'
 import type { Check, Mergeable, Reviewer } from './types.ts'
 import type { ReviewDecision } from './approval.ts'
@@ -97,6 +97,8 @@ export type LivePull = {
   reviewers: Reviewer[]
   changesRequested: boolean
   checks: Check[]
+  /** Cancelled workflow runs that GitHub counts in place of an earlier run that passed. */
+  shadowed?: ShadowedRun[]
 }
 
 export type WaitDecision =

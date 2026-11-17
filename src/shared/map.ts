@@ -1,5 +1,5 @@
 import { mergeReview, summarizeReviews, type ReviewDecision } from './approval.ts'
-import { applyRequired, ciLevel, selectChecks } from './ci.ts'
+import { applyRequired, checkPhase, ciLevel, selectChecks } from './ci.ts'
 import { summarizeNotes, summarizeThreads, threadPermalink, type Note, type Thread } from './feedback.ts'
 import { parseLinear } from './linear.ts'
 import type { Check, Mergeable, PullRequest } from './types.ts'
@@ -112,6 +112,38 @@ export function checksFromRaw(nodes: RawCheck[], requiredNames: string[], source
       ? requiredNames.filter((name) => !seen.has(name)).map(unreportedCheck)
       : []
   return selectChecks([...selected, ...missing])
+}
+
+export type ShadowedRun = { runId: number; workflow: string }
+
+/**
+ * GitHub judges a workflow on a commit by the run it created last. A rebase and a base change
+ * can start two runs at once, and the workflow's concurrency group sometimes cancels the newer
+ * one. The older run then passes, and GitHub still counts the required check as cancelled.
+ * Returns those cancelled runs once nothing in the workflow is still running.
+ */
+export function shadowedRuns(nodes: RawCheck[], requiredNames: string[]): ShadowedRun[] {
+  const required = new Set(requiredNames)
+  const workflows = new Map<string, Check[]>()
+  for (const check of nodes.map(mapRawCheck).filter(present)) {
+    if (!check.workflowName || check.workflowRunId == null) continue
+    const list = workflows.get(check.workflowName) ?? []
+    list.push(check)
+    workflows.set(check.workflowName, list)
+  }
+  const shadowed: ShadowedRun[] = []
+  for (const [workflow, checks] of workflows) {
+    if (checks.some((check) => checkPhase(check) === 'pending')) continue
+    const newest = Math.max(...checks.map((check) => check.workflowRunId ?? 0))
+    const cancelled = checks.some(
+      (check) => check.workflowRunId === newest && (check.conclusion ?? '').toUpperCase() === 'CANCELLED',
+    )
+    const passedEarlier = checks.some(
+      (check) => check.workflowRunId !== newest && required.has(check.name) && checkPhase(check) === 'success',
+    )
+    if (cancelled && passedEarlier) shadowed.push({ runId: newest, workflow })
+  }
+  return shadowed
 }
 
 /**

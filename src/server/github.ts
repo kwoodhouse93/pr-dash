@@ -18,7 +18,7 @@ import {
   readsAfterProbe,
   reuseChecks,
 } from '../shared/freshness.ts'
-import { checksFromRaw, mapPullRequest, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
+import { checksFromRaw, mapPullRequest, shadowedRuns, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
 import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { authoredSearchQueries, reviewSearchQueries } from '../shared/repos.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
@@ -873,7 +873,10 @@ const LIVE_QUERY = `
                 contexts(first: 80) {
                   nodes {
                     __typename
-                    ... on CheckRun { name conclusion status detailsUrl startedAt completedAt }
+                    ... on CheckRun {
+                      name conclusion status detailsUrl startedAt completedAt
+                      checkSuite { workflowRun { databaseId workflow { name } } }
+                    }
                     ... on StatusContext { context state targetUrl createdAt }
                   }
                 }
@@ -952,6 +955,7 @@ export async function fetchLivePull(token: string, repo: string, number: number,
     reviewers: reviews.reviewers,
     changesRequested: reviews.changesRequested,
     checks: checksFromRaw(loaded.checks, requiredNames, { suites: loaded.suites, mergeStateStatus: pull.mergeStateStatus }),
+    shadowed: shadowedRuns(loaded.checks, requiredNames),
   }
 }
 
