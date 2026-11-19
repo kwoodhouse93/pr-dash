@@ -78,3 +78,5 @@ HOST=0.0.0.0 PORT=4317 DATABASE_PATH=/data/pr-dash.sqlite GITHUB_TOKEN=... npm s
 Or build the Docker image. Mount a volume at `/data` so initiatives and the snapshot survive restarts.
 
 The server holds a token that can read your pull requests, rerun workflows, and squash-merge into the default branch. Keep it on a private network.
+
+The API refuses requests from pages on another site. On the default local address it also refuses any request whose `Host` is not this machine. With `HOST` set to anything else it accepts whatever name it is reached by, so that check is off.

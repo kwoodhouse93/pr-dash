@@ -39,11 +39,25 @@ import { checkPhase, selectChecks } from '../shared/ci.ts'
 import { agentBlocker, parseAgentRequest } from '../shared/agents.ts'
 import { startCursorAgent } from './cursor.ts'
 import { rebasePull, RebaseRejected } from './rebase.ts'
+import { isLoopback, refusal } from './origin.ts'
 
 loadEnv()
 
 const db = openDatabase()
 const app = new Hono()
+
+const port = Number(process.env.PORT ?? 4317)
+const hostname = process.env.HOST ?? '127.0.0.1'
+const loopbackOnly = isLoopback(hostname)
+
+app.use('/api/*', async (c, next) => {
+  const reason = refusal(
+    { host: c.req.header('host'), origin: c.req.header('origin'), secFetchSite: c.req.header('sec-fetch-site') },
+    loopbackOnly,
+  )
+  if (reason) return c.json({ error: reason }, 403)
+  await next()
+})
 
 app.get('/api/snapshot', (c) => {
   const focus = c.req.query('focus')
@@ -430,8 +444,6 @@ if (existsSync(path.join(webRoot, 'index.html'))) {
 startMergeWorker(db)
 startBackgroundSync(db)
 
-const port = Number(process.env.PORT ?? 4317)
-const hostname = process.env.HOST ?? '127.0.0.1'
 serve({ fetch: app.fetch, port, hostname }, () => {
   console.log(`pr-dash API on http://${hostname}:${port}`)
 })
