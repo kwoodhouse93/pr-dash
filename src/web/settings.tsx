@@ -290,7 +290,8 @@ export function SettingsPage({
             {status?.graphql.paused && status.graphql.message ? <p className="stat-warn">{status.graphql.message}</p> : null}
             <details className="how">
               <summary>
-                Lists refresh about every minute. <span>How it works</span>
+                Lists refresh about every minute. <span className="how-open">How it works</span>
+                <span className="how-close">Hide</span>
               </summary>
               <p>
                 Refreshes carry on while this tab is in the background. Finished checks stay put when that pull request and its check

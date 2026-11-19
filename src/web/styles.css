@@ -947,7 +947,8 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .how summary { cursor: pointer; list-style: none; }
 .how summary::-webkit-details-marker { display: none; }
 .how summary span { color: var(--accent); }
-.how[open] summary span { display: none; }
+.how summary span:hover { text-decoration: underline; }
+.how[open] .how-open, .how:not([open]) .how-close { display: none; }
 .how p { margin-top: 8px; }
 .sync-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .sync-actions .primary, .sync-actions .ghost { padding: 6px 12px; }
