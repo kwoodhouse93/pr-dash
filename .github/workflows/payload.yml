@@ -1,0 +1,35 @@
+name: Desktop payload
+
+# Publishes the server and web build the desktop app downloads. The newest
+# push wins: the asset on the rolling "payload" release is replaced each time.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: desktop-payload
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:payload
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view payload >/dev/null 2>&1 || gh release create payload \
+            --title "Desktop payload" \
+            --notes "Rolling build of main for the desktop app. Replaced on every push." \
+            --prerelease
+          gh release upload payload dist/payload.tar.gz --clobber

@@ -1,0 +1,53 @@
+{
+  "name": "pr-dash-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mac shell for pr-dash: the dashboard plus tabs for the pages it links to.",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "pack": "npm --prefix .. run build:payload && npm run build && electron-builder --mac dir",
+    "install-app": "npm run pack && rm -rf '/Applications/PR Dash.app' && cp -R 'release/mac-arm64/PR Dash.app' /Applications/"
+  },
+  "build": {
+    "appId": "dev.pr-dash.desktop",
+    "productName": "PR Dash",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json",
+      "!node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/payload",
+        "to": "payload"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "icon": "icon.icns",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": false
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.11",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -37,6 +37,22 @@ Required check names come from each repository’s rulesets, so a check that is 
 
 Initiatives are tags stored in this app, not on GitHub. Create, rename, and delete them in Settings. Use them for cleanup, refactors, and other work that has no Linear project. A pull request can have more than one. A pull request with a Linear project stays under that project; the initiative chip still shows on the row. A stack that also contains other work shows `…` rows above or below the slice in that section.
 
+## Desktop app (Mac)
+
+`desktop/` is an Electron shell around the same server. The dashboard is the first tab. A link it opens, such as a pull request, a Linear issue or a Graphite stack, becomes another tab in the same window, and sign-ins are kept between launches. The button at the right of the tab strip, or ⇧⌘O, opens the current tab in your default browser. Right-click a link to open it there instead. ⌘T opens the link on the clipboard.
+
+```bash
+cd desktop
+npm install
+npm run install-app   # builds PR Dash.app and copies it to /Applications
+```
+
+`npm run dev` runs it without packaging. The app is built for Apple silicon and signed for this machine only.
+
+The app keeps its own data in `~/Library/Application Support/PR Dash`: the database under `data/`, an optional `.env` with the same keys as above, and `server.log`. It listens on `127.0.0.1:4318`, so `npm run dev` can run beside it. Only the dashboard tab can reach that API; pages in other tabs cannot.
+
+**Updates.** Every push to `main` builds the server and web assets and replaces the asset on the `payload` release. The app checks that release when it starts and every five minutes, using `GITHUB_TOKEN` or `gh auth token`. A newer build is downloaded, the server is restarted on it, and the dashboard tab reloads. Other tabs are left alone. While you are looking at the dashboard the app waits and shows an Update button, so a reply you are typing is not lost; it applies the update when you switch tab or window. A build that fails to start is dropped and the previous one keeps running. The shell itself changes only when you run `npm run install-app` again.
+
 ## Deploy
 
 The process is one Node server. Bind address defaults to `127.0.0.1`. To run it somewhere else:
