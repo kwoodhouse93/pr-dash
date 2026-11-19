@@ -455,23 +455,16 @@ export function App() {
       <Toasts />
       <div className="app">
         <header className="top">
-          <div className="top-row">
-            <nav className="nav">
-              <button type="button" className="text-btn" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
-                My PRs
-              </button>
-              <button type="button" className="text-btn" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
-                Review
-                {reviewBadge > 0 ? <span className="nav-count">{reviewBadge}</span> : null}
-              </button>
-              <button type="button" className="text-btn" aria-pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))}>
-                Merge queue
-                {queue && queue.entries.length > 0 ? <span className="nav-count">{queue.entries.length}</span> : null}
-              </button>
-              <button type="button" className="text-btn" aria-pressed={page === 'settings'} onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}>
-                Settings
-              </button>
-            </nav>
+          <nav className="nav" aria-label="Lists">
+            <button type="button" className="tab" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
+              My PRs
+            </button>
+            <button type="button" className="tab" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
+              Review
+              {reviewBadge > 0 ? <span className="nav-count">{reviewBadge}</span> : null}
+            </button>
+          </nav>
+          <div className="top-tools">
             {page === 'settings' ? null : (
               <RefreshControl
                 refreshing={refreshing}
@@ -482,33 +475,47 @@ export function App() {
                 onRefresh={() => void refresh({ force: true })}
               />
             )}
+            <QueueButton queue={queue} pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))} />
+            <button
+              type="button"
+              className="tool-btn"
+              aria-pressed={page === 'settings'}
+              aria-label="Settings"
+              title="Settings"
+              onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
           </div>
-          {listPage ? (
-            <FilterBar
-              page={page}
-              filters={viewPrefs.filters}
-              filtersOn={filtersOn}
-              byIssue={viewPrefs.byIssue}
-              prs={prs}
-              repos={repos}
-              initiatives={initiatives}
-              viewer={viewer}
-              matched={matched}
-              onPatch={patchFilters}
-              onClear={() => patchFilters(DEFAULT_FILTERS)}
-              onByIssue={(byIssue) =>
-                setPrefs((current) => {
-                  const target = current.page === 'review' ? 'review' : 'mine'
-                  return {
-                    ...current,
-                    views: { ...current.views, [target]: { ...current.views[target], byIssue } },
-                  }
-                })
-              }
-              onManageInitiatives={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
-            />
-          ) : null}
         </header>
+        {listPage ? (
+          <FilterBar
+            page={page}
+            filters={viewPrefs.filters}
+            filtersOn={filtersOn}
+            byIssue={viewPrefs.byIssue}
+            prs={prs}
+            repos={repos}
+            initiatives={initiatives}
+            viewer={viewer}
+            matched={matched}
+            onPatch={patchFilters}
+            onClear={() => patchFilters(DEFAULT_FILTERS)}
+            onByIssue={(byIssue) =>
+              setPrefs((current) => {
+                const target = current.page === 'review' ? 'review' : 'mine'
+                return {
+                  ...current,
+                  views: { ...current.views, [target]: { ...current.views[target], byIssue } },
+                }
+              })
+            }
+            onManageInitiatives={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
+          />
+        ) : null}
         <div className="scroll">
           {page === 'settings' ? (
             <SettingsPage
@@ -734,26 +741,9 @@ function RefreshControl({
   now: number
   onRefresh: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    const onPointer = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('mousedown', onPointer)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('mousedown', onPointer)
-    }
-  }, [open])
-  const when = syncedAt ? formatExact(syncedAt) : 'Not updated yet'
   const text = status && status !== 'Idle' ? status : 'Refreshing'
   const known = progress != null && progress.total > 0
+  const label = refreshing ? text : syncedAt ? `Refresh. Last updated ${formatExact(syncedAt)}` : 'Refresh. Not updated yet'
   return (
     <div className="refresh-cluster">
       {refreshing ? (
@@ -772,38 +762,66 @@ function RefreshControl({
             >
               <span style={{ width: `${Math.min(100, (progress.completed / progress.total) * 100)}%` }} />
             </span>
-          ) : (
-            <SyncArrows />
-          )}
+          ) : null}
         </div>
-      ) : (
-        <button type="button" className="ghost refresh-btn" onClick={onRefresh}>
-          Refresh
-        </button>
-      )}
-      <div className="freshness" ref={ref}>
-        <button
-          type="button"
-          className="pip-btn"
-          aria-expanded={open}
-          aria-label={syncedAt ? `Last updated ${when}` : 'Not updated yet'}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <span className={`pip ${freshness(syncedAt, now)}`} />
-        </button>
-        {open ? (
-          <div className="freshness-pop" role="status">
-            {when}
-          </div>
-        ) : null}
-      </div>
+      ) : null}
+      <button
+        type="button"
+        className="tool-btn refresh-tool"
+        disabled={refreshing}
+        aria-busy={refreshing}
+        aria-label={label}
+        title={label}
+        onClick={onRefresh}
+      >
+        <SyncArrows spinning={refreshing} />
+        {refreshing ? null : <span className={`pip ${freshness(syncedAt, now)}`} />}
+      </button>
     </div>
   )
 }
 
-function SyncArrows() {
+function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot | null; pressed: boolean; onClick: () => void }) {
+  const entries = queue?.entries ?? []
+  const count = entries.length
+  const paused = queue?.paused ?? false
+  const state = paused
+    ? 'paused'
+    : entries.some((entry) => entry.status === 'failed')
+      ? 'failed'
+      : entries.some((entry) => entry.status === 'active')
+        ? 'active'
+        : count > 0
+          ? 'queued'
+          : 'empty'
+  const detail = {
+    paused: `paused${queue?.pauseReason ? `. ${queue.pauseReason}` : ''}`,
+    failed: 'a merge failed',
+    active: 'merging',
+    queued: 'waiting',
+    empty: 'empty',
+  }[state]
+  const label = count > 0 ? `Merge queue: ${count} queued, ${detail}` : `Merge queue: ${detail}`
   return (
-    <svg className="refresh-spin" viewBox="0 0 24 24" aria-hidden="true">
+    <button type="button" className="tool-btn" data-state={state} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="18" cy="18" r="3" />
+        <circle cx="6" cy="6" r="3" />
+        <path d="M6 21V9a9 9 0 0 0 9 9" />
+      </svg>
+      {count > 0 ? <span className="tool-count">{count}</span> : null}
+      {paused ? (
+        <svg className="tool-pause" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M4 2.5v7M8 2.5v7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      ) : null}
+    </button>
+  )
+}
+
+function SyncArrows({ spinning }: { spinning: boolean }) {
+  return (
+    <svg className={spinning ? 'refresh-spin' : undefined} viewBox="0 0 24 24" aria-hidden="true">
       <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M3 3v5h5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

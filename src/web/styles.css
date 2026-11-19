@@ -62,17 +62,44 @@ a:hover { text-decoration: underline; }
 }
 
 .top {
-  padding: 14px 22px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 22px;
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
-.top-row, .toolbar, .filters {
+.toolbar, .filters {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.filters[hidden] { display: none; }
-.top-row { justify-content: space-between; gap: 16px; }
+.top-tools { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tool-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+.tool-btn:hover { background: var(--bg-hover); color: var(--text); }
+.tool-btn[aria-pressed="true"] { background: var(--bg-raised); color: var(--text); }
+.tool-btn svg { width: 18px; height: 18px; flex: none; }
+.tool-btn .tool-pause { width: 12px; height: 12px; }
+.tool-count { font-size: 14px; font-variant-numeric: tabular-nums; }
+.tool-btn[data-state="active"] .tool-count { color: var(--accent); }
+.tool-btn[data-state="failed"] .tool-count { color: var(--red); }
+.tool-btn[data-state="paused"] { color: var(--yellow); }
+.refresh-tool:disabled { opacity: 1; cursor: progress; }
+.refresh-tool:disabled:hover { background: transparent; color: var(--muted); }
 .meta { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
 .meta strong { color: var(--text); font-weight: 400; }
 
@@ -83,43 +110,20 @@ a:hover { text-decoration: underline; }
   min-width: 0;
   flex: none;
 }
-.freshness { position: relative; }
-.pip-btn {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-}
-.pip-btn:hover { background: var(--bg-hover); }
-.freshness .pip {
+.refresh-tool .pip {
+  position: absolute;
+  top: 5px;
+  right: 5px;
   width: 8px;
   height: 8px;
   margin: 0;
   border-radius: 50%;
-  display: block;
-  vertical-align: 0;
+  box-shadow: 0 0 0 2px var(--bg);
 }
-.freshness .pip.fresh { background: var(--green); }
-.freshness .pip.aging { background: var(--yellow); }
-.freshness .pip.stale { background: var(--red); }
-.freshness-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 30;
-  white-space: nowrap;
-  padding: 8px 10px;
-  background: var(--bg-raised);
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 14px;
-}
-.refresh-btn { color: var(--muted); }
+.refresh-tool:hover .pip { box-shadow: 0 0 0 2px var(--bg-hover); }
+.refresh-tool .pip.fresh { background: var(--green); }
+.refresh-tool .pip.aging { background: var(--yellow); }
+.refresh-tool .pip.stale { background: var(--red); }
 .refresh-activity {
   display: flex;
   align-items: center;
@@ -167,7 +171,7 @@ a:hover { text-decoration: underline; }
 }
 
 .toolbar { margin-top: 14px; flex-wrap: wrap; }
-.filters { margin-top: 10px; flex-wrap: wrap; gap: 8px; }
+.filters { flex-wrap: wrap; gap: 8px; padding: 10px 22px 4px; background: #141512; }
 .search-box {
   display: flex;
   align-items: center;
@@ -618,9 +622,20 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .pill.queue.merged, .pill.queue.restacked, .pill.queue.done { color: var(--green); }
 .pill.queue.failed { color: var(--red); }
 .pill.queue.cancelled { color: var(--faint); }
-.nav { display: flex; gap: 4px; margin: 0; flex-wrap: wrap; }
-.nav .text-btn { font-size: 20px; line-height: 1.2; padding: 8px 14px; }
-.nav .text-btn[aria-pressed="true"] { color: var(--text); background: var(--bg-raised); }
+.nav { display: flex; gap: 24px; margin: 0; align-self: flex-end; }
+.nav .tab {
+  margin-bottom: -1px;
+  padding: 14px 2px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.nav .tab:hover { color: var(--text); }
+.nav .tab[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); }
 .nav-count {
   margin-left: 6px;
   color: var(--accent);
