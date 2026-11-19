@@ -10,8 +10,10 @@ import { Updater } from './updater.ts'
 
 const UPDATE_INTERVAL_MS = 5 * 60_000
 
-// Both overrides exist so a development run can stay clear of the installed app.
-if (process.env.PR_DASH_USER_DATA) app.setPath('userData', path.resolve(process.env.PR_DASH_USER_DATA))
+// Electron would name the folder after the package, "pr-dash-desktop". Both
+// overrides exist so a development run can stay clear of the installed app.
+app.setName('PR Dash')
+app.setPath('userData', process.env.PR_DASH_USER_DATA ? path.resolve(process.env.PR_DASH_USER_DATA) : path.join(app.getPath('appData'), 'PR Dash'))
 const userData = app.getPath('userData')
 mkdirSync(userData, { recursive: true })
 
