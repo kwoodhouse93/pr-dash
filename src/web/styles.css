@@ -262,7 +262,7 @@ span.chip { gap: 0; }
 }
 .chip[aria-pressed="true"] .chip-count { color: var(--accent); }
 .popover.filter-menu { width: min(260px, calc(100vw - 24px)); padding: 6px; }
-.filter-option {
+.menu-item.filter-option {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -270,7 +270,7 @@ span.chip { gap: 0; }
   padding: 6px 8px;
 }
 .filter-option[data-empty] { color: var(--faint); }
-.filter-option[aria-checked="true"] { color: var(--accent); }
+.menu-item.filter-option[aria-checked="true"] { background: var(--chip); color: var(--text); }
 .filter-menu-foot { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
 .filter-menu-foot .menu-item { padding: 6px 8px; color: var(--muted); font-size: 14px; }
 
