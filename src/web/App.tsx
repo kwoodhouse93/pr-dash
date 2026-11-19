@@ -18,7 +18,7 @@ import { SettingsPage } from './settings.tsx'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
 import { PrTable } from './table.tsx'
-import { Toasts, clearActionError, dismissToast, toastError, toastSticky, toastSuccess, toastWarning } from './toasts.tsx'
+import { Toasts, clearActionError, dismissToast, toastError, toastHeld, toastSticky, toastSuccess, toastWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
 
 /** Skip another GitHub pull when the saved list is newer than this. The server refreshes the list more often. */
@@ -351,16 +351,14 @@ export function App() {
   }, [linearHint])
 
   const heldEntries = (queue?.entries ?? []).filter((entry) => entry.status === 'failed')
-  const heldNotice =
-    heldEntries.length === 0
-      ? null
-      : heldEntries.length === 1
-        ? `Merge held: ${heldEntries[0]!.title}. ${heldEntries[0]!.error ?? ''} The rest of the queue carries on.`
-        : `${heldEntries.length} merges are held. The rest of the queue carries on.`
+  // The notice is redrawn only when what it says would change, not on every queue poll.
+  const heldKey = heldEntries.map((entry) => `${entry.id}:${entry.error ?? ''}:${entry.updatedAt}`).join('|')
   useEffect(() => {
-    if (heldNotice) toastSticky(heldNotice, 'queue-held', 'warning')
-    else dismissToast('queue-held')
-  }, [heldNotice])
+    toastHeld(heldEntries, {
+      onRetry: (entryId) => void changeQueue(() => api.retryMerge(entryId)),
+      onView: () => setPrefs((current) => ({ ...current, page: 'queue' })),
+    })
+  }, [heldKey])
 
   const page = prefs.page
   const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']

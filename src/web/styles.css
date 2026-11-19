@@ -1767,3 +1767,25 @@ kbd {
   font-size: 13px;
   text-align: center;
 }
+
+/* The held-merge notice: what stopped, where, why in two lines, then what you can do. */
+.held-toast { margin-top: 4px; min-width: 0; }
+.held-toast p, .held-toast ul { margin: 0; padding: 0; list-style: none; }
+.held-toast .held-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.held-toast .held-where { margin-top: 2px; color: var(--muted); font-size: 13px; }
+.held-toast .held-why {
+  margin-top: 6px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.held-actions { display: flex; gap: 8px; margin-top: 10px; }
+.held-actions button { padding: 3px 12px; font-size: 14px; border-radius: 8px; }
+html [data-sonner-toast][data-styled='true'] [data-content] { min-width: 0; flex: 1; }
+.held-actions .primary { border: 0; }
+.held-actions .ghost { background: transparent; color: var(--text); }
