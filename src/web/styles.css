@@ -757,7 +757,8 @@ tr.held .stack-mark::after { opacity: 0.35; }
 }
 .pill.draft { color: var(--yellow); }
 .tag-btn { cursor: pointer; background: transparent; }
-.num, .when, .size { font-variant-numeric: tabular-nums; font-family: "Source Code Pro", ui-monospace, monospace; font-weight: 300; font-size: 14px; }
+td.num, td.size { font-variant-numeric: tabular-nums; font-family: "Source Code Pro", ui-monospace, monospace; font-weight: 300; font-size: 14px; }
+td.when { font-variant-numeric: tabular-nums; }
 th.num,
 td.num {
   width: 1%;
