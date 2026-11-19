@@ -55,8 +55,6 @@ export type MergeEntry = {
 }
 
 export type QueueSnapshot = {
-  paused: boolean
-  pauseReason: string | null
   entries: MergeEntry[]
   history: MergeEntry[]
   watches: MergeWatch[]
@@ -277,35 +275,35 @@ export function interpretWait(live: LivePull, trunk: string, requiredNames: stri
 
 export type BootAction =
   | { type: 'resume' }
-  | { type: 'pause'; reason: string; merged: boolean }
+  | { type: 'hold'; reason: string; merged: boolean }
 
-/** Decide whether a restart may continue the active entry. */
+/** Decide whether a restart may continue the active entry, or must hold it aside. */
 export function bootAction(status: StepStatus, github: 'OPEN' | 'MERGED' | 'CLOSED' | 'unknown'): BootAction {
   if (status === 'waiting' || status === 'queued') return { type: 'resume' }
   if (status === 'rebasing') {
     return {
-      type: 'pause',
+      type: 'hold',
       merged: false,
-      reason: 'Restarted during a rebase. Nothing further was pushed. Remove or cancel this entry to continue the queue.',
+      reason: 'Restarted during a rebase. Nothing further was pushed. Restack the remaining branches and retry, or remove this entry.',
     }
   }
   if (status === 'merging' && github === 'MERGED') {
     return {
-      type: 'pause',
+      type: 'hold',
       merged: true,
-      reason: 'Restarted after this pull request merged. The rest of the entry was not rebased. Remove or cancel it to continue the queue.',
+      reason: 'Restarted after this pull request merged. The rest of the entry was not rebased. Restack the remaining branches and retry, or remove this entry.',
     }
   }
   if (status === 'merging') {
     return {
-      type: 'pause',
+      type: 'hold',
       merged: false,
-      reason: 'Restarted while a squash merge was in flight. It was not retried. Remove or cancel this entry to continue the queue.',
+      reason: 'Restarted while a squash merge was in flight. Retry to check whether it landed and carry on, or remove this entry.',
     }
   }
   return {
-    type: 'pause',
+    type: 'hold',
     merged: false,
-    reason: 'Restarted in the middle of this entry. Remove or cancel it to continue the queue.',
+    reason: 'Restarted in the middle of this entry. Retry it, or remove it.',
   }
 }

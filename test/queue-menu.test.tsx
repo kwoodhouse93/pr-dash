@@ -145,6 +145,7 @@ describe('queue menu', () => {
             onCreateAssigned={async () => {}}
             onMerge={async () => {}}
             onQueue={onQueue}
+            onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}
             onSetMergeWhenReady={options.onSetMergeWhenReady ?? (async () => {})}

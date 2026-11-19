@@ -98,12 +98,7 @@ export function attachQueue(db: DatabaseSync) {
       level TEXT NOT NULL,
       message TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS merge_worker (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      paused INTEGER NOT NULL DEFAULT 0,
-      pause_entry_id TEXT,
-      pause_reason TEXT
-    );
+    DROP TABLE IF EXISTS merge_worker;
     CREATE TABLE IF NOT EXISTS merge_retained (
       pr_key TEXT PRIMARY KEY,
       entry_id TEXT NOT NULL,
@@ -121,7 +116,6 @@ export function attachQueue(db: DatabaseSync) {
       created_at TEXT NOT NULL
     );
   `)
-  db.prepare('INSERT INTO merge_worker (id, paused) VALUES (1, 0) ON CONFLICT(id) DO NOTHING').run()
 
   const readEntries = db.prepare(
     `SELECT id, position, kind, repo, trunk, title, status, error, created_at, updated_at, started_at, finished_at
@@ -193,14 +187,6 @@ export function attachQueue(db: DatabaseSync) {
     return entryFrom(row, allSteps(), false)
   }
 
-  function worker(): { paused: number; pause_entry_id: string | null; pause_reason: string | null } {
-    return db.prepare('SELECT paused, pause_entry_id, pause_reason FROM merge_worker WHERE id = 1').get() as {
-      paused: number
-      pause_entry_id: string | null
-      pause_reason: string | null
-    }
-  }
-
   function touch(id: string) {
     db.prepare('UPDATE merge_entries SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
   }
@@ -250,7 +236,6 @@ export function attachQueue(db: DatabaseSync) {
 
   const store = {
     snapshot(): QueueSnapshot {
-      const state = worker()
       const steps = allSteps()
       const rows = readEntries.all() as (EntryRow & { archived: number })[]
       const archived = db.prepare('SELECT id, archived FROM merge_entries').all() as { id: string; archived: number }[]
@@ -264,8 +249,6 @@ export function attachQueue(db: DatabaseSync) {
         .sort((a, b) => (b.finishedAt ?? b.updatedAt).localeCompare(a.finishedAt ?? a.updatedAt))
         .slice(0, 40)
       return {
-        paused: state.paused === 1,
-        pauseReason: state.pause_reason,
         entries,
         history,
         watches: watches(),
@@ -303,10 +286,6 @@ export function attachQueue(db: DatabaseSync) {
     forgetRepo(repo: string) {
       const like = repoKeyLike(repo)
       const entries = db.prepare('SELECT id FROM merge_entries WHERE repo = ?').all(repo) as { id: string }[]
-      const state = worker()
-      if (state.pause_entry_id && entries.some((entry) => entry.id === state.pause_entry_id)) {
-        db.prepare('UPDATE merge_worker SET paused = 0, pause_entry_id = NULL, pause_reason = NULL WHERE id = 1').run()
-      }
       for (const entry of entries) {
         db.prepare('DELETE FROM merge_logs WHERE entry_id = ?').run(entry.id)
         db.prepare('DELETE FROM merge_entries WHERE id = ?').run(entry.id)
@@ -338,10 +317,6 @@ export function attachQueue(db: DatabaseSync) {
 
     disarmWatch(key: string) {
       db.prepare('DELETE FROM merge_watches WHERE root_key = ?').run(key)
-    },
-
-    isPaused(): boolean {
-      return worker().paused === 1
     },
 
     isCancelRequested(id: string): boolean {
@@ -443,6 +418,7 @@ export function attachQueue(db: DatabaseSync) {
       )
     },
 
+    /** Holds the entry aside with its reason. Entries behind it keep running. */
     fail(id: string, stepId: string | null, message: string) {
       const now = new Date().toISOString()
       if (stepId) {
@@ -451,18 +427,39 @@ export function attachQueue(db: DatabaseSync) {
       db.prepare(
         `UPDATE merge_entries SET status = 'failed', error = ?, finished_at = ?, updated_at = ?, cancel_requested = 0 WHERE id = ?`,
       ).run(message, now, now, id)
-      db.prepare('UPDATE merge_worker SET paused = 1, pause_entry_id = ?, pause_reason = ? WHERE id = 1').run(id, message)
       store.log(id, 'error', message)
     },
 
-    pause(id: string, message: string) {
-      store.fail(id, null, message)
-    },
-
-    clearPause(id: string) {
-      const state = worker()
-      if (state.pause_entry_id && state.pause_entry_id !== id) return
-      db.prepare('UPDATE merge_worker SET paused = 0, pause_entry_id = NULL, pause_reason = NULL WHERE id = 1').run()
+    /**
+     * Puts a held entry back in line where it stood. Unfinished steps take the head and base
+     * GitHub reports now, so a fix pushed since the failure is what gets merged.
+     */
+    retry(id: string, live: { stepId: string; headOid: string; baseRef: string; restacked: boolean }[]) {
+      const entry = load(id)
+      if (!entry) throw new Error('That merge is no longer in the queue.')
+      if (entry.status !== 'failed') throw new Error('Only a held merge can be retried.')
+      const now = new Date().toISOString()
+      db.exec('BEGIN')
+      try {
+        db.prepare(
+          `UPDATE merge_steps SET status = 'queued', detail = NULL, updated_at = ?
+           WHERE entry_id = ? AND status NOT IN ('merged', 'restacked', 'cancelled')`,
+        ).run(now, id)
+        for (const step of live) {
+          db.prepare(
+            `UPDATE merge_steps SET head_oid = ?, base_ref = ?, status = ?, updated_at = ?
+             WHERE id = ? AND entry_id = ? AND status = 'queued'`,
+          ).run(step.headOid.toLowerCase(), step.baseRef, step.restacked ? 'restacked' : 'queued', now, step.stepId, id)
+        }
+        db.prepare(
+          `UPDATE merge_entries SET status = 'queued', error = NULL, finished_at = NULL, cancel_requested = 0, updated_at = ? WHERE id = ?`,
+        ).run(now, id)
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+      store.log(id, 'info', 'Retrying.')
     },
 
     requestCancel(id: string): 'later' | 'now' {
@@ -489,7 +486,6 @@ export function attachQueue(db: DatabaseSync) {
       db.prepare(
         `UPDATE merge_entries SET status = 'cancelled', cancel_requested = 0, finished_at = ?, updated_at = ? WHERE id = ?`,
       ).run(now, now, id)
-      store.clearPause(id)
       store.log(id, 'info', 'Cancelled. No further merges will run for this entry.')
       touch(id)
     },
@@ -518,7 +514,6 @@ export function attachQueue(db: DatabaseSync) {
     },
 
     nextRunnable(): MergeEntry | null {
-      if (worker().paused === 1) return null
       const active = db.prepare(
         `SELECT id FROM merge_entries WHERE status = 'active' AND archived = 0 ORDER BY position ASC LIMIT 1`,
       ).get() as { id: string } | undefined

@@ -6,18 +6,21 @@ import { prHref, usePrLinkHost } from './pr-links.tsx'
 export type QueuePull = { number: number; title: string; url: string }
 
 type CancelFn = (id: string) => Promise<void>
+type RetryFn = (id: string) => Promise<void>
 type MoveFn = (id: string, direction: 'up' | 'down') => Promise<void>
 
 export function MergeQueuePage({
   queue,
   pulls,
   onCancel,
+  onRetry,
   onMove,
 }: {
   queue: QueueSnapshot | null
   /** Open pull requests by key, used to name the ones set to merge when ready. */
   pulls?: Map<string, QueuePull>
   onCancel: CancelFn
+  onRetry: RetryFn
   onMove: MoveFn
 }) {
   if (!queue) {
@@ -29,7 +32,7 @@ export function MergeQueuePage({
       </div>
     )
   }
-  const stopped = queue.entries.filter((entry) => entry.status === 'failed')
+  const held = queue.entries.filter((entry) => entry.status === 'failed')
   const active = queue.entries.filter((entry) => entry.status === 'active')
   const next = queue.entries.filter((entry) => entry.status !== 'failed' && entry.status !== 'active')
   const idle = queue.entries.length === 0 && queue.watches.length === 0
@@ -41,17 +44,13 @@ export function MergeQueuePage({
           <p>Queue a pull request, or merge a stack, and it will show up here.</p>
         </div>
       ) : null}
-      {queue.paused && stopped.length === 0 ? (
-        <p className="queue-banner">
-          <strong>Queue paused</strong>
-          {queue.pauseReason}
-        </p>
-      ) : null}
-      {stopped.length > 0 ? (
+      {held.length > 0 ? (
         <section>
-          <h2 className="queue-label stopped">Queue stopped</h2>
-          {stopped.map((entry) => (
-            <NowCard key={entry.id} entry={entry} onCancel={onCancel} />
+          <h2 className="queue-label held">
+            Held <span>{held.length}</span>
+          </h2>
+          {held.map((entry) => (
+            <NowCard key={entry.id} entry={entry} onCancel={onCancel} onRetry={onRetry} />
           ))}
         </section>
       ) : null}
@@ -118,8 +117,9 @@ export function MergeQueuePage({
   )
 }
 
-function NowCard({ entry, onCancel }: { entry: MergeEntry; onCancel: CancelFn }) {
+function NowCard({ entry, onCancel, onRetry }: { entry: MergeEntry; onCancel: CancelFn; onRetry?: RetryFn }) {
   const failed = entry.status === 'failed'
+  const [retrying, setRetrying] = useState(false)
   const merged = entry.steps.filter((step) => step.status === 'merged').length
   const shape = entry.kind === 'stack' ? `stack of ${entry.steps.length} into ${entry.trunk}` : `pull request into ${entry.trunk}`
   return (
@@ -136,6 +136,20 @@ function NowCard({ entry, onCancel }: { entry: MergeEntry; onCancel: CancelFn })
           <span className="queue-clock" title={`Started ${formatExact(entry.startedAt)}`}>
             {formatClock(Date.now() - Date.parse(entry.startedAt))}
           </span>
+        ) : null}
+        {failed && onRetry ? (
+          <button
+            type="button"
+            className="primary"
+            disabled={retrying}
+            aria-busy={retrying}
+            onClick={() => {
+              setRetrying(true)
+              void onRetry(entry.id).finally(() => setRetrying(false))
+            }}
+          >
+            {retrying ? 'Retrying' : 'Retry'}
+          </button>
         ) : null}
         <button type="button" className="ghost" onClick={() => void onCancel(entry.id)}>
           {failed ? 'Remove' : 'Cancel'}

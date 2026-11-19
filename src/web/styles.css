@@ -96,7 +96,6 @@ a:hover { text-decoration: underline; }
 .tool-count { font-size: 14px; font-variant-numeric: tabular-nums; }
 .tool-btn[data-state="active"] .tool-count { color: var(--accent); }
 .tool-btn[data-state="failed"] .tool-count { color: var(--red); }
-.tool-btn[data-state="paused"] .tool-count { color: var(--red); }
 .refresh-tool:disabled { opacity: 1; cursor: progress; }
 .refresh-tool:disabled:hover { background: transparent; color: var(--muted); }
 .meta { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
@@ -121,7 +120,7 @@ a:hover { text-decoration: underline; }
 }
 .tool-btn:hover .pip { box-shadow: 0 0 0 2px var(--bg-hover); }
 .tool-btn[aria-pressed="true"] .pip { box-shadow: 0 0 0 2px var(--bg-raised); }
-.tool-btn .pip.paused { background: var(--red); }
+.tool-btn .pip.held { background: var(--red); }
 .refresh-tool .pip.fresh { background: var(--green); }
 .refresh-tool .pip.aging { background: var(--yellow); }
 .refresh-tool .pip.stale { background: var(--red); }
@@ -592,6 +591,7 @@ span.author { display: inline-flex; align-items: center; gap: 8px; min-width: 0;
 .split-merge { display: inline-flex; }
 .split-merge .primary.merge:not(.caret) { border-radius: 8px 0 0 8px; }
 .split-merge .primary.merge.caret { border-radius: 0 8px 8px 0; border-left: 1px solid #9a6d3b; padding: 4px 8px; }
+.merge-held { display: inline-flex; gap: 8px; align-items: center; }
 .merge-error { margin: 0; max-width: 280px; color: var(--red); font-size: 12px; line-height: 1.35; }
 .popover.merge-menu { width: 160px; padding: 6px; }
 tbody tr.held > td,
@@ -659,9 +659,7 @@ tr.held .stack-mark::after { opacity: 0.35; }
   text-transform: uppercase;
 }
 .queue-label span { color: var(--muted); }
-.queue-label.stopped { color: var(--red); }
-.queue-banner { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--yellow-dim); }
-.queue-banner strong { margin-right: 10px; color: var(--yellow); font-weight: 500; }
+.queue-label.held { color: var(--red); }
 
 .queue-now {
   border: 1px solid var(--line-strong);
@@ -675,7 +673,7 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .queue-now-title { flex: 1; min-width: 0; }
 .queue-now h3 { margin: 0; font-family: "Source Serif 4", Georgia, serif; font-size: 22px; font-weight: 500; line-height: 1.25; }
 .queue-now header p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
-.queue-now header .ghost { padding: 4px 12px; font-size: 15px; flex: none; }
+.queue-now header .ghost, .queue-now header .primary { padding: 4px 12px; font-size: 15px; flex: none; }
 .queue-clock { color: var(--accent); font-size: 22px; line-height: 1.25; font-variant-numeric: tabular-nums; flex: none; }
 .queue-error { margin: 0 0 10px; color: var(--red); font-size: 15px; }
 

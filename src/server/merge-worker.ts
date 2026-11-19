@@ -199,6 +199,34 @@ export function cancelEntry(db: DashboardDb, id: string) {
   }
 }
 
+/** Re-reads each unfinished pull request, then puts the held entry back in line. */
+export async function retryEntry(db: DashboardDb, id: string) {
+  const entry = db.queue.get(id)
+  if (!entry) throw new MergeRejected('That merge is no longer in the queue.')
+  if (entry.status !== 'failed') throw new MergeRejected('Only a held merge can be retried.')
+  const token = loadGithubToken()
+  const pulls = db.snapshot().pullRequests
+  const live: { stepId: string; headOid: string; baseRef: string; restacked: boolean }[] = []
+  for (const step of entry.steps) {
+    if (step.status === 'merged' || step.status === 'restacked' || step.status === 'cancelled') continue
+    const names = pulls.find((pr) => pr.key === step.prKey)?.requiredCheckNames ?? []
+    const now = await fetchLivePull(token, entry.repo, step.number, names)
+    live.push({
+      stepId: step.id,
+      headOid: now.headOid,
+      baseRef: now.baseRef,
+      // A branch that only needed moving off the stack is finished once it targets trunk, or is no longer open.
+      restacked: step.role === 'restack' && (now.state !== 'OPEN' || now.baseRef === entry.trunk),
+    })
+  }
+  try {
+    db.queue.retry(id, live)
+  } catch (error) {
+    throw new MergeRejected(error instanceof Error ? error.message : 'Could not retry that merge.')
+  }
+  kickMergeWorker()
+}
+
 export function moveEntry(db: DashboardDb, id: string, direction: 'up' | 'down') {
   db.queue.move(id, direction)
 }
@@ -275,7 +303,7 @@ async function boot() {
   if (step.status === 'rebasing') {
     await abortRebases(mirrorFor(active.repo))
     const action = bootAction(step.status, 'unknown')
-    if (action.type === 'pause') store.fail(active.id, step.id, action.reason)
+    if (action.type === 'hold') store.fail(active.id, step.id, action.reason)
     return
   }
   if (step.status === 'merging') {
@@ -288,7 +316,7 @@ async function boot() {
       github = 'unknown'
     }
     const action = bootAction(step.status, github)
-    if (action.type === 'pause') {
+    if (action.type === 'hold') {
       if (action.merged) store.setStep(step.id, 'merged', null)
       store.fail(active.id, action.merged ? null : step.id, action.reason)
     }

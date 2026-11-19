@@ -99,6 +99,7 @@ export const api = {
   setMergeWhenReady: (key: string, scope: 'pr' | 'downstack', enabled: boolean) =>
     post<QueueSnapshot>('/api/merge-when-ready', { key, scope, enabled }),
   cancelMerge: (id: string) => post<QueueSnapshot>(`/api/merge-queue/${id}/cancel`, {}),
+  retryMerge: (id: string) => post<QueueSnapshot>(`/api/merge-queue/${id}/retry`, {}),
   moveMerge: (id: string, direction: 'up' | 'down') => post<QueueSnapshot>(`/api/merge-queue/${id}/move`, { direction }),
   linearStatuses: (query: { teamId?: string | null; issue: string }) => {
     const key = query.teamId || query.issue

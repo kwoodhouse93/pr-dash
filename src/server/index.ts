@@ -26,6 +26,7 @@ import {
   enqueuePull,
   MergeRejected,
   moveEntry,
+  retryEntry,
   setMergeWhenReady,
   startMergeWorker,
 } from './merge-worker.ts'
@@ -342,6 +343,16 @@ app.post('/api/merge-queue/:id/cancel', (c) => {
     return c.json(db.queue.snapshot())
   } catch (error) {
     return c.json({ error: messageOf(error) }, 400)
+  }
+})
+
+app.post('/api/merge-queue/:id/retry', async (c) => {
+  try {
+    await retryEntry(db, c.req.param('id'))
+    return c.json(db.queue.snapshot())
+  } catch (error) {
+    const status = error instanceof MergeRejected ? 409 : 502
+    return c.json({ error: messageOf(error) }, status)
   }
 })
 

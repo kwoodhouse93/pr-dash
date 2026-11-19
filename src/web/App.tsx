@@ -356,13 +356,17 @@ export function App() {
     )
   }, [linearHint])
 
+  const heldEntries = (queue?.entries ?? []).filter((entry) => entry.status === 'failed')
+  const heldNotice =
+    heldEntries.length === 0
+      ? null
+      : heldEntries.length === 1
+        ? `Merge held: ${heldEntries[0]!.title}. ${heldEntries[0]!.error ?? ''} The rest of the queue carries on.`
+        : `${heldEntries.length} merges are held. The rest of the queue carries on.`
   useEffect(() => {
-    if (queue?.paused && queue.pauseReason) {
-      toastSticky(`Queue paused. ${queue.pauseReason}`, 'queue-paused', 'warning')
-    } else {
-      dismissToast('queue-paused')
-    }
-  }, [queue?.paused, queue?.pauseReason])
+    if (heldNotice) toastSticky(heldNotice, 'queue-held', 'warning')
+    else dismissToast('queue-held')
+  }, [heldNotice])
 
   const page = prefs.page
   const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']
@@ -568,6 +572,7 @@ export function App() {
               queue={queue}
               pulls={new Map((data?.pullRequests ?? []).map((pr) => [pr.key, pr]))}
               onCancel={(id) => changeQueue(() => api.cancelMerge(id), true)}
+              onRetry={(id) => changeQueue(() => api.retryMerge(id))}
               onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
             />
           ) : null}
@@ -661,6 +666,9 @@ export function App() {
               }}
               onQueue={async (key) => {
                 setQueue(await api.enqueue(key, 'pr'))
+              }}
+              onRetry={async (entryId) => {
+                setQueue(await api.retryMerge(entryId))
               }}
               onStackMerge={async (key) => {
                 setQueue(await api.enqueue(key, 'downstack'))
@@ -793,20 +801,17 @@ function RefreshControl({
 function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot | null; pressed: boolean; onClick: () => void }) {
   const entries = queue?.entries ?? []
   const count = entries.length
-  const paused = queue?.paused ?? false
-  const state = paused
-    ? 'paused'
-    : entries.some((entry) => entry.status === 'failed')
+  const held = entries.filter((entry) => entry.status === 'failed').length
+  const state = entries.some((entry) => entry.status === 'active')
+    ? 'active'
+    : held > 0
       ? 'failed'
-      : entries.some((entry) => entry.status === 'active')
-        ? 'active'
-        : count > 0
-          ? 'queued'
-          : 'empty'
+      : count > 0
+        ? 'queued'
+        : 'empty'
   const detail = {
-    paused: `paused${queue?.pauseReason ? `. ${queue.pauseReason}` : ''}`,
-    failed: 'a merge failed',
-    active: 'merging',
+    failed: `${held} held`,
+    active: held > 0 ? `merging, ${held} held` : 'merging',
     queued: 'waiting',
     empty: 'empty',
   }[state]
@@ -819,7 +824,7 @@ function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot | null;
         <path d="M6 21V9a9 9 0 0 0 9 9" />
       </svg>
       {count > 0 ? <span className="tool-count">{count}</span> : null}
-      {paused ? <span className="pip paused" /> : null}
+      {held > 0 ? <span className="pip held" /> : null}
     </button>
   )
 }

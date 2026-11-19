@@ -65,6 +65,7 @@ export function PrTable({
   onCreateAssigned,
   onMerge,
   onQueue,
+  onRetry,
   onStackMerge,
   onMarkReady,
   onSetMergeWhenReady,
@@ -97,6 +98,7 @@ export function PrTable({
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
+  onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
   onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
@@ -129,6 +131,7 @@ export function PrTable({
     onCreateAssigned,
     onMerge,
     onQueue,
+    onRetry,
     onStackMerge,
     onMarkReady,
     onSetMergeWhenReady,
@@ -254,6 +257,7 @@ type RowShared = {
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
+  onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
   onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
@@ -471,6 +475,7 @@ function BlockRows({
           onCreateAssigned={shared.onCreateAssigned}
           onMerge={shared.onMerge}
           onQueue={shared.onQueue}
+          onRetry={shared.onRetry}
           onStackMerge={shared.onStackMerge}
           onMarkReady={shared.onMarkReady}
           onSetMergeWhenReady={shared.onSetMergeWhenReady}
@@ -508,6 +513,7 @@ function BlockRows({
       onLinkIssue={shared.onLinkIssue}
       onMerge={shared.onMerge}
       onQueue={shared.onQueue}
+      onRetry={shared.onRetry}
       onStackMerge={shared.onStackMerge}
       onMarkReady={shared.onMarkReady}
       onSetMergeWhenReady={shared.onSetMergeWhenReady}
@@ -535,6 +541,7 @@ function DataRow({
   onCreateAssigned,
   onMerge,
   onQueue,
+  onRetry,
   onStackMerge,
   onMarkReady,
   onSetMergeWhenReady,
@@ -562,6 +569,7 @@ function DataRow({
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
+  onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
   onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
@@ -635,6 +643,7 @@ function DataRow({
             mark={mark}
             onMerge={onMerge}
             onQueue={onQueue}
+            onRetry={onRetry}
             onStackMerge={onStackMerge}
             onMarkReady={onMarkReady}
             watch={watchesByKey.get(pr.key) ?? null}
@@ -683,6 +692,7 @@ function SummaryRow({
   onLinkIssue,
   onMerge,
   onQueue,
+  onRetry,
   onStackMerge,
   onMarkReady,
   onSetMergeWhenReady,
@@ -710,6 +720,7 @@ function SummaryRow({
   onLinkIssue: (key: string, identifier: string) => Promise<void>
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
+  onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
   onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
@@ -793,13 +804,14 @@ function SummaryRow({
             progress
             onMerge={onMerge}
             onQueue={onQueue}
+            onRetry={onRetry}
             onStackMerge={onStackMerge}
             onMarkReady={onMarkReady}
             watch={watchesByKey.get(top.key) ?? null}
             onSetMergeWhenReady={onSetMergeWhenReady}
           />
         ) : mark ? (
-          <QueueStatus mark={mark} progress />
+          <QueueStatus mark={mark} progress onRetry={onRetry} />
         ) : null}
       </td>
       ) : null}
@@ -1541,6 +1553,7 @@ function MergeControls({
   progress = false,
   onMerge,
   onQueue,
+  onRetry,
   onStackMerge,
   onMarkReady,
   onSetMergeWhenReady,
@@ -1552,11 +1565,12 @@ function MergeControls({
   progress?: boolean
   onMerge: (key: string) => Promise<void>
   onQueue: (key: string) => Promise<void>
+  onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
   onSetMergeWhenReady: (key: string, scope: MergeWatch['scope'], enabled: boolean) => Promise<void>
 }) {
-  if (mark) return <QueueStatus mark={mark} progress={progress} />
+  if (mark) return <QueueStatus mark={mark} progress={progress} onRetry={onRetry} />
   if (watch) {
     return <MergeWhenReady pr={pr} scope={watch.scope} watch={watch} onChange={onSetMergeWhenReady} />
   }
@@ -1642,12 +1656,38 @@ function MergeWhenReady({
   )
 }
 
-function QueueStatus({ mark, progress }: { mark: RowMark; progress: boolean }) {
+function QueueStatus({ mark, progress, onRetry }: { mark: RowMark; progress: boolean; onRetry: (entryId: string) => Promise<void> }) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const text = progress && mark.total > 1 ? `${stepLabel(mark.status)} · ${mark.done} of ${mark.total}` : stepLabel(mark.status)
+  // A held entry is retried from the row that failed, or from the row that stands for the whole stack.
+  const retry = mark.entryStatus === 'failed' && (mark.status === 'failed' || progress)
   return (
     <div className="merge-action">
-      <span className={`pill queue ${mark.status}`}>{text}</span>
-      {mark.status === 'failed' && mark.detail ? <p className="merge-error">{mark.detail}</p> : null}
+      <div className="merge-held">
+        <span className={`pill queue ${mark.status}`}>{text}</span>
+        {retry ? (
+          <button
+            type="button"
+            className="ghost merge"
+            disabled={pending}
+            aria-busy={pending}
+            onClick={() => {
+              setPending(true)
+              setError(null)
+              void onRetry(mark.entryId)
+                .catch((caught: unknown) => {
+                  setError(caught instanceof Error ? caught.message : 'Could not retry that merge')
+                })
+                .finally(() => setPending(false))
+            }}
+          >
+            {pending ? 'Retrying' : 'Retry'}
+          </button>
+        ) : null}
+      </div>
+      {(mark.status === 'failed' || retry) && mark.detail ? <p className="merge-error">{mark.detail}</p> : null}
+      {error ? <p className="merge-error">{error}</p> : null}
     </div>
   )
 }

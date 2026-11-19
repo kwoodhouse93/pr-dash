@@ -46,7 +46,7 @@ function entry(logs: MergeEntry['logs']): MergeEntry {
 }
 
 function snapshot(logs: MergeEntry['logs']): QueueSnapshot {
-  return { paused: false, pauseReason: null, entries: [entry(logs)], history: [], watches: [] }
+  return { entries: [entry(logs)], history: [], watches: [] }
 }
 
 describe('merge queue logs', () => {
@@ -64,7 +64,7 @@ describe('merge queue logs', () => {
     root = createRoot(container)
     await act(async () => {
       root?.render(
-        <MergeQueuePage queue={queue} onCancel={async () => {}} onMove={async () => {}} />,
+        <MergeQueuePage queue={queue} onCancel={async () => {}} onRetry={async () => {}} onMove={async () => {}} />,
       )
     })
   }
@@ -120,7 +120,7 @@ describe('merge queue logs', () => {
 
   it('keeps finished entries to one line until they are opened', async () => {
     const done = { ...entry([]), status: 'done' as const, error: null }
-    await render({ paused: false, pauseReason: null, entries: [], history: [done], watches: [] })
+    await render({ entries: [], history: [done], watches: [] })
 
     expect(document.body.textContent).toContain('took 4m')
     expect(document.querySelector('.queue-rail')).toBeNull()
@@ -131,30 +131,40 @@ describe('merge queue logs', () => {
     expect(document.querySelector('.queue-rail')?.textContent).toContain('#7 Ship the queue')
   })
 
-  it('names a failed entry as the reason the queue stopped, and removes it', async () => {
+  it('holds a failed entry aside, and retries or removes it', async () => {
     const failed = { ...entry([]), status: 'failed' as const, error: '#7 has a merge conflict.' }
     const removed: string[] = []
+    const retried: string[] = []
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
     await act(async () => {
       root?.render(
         <MergeQueuePage
-          queue={{ paused: true, pauseReason: failed.error, entries: [failed], history: [], watches: [] }}
+          queue={{ entries: [failed], history: [], watches: [] }}
           onCancel={async (id) => {
             removed.push(id)
+          }}
+          onRetry={async (id) => {
+            retried.push(id)
           }}
           onMove={async () => {}}
         />,
       )
     })
 
-    expect(document.querySelector('.queue-label.stopped')?.textContent).toBe('Queue stopped')
+    expect(document.querySelector('.queue-label.held')?.textContent).toBe('Held 1')
     expect(document.body.textContent).toContain('#7 has a merge conflict.')
     expect(document.querySelector('.queue-clock')).toBeNull()
 
     const remove = document.querySelector<HTMLButtonElement>('.queue-now .ghost')
     expect(remove?.textContent).toBe('Remove')
+    const retry = document.querySelector<HTMLButtonElement>('.queue-now .primary')
+    expect(retry?.textContent).toBe('Retry')
+    await act(async () => {
+      retry!.click()
+    })
+    expect(retried).toEqual(['entry-1'])
     await act(async () => {
       remove!.click()
     })
@@ -169,14 +179,13 @@ describe('merge queue logs', () => {
       root?.render(
         <MergeQueuePage
           queue={{
-            paused: false,
-            pauseReason: null,
             entries: [],
             history: [],
             watches: [{ key: 'acme/app#9', scope: 'pr', keys: ['acme/app#9'], detail: 'Needs a review.', createdAt: '2026-10-22T09:00:00.000Z' }],
           }}
           pulls={new Map([['acme/app#9', { number: 9, title: 'Add audit log export', url: 'https://github.com/acme/app/pull/9' }]])}
           onCancel={async () => {}}
+          onRetry={async () => {}}
           onMove={async () => {}}
         />,
       )

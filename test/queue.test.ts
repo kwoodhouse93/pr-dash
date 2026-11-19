@@ -274,11 +274,11 @@ describe('landed merge holds', () => {
 })
 
 describe('restart', () => {
-  it('resumes a wait and pauses a rebase or an in-flight merge', () => {
+  it('resumes a wait and holds a rebase or an in-flight merge', () => {
     expect(bootAction('waiting', 'OPEN').type).toBe('resume')
-    expect(bootAction('rebasing', 'unknown')).toMatchObject({ type: 'pause', merged: false })
-    expect(bootAction('merging', 'MERGED')).toMatchObject({ type: 'pause', merged: true })
-    expect(bootAction('merging', 'OPEN')).toMatchObject({ type: 'pause', merged: false })
+    expect(bootAction('rebasing', 'unknown')).toMatchObject({ type: 'hold', merged: false })
+    expect(bootAction('merging', 'MERGED')).toMatchObject({ type: 'hold', merged: true })
+    expect(bootAction('merging', 'OPEN')).toMatchObject({ type: 'hold', merged: false })
   })
 })
 
@@ -309,7 +309,7 @@ describe('queue store', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('pauses on failure and resumes when that entry is cancelled', () => {
+  it('holds a failed entry aside, runs the one behind it, and retries it in place', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-queue-'))
     const db = openDatabase(path.join(dir, 'dash.sqlite'))
     const first = db.queue.enqueue({
@@ -327,15 +327,20 @@ describe('queue store', () => {
       steps: [{ prKey: 'acme/app#2', number: 2, title: 'Second', url: 'https://example.test', headRef: 'b', headOid: 'b'.repeat(40), baseRef: 'main', role: 'merge' }],
     })
     db.queue.fail(first.id, first.steps[0]!.id, 'Check failed.')
-    expect(db.queue.isPaused()).toBe(true)
-    expect(db.queue.nextRunnable()).toBeNull()
-    expect(db.queue.requestCancel(first.id)).toBe('now')
-    expect(db.queue.isPaused()).toBe(false)
     expect(db.queue.nextRunnable()?.id).toBe(second.id)
+    expect(db.queue.blocksKey('acme/app#1')).toBe(true)
+    expect(() => db.queue.retry(second.id, [])).toThrow(/held/)
 
+    db.queue.retry(first.id, [{ stepId: first.steps[0]!.id, headOid: 'C'.repeat(40), baseRef: 'main', restacked: false }])
+    const retried = db.queue.get(first.id)!
+    expect(retried).toMatchObject({ status: 'queued', error: null, finishedAt: null })
+    expect(retried.steps[0]).toMatchObject({ status: 'queued', detail: null, headOid: 'c'.repeat(40) })
+    expect(db.queue.nextRunnable()?.id).toBe(first.id)
+
+    db.queue.fail(first.id, first.steps[0]!.id, 'Check failed.')
+    expect(db.queue.requestCancel(first.id)).toBe('now')
     db.queue.fail(second.id, second.steps[0]!.id, 'Conflict.')
     expect(db.queue.requestCancel(second.id)).toBe('now')
-    expect(db.queue.isPaused()).toBe(false)
     expect(db.queue.snapshot().entries).toEqual([])
     expect(db.queue.snapshot().history.map((entry) => entry.status).sort()).toEqual(['cancelled', 'cancelled'])
     rmSync(dir, { recursive: true, force: true })
