@@ -29,26 +29,120 @@ export function clearActionError() {
   actionErrorId = null
 }
 
-export function toastError(message: string) {
+type NoticeAction = { label: string; onClick: () => void; primary?: boolean; /** Leave the notice up after the click. */ keep?: boolean }
+
+/** How many detail lines a notice lists before counting the rest. */
+const LINES_SHOWN = 3
+
+/** The shape every longer notice shares: a short heading, the detail in clamped lines, then what you can do about it. */
+function notice(
+  tone: 'info' | 'warning' | 'error',
+  heading: string,
+  options: { id?: string | number; lines?: string[]; actions?: NoticeAction[]; duration: number },
+): string | number {
+  const lines = (options.lines ?? []).map((line) => line.trim()).filter((line) => line && line !== heading)
+  const actions = options.actions ?? []
+  const show = tone === 'error' ? toast.error : tone === 'warning' ? toast.warning : toast.info
+  const id: string | number = show(heading, {
+    id: options.id,
+    duration: options.duration,
+    description:
+      lines.length === 0 && actions.length === 0 ? undefined : (
+        <div className="notice-toast">
+          {lines.slice(0, LINES_SHOWN).map((line, index) => (
+            <p key={index} className="notice-line" title={line}>
+              {line}
+            </p>
+          ))}
+          {lines.length > LINES_SHOWN ? <p className="notice-more">and {lines.length - LINES_SHOWN} more</p> : null}
+          {actions.length > 0 ? (
+            <div className="notice-actions">
+              {actions.map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  className={action.primary ? 'primary' : 'ghost'}
+                  onClick={() => {
+                    if (!action.keep) toast.dismiss(id)
+                    action.onClick()
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ),
+  })
+  return id
+}
+
+const PAUSED = /^GitHub GraphQL refreshes are paused until /
+
+/**
+ * `heading` names what failed and `message` is the detail under it; with no heading the message is the whole notice.
+ * A refresh paused for GitHub's budget is not a failure, so it says when it resumes instead.
+ */
+export function toastError(message: string, options: { heading?: string; onRetry?: () => void } = {}) {
   clearActionError()
-  actionErrorId = toast.error(message, { duration: READABLE })
+  if (PAUSED.test(message)) {
+    actionErrorId = notice('info', 'Refreshes paused', { lines: [message.replace(PAUSED, 'Resumes ')], duration: READABLE })
+    return
+  }
+  actionErrorId = notice('error', options.heading ?? message, {
+    lines: options.heading ? [message] : [],
+    actions: options.onRetry ? [{ label: 'Retry', onClick: options.onRetry, primary: true }] : [],
+    duration: options.onRetry ? READABLE * 2 : READABLE,
+  })
+}
+
+/** Problems a refresh finished with, one per line. It stays until a refresh comes back clean. */
+export function toastSyncWarning(warning: string | null, actions: { onRetry: () => void; onSettings: () => void }) {
+  if (!warning) {
+    toast.dismiss('snapshot-warning')
+    return
+  }
+  notice('warning', 'Refresh finished with problems', {
+    id: 'snapshot-warning',
+    lines: warning.split(/;\s+|\n/),
+    actions: [
+      { label: 'Retry', onClick: actions.onRetry, primary: true },
+      { label: 'Settings', onClick: actions.onSettings },
+    ],
+    duration: Infinity,
+  })
+}
+
+export function toastRerun(result: { reran: number; errors: string[] }, onRetryFailed: () => void) {
+  const count = `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}`
+  if (result.errors.length === 0) {
+    toastSuccess(`${count}.`)
+    return
+  }
+  notice('warning', `${count}, ${result.errors.length} could not be rerun`, {
+    lines: result.errors,
+    actions: [{ label: 'Retry failed', onClick: onRetryFailed, primary: true }],
+    duration: READABLE * 2,
+  })
+}
+
+/** Shown while pull requests carry Linear links but no key is set. `onHide` is the user asking not to see it again. */
+export function toastLinearHint(show: boolean, onHide: () => void) {
+  if (!show) {
+    toast.dismiss('linear-setup')
+    return
+  }
+  notice('info', 'Linear key not set', {
+    id: 'linear-setup',
+    lines: ['Status, assignee and project need LINEAR_API_KEY. Issue titles still come from GitHub.'],
+    actions: [{ label: 'Don’t show again', onClick: onHide }],
+    duration: Infinity,
+  })
 }
 
 export function toastSuccess(message: string) {
   toast.success(message, { duration: BRIEF })
-}
-
-export function toastWarning(message: string, id?: string) {
-  toast.warning(message, { id, duration: READABLE })
-}
-
-export function toastSticky(message: string, id: string, tone: 'info' | 'warning' | 'error' = 'info') {
-  const show = tone === 'error' ? toast.error : tone === 'warning' ? toast.warning : toast.info
-  show(message, { id, duration: Infinity })
-}
-
-export function dismissToast(id: string) {
-  toast.dismiss(id)
 }
 
 const HELD_ID = 'queue-held'
@@ -104,7 +198,7 @@ export function toastHeld(entries: MergeEntry[], actions: { onRetry: (entryId: s
             {entries.length > HELD_LISTED ? <li className="held-where">and {entries.length - HELD_LISTED} more</li> : null}
           </ul>
         )}
-        <div className="held-actions">
+        <div className="notice-actions">
           {only ? (
             <button type="button" className="primary" onClick={() => actions.onRetry(only.id)}>
               Retry

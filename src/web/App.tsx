@@ -18,11 +18,13 @@ import { SettingsPage } from './settings.tsx'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
 import { PrTable } from './table.tsx'
-import { Toasts, clearActionError, dismissToast, toastError, toastHeld, toastSticky, toastSuccess, toastWarning } from './toasts.tsx'
+import { Toasts, clearActionError, toastError, toastHeld, toastLinearHint, toastRerun, toastSyncWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
 
 /** Skip another GitHub pull when the saved list is newer than this. The server refreshes the list more often. */
 const REFRESH_MS = 2 * 60 * 1000
+/** Set once the Linear setup notice has been dismissed for good in this browser. */
+const LINEAR_HINT_HIDDEN = 'pr-dash:linear-hint-hidden'
 const SNAPSHOT_POLL_MS = 4_000
 const FRESH_MS = 10 * 60 * 1000
 const STALE_MS = 30 * 60 * 1000
@@ -49,6 +51,13 @@ export function App() {
   const [status, setStatus] = useState('Idle')
   const [progress, setProgress] = useState<RefreshProgress | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  const [linearHintHidden, setLinearHintHidden] = useState(() => {
+    try {
+      return localStorage.getItem(LINEAR_HINT_HIDDEN) === '1'
+    } catch {
+      return false
+    }
+  })
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
   const [queue, setQueue] = useState<QueueSnapshot | null>(null)
@@ -162,13 +171,15 @@ export function App() {
           }
         } catch (caught) {
           const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
-          if (message !== 'Sync cancelled' && id === applyId.current) toastError(message)
+          if (message !== 'Sync cancelled' && id === applyId.current) toastError(message, { heading: 'Could not load thread replies' })
         }
       }
       return true
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Refresh failed'
-      if (message !== 'Sync cancelled' && id === applyId.current) toastError(message)
+      if (message !== 'Sync cancelled' && id === applyId.current) {
+        toastError(message, { heading: 'Refresh failed', onRetry: () => void refresh({ ...options, force: true }) })
+      }
       return false
     } finally {
       window.clearInterval(poll)
@@ -185,7 +196,9 @@ export function App() {
       await loadFeedback(focus)
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
-      if (message !== 'Sync cancelled' && id === applyId.current) toastError(message)
+      if (message !== 'Sync cancelled' && id === applyId.current) {
+        toastError(message, { heading: 'Could not load thread replies', onRetry: () => void showFeedback(focus) })
+      }
     } finally {
       if (id === applyId.current) setRefreshing(false)
     }
@@ -208,7 +221,7 @@ export function App() {
       const snap = await work()
       if (id === applyId.current) setData(adopt(snap))
     } catch (caught) {
-      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not save that change')
+      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not save that change', { heading: 'Could not save that change' })
       throw caught
     } finally {
       if (id === applyId.current) setRefreshing(false)
@@ -244,7 +257,7 @@ export function App() {
           setData(next)
         }
       } catch (caught) {
-        if (!cancel) toastError(caught instanceof Error ? caught.message : 'Could not load the saved snapshot')
+        if (!cancel) toastError(caught instanceof Error ? caught.message : 'Could not load the saved list', { heading: 'Could not load the saved list' })
       } finally {
         if (!cancel) setBooting(false)
       }
@@ -326,28 +339,28 @@ export function App() {
   }, [syncWatch, refreshing, sync?.activity != null])
 
   const linearHint = Boolean(
+    !linearHintHidden &&
     data &&
     !data.linearConfigured &&
     [...data.pullRequests, ...(data.reviewPullRequests ?? [])].some((pr) => pr.linearIssues.length > 0),
   )
 
   useEffect(() => {
-    if (!data?.warning) {
-      dismissToast('snapshot-warning')
-      return
-    }
-    toastWarning(data.warning, 'snapshot-warning')
+    toastSyncWarning(data?.warning ?? null, {
+      onRetry: () => void refresh({ force: true }),
+      onSettings: () => setPrefs((current) => ({ ...current, page: 'settings' })),
+    })
   }, [data?.warning])
 
   useEffect(() => {
-    if (!linearHint) {
-      dismissToast('linear-setup')
-      return
-    }
-    toastSticky(
-      'Set LINEAR_API_KEY to load Linear status, assignee, and project. Issue titles still come from GitHub, and initiatives do not need Linear.',
-      'linear-setup',
-    )
+    toastLinearHint(linearHint, () => {
+      try {
+        localStorage.setItem(LINEAR_HINT_HIDDEN, '1')
+      } catch {
+        // Without storage it is hidden for this load only.
+      }
+      setLinearHintHidden(true)
+    })
   }, [linearHint])
 
   const heldEntries = (queue?.entries ?? []).filter((entry) => entry.status === 'failed')
@@ -441,7 +454,7 @@ export function App() {
       setQueue(await work())
       if (refreshAfter) void refresh({ force: true, focus: 'mine' })
     } catch (caught) {
-      toastError(caught instanceof Error ? caught.message : 'Could not update the merge queue')
+      toastError(caught instanceof Error ? caught.message : 'Could not update the merge queue', { heading: 'Could not update the merge queue' })
     }
   }
 
@@ -545,15 +558,18 @@ export function App() {
               repos={data?.repos ?? []}
               mineSyncedAt={data?.mineSyncedAt ?? null}
               reviewSyncedAt={data?.reviewSyncedAt ?? null}
-              onEnqueue={(kind) => {
+              onEnqueue={function enqueue(kind) {
                 const focus = pageRef.current === 'review' ? 'review' : 'mine'
                 void api.enqueueSync(kind, focus).then(setSync).catch((caught) => {
-                  toastError(caught instanceof Error ? caught.message : 'Could not queue that sync')
+                  toastError(caught instanceof Error ? caught.message : 'Could not queue that sync', {
+                    heading: 'Could not queue that sync',
+                    onRetry: () => enqueue(kind),
+                  })
                 })
               }}
               onCancelSync={(id) => {
                 void api.cancelSync(id).then(setSync).catch((caught) => {
-                  toastError(caught instanceof Error ? caught.message : 'Could not cancel that sync')
+                  toastError(caught instanceof Error ? caught.message : 'Could not cancel that sync', { heading: 'Could not cancel that sync' })
                 })
               }}
               initiatives={
@@ -691,7 +707,7 @@ export function App() {
                 setQueue(await api.setMergeWhenReady(key, scope, enabled))
               }}
               holds={holds}
-              onRerun={async (keys, mode) => {
+              onRerun={async function rerun(keys, mode): Promise<string> {
                 const keySet = new Set(keys)
                 const targeted = prs.filter((pr) => keySet.has(pr.key))
                 const optimistic = collectHolds(targeted, mode, null)
@@ -704,8 +720,7 @@ export function App() {
                   const text = result.errors.length
                     ? `Reran ${result.reran}. ${result.errors[0]}`
                     : `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}.`
-                  if (result.errors.length) toastWarning(text)
-                  else toastSuccess(text)
+                  toastRerun(result, () => void rerun(keys, 'failed').catch(() => undefined))
                   void refresh({ force: true })
                   return text
                 } catch (caught) {

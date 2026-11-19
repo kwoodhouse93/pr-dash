@@ -1784,8 +1784,22 @@ kbd {
   font-size: 13px;
   line-height: 1.4;
 }
-.held-actions { display: flex; gap: 8px; margin-top: 10px; }
-.held-actions button { padding: 3px 12px; font-size: 14px; border-radius: 8px; }
+.notice-toast { margin-top: 4px; min-width: 0; }
+.notice-toast p { margin: 0; }
+.notice-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.notice-line + .notice-line { margin-top: 4px; }
+.notice-more { margin-top: 4px; color: var(--faint); font-size: 13px; }
+.notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.notice-actions button { padding: 3px 12px; font-size: 14px; border-radius: 8px; }
+.notice-actions .primary { border: 0; }
+.notice-actions .ghost { background: transparent; color: var(--text); }
 html [data-sonner-toast][data-styled='true'] [data-content] { min-width: 0; flex: 1; }
-.held-actions .primary { border: 0; }
-.held-actions .ghost { background: transparent; color: var(--text); }
