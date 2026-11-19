@@ -125,8 +125,8 @@ export function ManageInitiatives({
   const [error, setError] = useState<string | null>(null)
 
   return (
-    <div>
-      <h3>Initiatives</h3>
+    <>
+      <h2>Initiatives</h2>
       <p>Buckets for work that is not a Linear project. Cleanup, refactors, background threads.</p>
       {initiatives.map((initiative) => (
         <form
@@ -188,7 +188,7 @@ export function ManageInitiatives({
           Add
         </button>
       </form>
-      {error ? <p>{error}</p> : null}
-    </div>
+      {error ? <p className="repo-error">{error}</p> : null}
+    </>
   )
 }

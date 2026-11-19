@@ -1,4 +1,4 @@
-import { DEFAULT_FILTERS, DEFAULT_SORT, type Filters, type Sort, type SortKey } from '../shared/types.ts'
+import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type Filters, type Sort, type SortKey } from '../shared/types.ts'
 import type { PrLinkHost } from './pr-links.tsx'
 
 const KEY = 'pr-dash.preferences.v1'
@@ -76,4 +76,57 @@ function loadListPreferences(
     filters: { ...DEFAULT_FILTERS, ...fallback.filters, ...(raw?.filters ?? {}) },
     byIssue: raw?.byIssue ?? fallback.byIssue,
   }
+}
+
+const PAGES = new Set<DashboardPage>(['mine', 'review', 'queue', 'settings'])
+const CI = new Set<CiLevel>(['red', 'yellow', 'green', 'pending', 'none'])
+const REVIEW = new Set<Filters['review']>(['unmet', 'met', 'human', 'changes', 'none'])
+const FILTER_PARAMS = ['q', 'repo', 'ci', 'review', 'approved', 'initiative', 'awaiting', 'drafts']
+
+/** The address query for the open page and its filters. Anything at its default is left out. */
+export function locationSearch(prefs: Preferences): string {
+  const params = new URLSearchParams()
+  if (prefs.page !== 'mine') params.set('view', prefs.page)
+  if (prefs.page === 'mine' || prefs.page === 'review') {
+    const filters = prefs.views[prefs.page].filters
+    if (filters.query) params.set('q', filters.query)
+    if (filters.repo) params.set('repo', filters.repo)
+    if (filters.ci !== 'all') params.set('ci', filters.ci)
+    if (filters.review !== 'all') params.set('review', filters.review)
+    if (filters.approvedByMe !== 'all') params.set('approved', filters.approvedByMe)
+    if (filters.initiativeId) params.set('initiative', filters.initiativeId)
+    if (filters.awaitingOnly) params.set('awaiting', '1')
+    if (filters.hideDrafts) params.set('drafts', 'hide')
+  }
+  const text = params.toString()
+  return text ? `?${text}` : ''
+}
+
+/**
+ * Saved preferences with the address applied on top. An address that names a page or a filter decides the page.
+ * One that names a filter replaces every filter on that page, so a link always opens the same list.
+ * A bare address changes nothing.
+ */
+export function withLocation(prefs: Preferences, search: string): Preferences {
+  const params = new URLSearchParams(search)
+  const view = params.get('view') as DashboardPage | null
+  const filtered = FILTER_PARAMS.some((name) => params.has(name))
+  if (!filtered && !(view && PAGES.has(view))) return prefs
+  const page = view && PAGES.has(view) ? view : 'mine'
+  if (!filtered || (page !== 'mine' && page !== 'review')) return { ...prefs, page }
+  const ci = params.get('ci') as CiLevel
+  const review = params.get('review') as Filters['review']
+  const approved = params.get('approved')
+  const filters: Filters = {
+    ...DEFAULT_FILTERS,
+    query: params.get('q') ?? '',
+    repo: params.get('repo') || null,
+    ci: CI.has(ci) ? ci : 'all',
+    review: REVIEW.has(review) ? review : 'all',
+    approvedByMe: approved === 'only' || approved === 'exclude' ? approved : 'all',
+    initiativeId: params.get('initiative') || null,
+    awaitingOnly: params.get('awaiting') === '1',
+    hideDrafts: params.get('drafts') === 'hide',
+  }
+  return { ...prefs, page, views: { ...prefs.views, [page]: { ...prefs.views[page], filters } } }
 }

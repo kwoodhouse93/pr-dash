@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
-import { loadPreferences, savePreferences } from '../src/web/prefs.ts'
+import { loadPreferences, locationSearch, savePreferences, withLocation } from '../src/web/prefs.ts'
 
 afterEach(() => localStorage.clear())
 
@@ -46,5 +46,58 @@ describe('dashboard preferences', () => {
 
     localStorage.setItem('pr-dash.preferences.v1', JSON.stringify({ prLinks: 'elsewhere', page: 'mine' }))
     expect(loadPreferences().prLinks).toBe('github')
+  })
+
+  it('writes the page and its filters to the address, and leaves defaults out', () => {
+    const prefs = loadPreferences()
+    expect(locationSearch(prefs)).toBe('')
+
+    prefs.page = 'review'
+    prefs.views.review.filters = { ...prefs.views.review.filters, query: 'retry hook', repo: 'acme/app', ci: 'red', awaitingOnly: true }
+    prefs.views.mine.filters.hideDrafts = true
+    expect(locationSearch(prefs)).toBe('?view=review&q=retry+hook&repo=acme%2Fapp&ci=red&awaiting=1')
+
+    prefs.page = 'settings'
+    expect(locationSearch(prefs)).toBe('?view=settings')
+  })
+
+  it('opens the list an address describes, whatever was saved', () => {
+    const saved = loadPreferences()
+    saved.page = 'queue'
+    saved.views.review.filters.hideDrafts = true
+    saved.views.review.byIssue = false
+
+    const opened = withLocation(saved, '?view=review&q=retry+hook&repo=acme%2Fapp&ci=red&awaiting=1')
+    expect(opened.page).toBe('review')
+    expect(opened.views.review.filters).toEqual({
+      query: 'retry hook',
+      repo: 'acme/app',
+      hideDrafts: false,
+      ci: 'red',
+      review: 'all',
+      approvedByMe: 'all',
+      awaitingOnly: true,
+      initiativeId: null,
+    })
+    expect(opened.views.review.byIssue).toBe(false)
+    expect(locationSearch(opened)).toBe('?view=review&q=retry+hook&repo=acme%2Fapp&ci=red&awaiting=1')
+
+    expect(withLocation(saved, '?drafts=hide').page).toBe('mine')
+    expect(withLocation(saved, '?drafts=hide').views.mine.filters.hideDrafts).toBe(true)
+  })
+
+  it('keeps saved preferences for a bare address, and ignores values it does not know', () => {
+    const saved = loadPreferences()
+    saved.page = 'review'
+    saved.views.review.filters.ci = 'green'
+
+    expect(withLocation(saved, '')).toBe(saved)
+    expect(withLocation(saved, '?view=nowhere')).toBe(saved)
+    expect(withLocation(saved, '?view=mine').views.review.filters.ci).toBe('green')
+
+    const odd = withLocation(saved, '?view=review&ci=purple&review=maybe&approved=sometimes')
+    expect(odd.views.review.filters.ci).toBe('all')
+    expect(odd.views.review.filters.review).toBe('all')
+    expect(odd.views.review.filters.approvedByMe).toBe('all')
   })
 })

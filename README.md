@@ -13,7 +13,7 @@ npm run dev
 
 Open http://127.0.0.1:5173. The API listens on http://127.0.0.1:4317.
 
-The server uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise `gh auth token`. A refresh pulls the open list you are looking at, then keeps that snapshot in `data/pr-dash.sqlite`. The server keeps that list moving about every minute, including while the tab is in the background, and pauses when few GraphQL points remain. Finished checks are kept when the pull request and its check rollup have not changed. Running checks are read again, and each refresh also rereads the checks that were fetched least recently so a quiet rerun still shows up. Thread replies load after the list, and again when a pull request changes. The row menu can refresh one pull request. Required checks are cached for a day. Settings has a full sync that reloads both lists and reads rulesets again. Sort, filters, and which stacks are expanded are remembered in this browser.
+The server uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise `gh auth token`. A refresh pulls the open list you are looking at, then keeps that snapshot in `data/pr-dash.sqlite`. The server keeps that list moving about every minute, including while the tab is in the background, and pauses when few GraphQL points remain. Finished checks are kept when the pull request and its check rollup have not changed. Running checks are read again, and each refresh also rereads the checks that were fetched least recently so a quiet rerun still shows up. Thread replies load after the list, and again when a pull request changes. The row menu can refresh one pull request. Required checks are cached for a day. Settings has a full sync that reloads both lists and reads rulesets again. Sort, filters, and which stacks are expanded are remembered in this browser. The address also carries the open page and its filters, so a filtered list can be bookmarked; a link that names a filter replaces the saved filters for that page. Press `/` to search.
 
 Settings chooses which repositories a refresh includes. Pick an owner, then the repositories under that owner. None are included until you select them, so a refresh does not ask GitHub about every repository you can access. Removing a repository deletes the pull requests, cached rules, agent sessions, and merge queue entries stored for it. That does not change the repository on GitHub.
 
@@ -35,7 +35,7 @@ Required check names come from each repository’s rulesets, so a check that is 
 
 ## Initiatives
 
-Initiatives are tags stored in this app, not on GitHub. Use them for cleanup, refactors, and other work that has no Linear project. A pull request can have more than one. A pull request with a Linear project stays under that project; the initiative chip still shows on the row. A stack that also contains other work shows `…` rows above or below the slice in that section.
+Initiatives are tags stored in this app, not on GitHub. Create, rename, and delete them in Settings. Use them for cleanup, refactors, and other work that has no Linear project. A pull request can have more than one. A pull request with a Linear project stays under that project; the initiative chip still shows on the row. A stack that also contains other work shows `…` rows above or below the slice in that section.
 
 ## Deploy
 

@@ -9,8 +9,9 @@ import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
 import { formatExact, repoColors } from './format.ts'
-import { ClickCard, MenuProvider } from './menus.tsx'
-import { loadPreferences, savePreferences, type DashboardPage } from './prefs.ts'
+import { FilterBar, activeFilterLabels } from './filter-bar.tsx'
+import { MenuProvider } from './menus.tsx'
+import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage } from './prefs.ts'
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
@@ -39,7 +40,7 @@ function snapshotKey(snap: Snapshot): string {
 type RefreshProgress = { completed: number; total: number }
 
 export function App() {
-  const [prefs, setPrefs] = useState(loadPreferences)
+  const [prefs, setPrefs] = useState(() => withLocation(loadPreferences(), window.location.search))
   const [data, setData] = useState<Snapshot | null>(null)
   const [booting, setBooting] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -91,7 +92,16 @@ export function App() {
     setData(next)
   }
 
-  useEffect(() => savePreferences(prefs), [prefs])
+  useEffect(() => {
+    savePreferences(prefs)
+    const search = locationSearch(prefs)
+    if (search === window.location.search) return
+    try {
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${search}${window.location.hash}`)
+    } catch {
+      // Browsers cap how often the address may change. The next change catches up.
+    }
+  }, [prefs])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000)
@@ -388,8 +398,6 @@ export function App() {
     const attention = page === 'review' ? 'reviewer' : 'author'
     return prs.filter((pr) => prMatches(pr, viewPrefs.filters, names, attention, viewer)).length
   }, [prs, initiatives, viewPrefs.filters, page, viewer])
-  const noun = page === 'review' ? 'to review' : 'open'
-  const countLabel = filtersOn ? `${matched}/${prs.length} ${noun}` : `${prs.length} ${noun}`
   const syncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt ?? null) : (data?.mineSyncedAt ?? data?.syncedAt ?? null)
 
   const applyFeedback = useCallback((key: string, counts: FeedbackCounts) => {
@@ -475,130 +483,31 @@ export function App() {
               />
             )}
           </div>
-          <div className="filters" hidden={!listPage}>
-            <input
-              className="search"
-              value={viewPrefs.filters.query}
-              onChange={(event) => patchFilters({ query: event.target.value })}
-              placeholder={page === 'review' ? 'Title, author, repo, number, issue' : 'Title, repo, number, issue'}
-              aria-label="Filter pull requests"
-            />
-            <select
-              className="select"
-              aria-label="Repository"
-              value={viewPrefs.filters.repo ?? ''}
-              onChange={(event) => patchFilters({ repo: event.target.value || null })}
-            >
-              <option value="">All repos</option>
-              {repos.map((repo) => (
-                <option key={repo} value={repo}>
-                  {repo.split('/')[1]}
-                </option>
-              ))}
-            </select>
-            <select
-              className="select"
-              aria-label="CI"
-              value={viewPrefs.filters.ci}
-              onChange={(event) => patchFilters({ ci: event.target.value as Filters['ci'] })}
-            >
-              <option value="all">All CI</option>
-              <option value="red">Required failed</option>
-              <option value="yellow">Optional failed</option>
-              <option value="pending">Running</option>
-              <option value="green">Passed</option>
-              <option value="none">No CI</option>
-            </select>
-            <select
-              className="select"
-              aria-label="Review"
-              value={viewPrefs.filters.review}
-              onChange={(event) => patchFilters({ review: event.target.value as Filters['review'] })}
-            >
-              <option value="all">All reviews</option>
-              <option value="unmet">Review required</option>
-              <option value="met">Requirements met</option>
-              <option value="human">Human approved</option>
-              <option value="changes">Changes requested</option>
-              <option value="none">No approval</option>
-            </select>
-            {page === 'review' ? (
-              <select
-                className="select"
-                aria-label="Your approval"
-                value={viewPrefs.filters.approvedByMe}
-                onChange={(event) => patchFilters({ approvedByMe: event.target.value as Filters['approvedByMe'] })}
-              >
-                <option value="all">Approved by you or not</option>
-                <option value="only">Approved by you</option>
-                <option value="exclude">Not approved by you</option>
-              </select>
-            ) : null}
-            <select
-              className="select"
-              aria-label="Initiative"
-              value={viewPrefs.filters.initiativeId ?? ''}
-              onChange={(event) => patchFilters({ initiativeId: event.target.value || null })}
-            >
-              <option value="">All initiatives</option>
-              <option value="none">Untagged</option>
-              {initiatives.map((initiative) => (
-                <option key={initiative.id} value={initiative.id}>
-                  {initiative.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="ghost"
-              aria-pressed={viewPrefs.filters.awaitingOnly}
-              onClick={() => patchFilters({ awaitingOnly: !viewPrefs.filters.awaitingOnly })}
-            >
-              {page === 'review' ? 'Unread' : 'Awaiting you'}
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              aria-pressed={viewPrefs.filters.hideDrafts}
-              onClick={() => patchFilters({ hideDrafts: !viewPrefs.filters.hideDrafts })}
-            >
-              Hide drafts
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              aria-pressed={viewPrefs.byIssue}
-              title="Group pull requests under each Linear issue. Projects and initiatives stay either way."
-              onClick={() =>
+          {listPage ? (
+            <FilterBar
+              page={page}
+              filters={viewPrefs.filters}
+              filtersOn={filtersOn}
+              byIssue={viewPrefs.byIssue}
+              prs={prs}
+              repos={repos}
+              initiatives={initiatives}
+              viewer={viewer}
+              matched={matched}
+              onPatch={patchFilters}
+              onClear={() => patchFilters(DEFAULT_FILTERS)}
+              onByIssue={(byIssue) =>
                 setPrefs((current) => {
                   const target = current.page === 'review' ? 'review' : 'mine'
                   return {
                     ...current,
-                    views: {
-                      ...current.views,
-                      [target]: { ...current.views[target], byIssue: !current.views[target].byIssue },
-                    },
+                    views: { ...current.views, [target]: { ...current.views[target], byIssue } },
                   }
                 })
               }
-            >
-              By issue
-            </button>
-            {filtersOn ? (
-              <button type="button" className="text-btn" onClick={() => patchFilters(DEFAULT_FILTERS)}>
-                Clear filters
-              </button>
-            ) : null}
-            <ClickCard id="manage-initiatives" className="ghost" label="Initiatives">
-              <ManageInitiatives
-                initiatives={initiatives}
-                onCreate={(name) => mutate(() => api.createInitiative(name))}
-                onRename={(id, name) => mutate(() => api.renameInitiative(id, name))}
-                onDelete={(id) => mutate(() => api.deleteInitiative(id))}
-              />
-            </ClickCard>
-            <span className="filter-count">{countLabel}</span>
-          </div>
+              onManageInitiatives={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
+            />
+          ) : null}
         </header>
         <div className="scroll">
           {page === 'settings' ? (
@@ -618,6 +527,14 @@ export function App() {
                   toastError(caught instanceof Error ? caught.message : 'Could not cancel that sync')
                 })
               }}
+              initiatives={
+                <ManageInitiatives
+                  initiatives={initiatives}
+                  onCreate={(name) => mutate(() => api.createInitiative(name))}
+                  onRename={(id, name) => mutate(() => api.renameInitiative(id, name))}
+                  onDelete={(id) => mutate(() => api.deleteInitiative(id))}
+                />
+              }
               prLinks={prefs.prLinks}
               onPrLinks={(prLinks) => setPrefs((current) => ({ ...current, prLinks }))}
               onAddRepo={async (repo) => {
@@ -664,7 +581,16 @@ export function App() {
           {listPage && prs.length > 0 && !visible ? (
             <div className="empty">
               <h2>Nothing matches</h2>
-              <p>Clear a filter to see the rest of the outline.</p>
+              {filtersOn ? (
+                <>
+                  <p>
+                    No pull request here matches {activeFilterLabels(viewPrefs.filters, page === 'review' ? 'review' : 'mine', initiatives).join(', ')}.
+                  </p>
+                  <button type="button" className="primary" onClick={() => patchFilters(DEFAULT_FILTERS)}>
+                    Clear filters
+                  </button>
+                </>
+              ) : null}
             </div>
           ) : null}
           {listPage && prs.length > 0 && visible ? (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ownersFromRepos, parseRepoName, removalWarning, repoLeaf, repoOwner, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatExact } from './format.ts'
@@ -13,6 +13,7 @@ export function SettingsPage({
   onCancelSync,
   onAddRepo,
   onRemoveRepo,
+  initiatives,
   prLinks = 'github',
   onPrLinks = () => {},
 }: {
@@ -24,6 +25,8 @@ export function SettingsPage({
   onCancelSync: (id: string) => void
   onAddRepo: (repo: string) => Promise<void>
   onRemoveRepo: (repo: string) => Promise<void>
+  /** The initiatives editor. Left out, the section is not shown. */
+  initiatives?: ReactNode
   prLinks?: PrLinkHost
   onPrLinks?: (host: PrLinkHost) => void
 }) {
@@ -144,6 +147,7 @@ export function SettingsPage({
           </button>
         </div>
       </section>
+      {initiatives ? <section className="initiatives">{initiatives}</section> : null}
       <section>
         <h2>Repositories</h2>
         <p>
