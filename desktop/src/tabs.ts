@@ -162,16 +162,16 @@ export class Tabs {
     this.publish()
   }
 
-  private create(url: string, options: { pinned?: boolean; after?: Tab }): Tab {
-    const view = new WebContentsView({ webPreferences: { session: this.session } })
+  private create(url: string, options: { pinned?: boolean; after?: Tab; adopt?: WebContents }): Tab {
+    const view = new WebContentsView(options.adopt ? { webContents: options.adopt } : { webPreferences: { session: this.session } })
     view.setBackgroundColor('#10110f')
     view.setVisible(false)
-    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: true }
+    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt }
     const at = options.after ? this.tabs.indexOf(options.after) + 1 : this.tabs.length
     this.tabs.splice(at, 0, tab)
     this.win.contentView.addChildView(view)
     this.wire(tab)
-    void view.webContents.loadURL(url).catch(() => undefined)
+    if (!options.adopt) void view.webContents.loadURL(url).catch(() => undefined)
     return tab
   }
 
@@ -181,6 +181,22 @@ export class Tabs {
       // A script-opened popup (a sign-in window, say) needs to stay a real
       // window so it can talk to the page that opened it.
       if (disposition === 'new-window') return { action: 'allow' }
+      // A page can open an empty tab during a click and send it to an address
+      // later, as the dashboard does while a Cursor agent starts. The page
+      // needs that tab's window back, so the tab takes the contents Electron
+      // made for it instead of loading its own.
+      if (url === 'about:blank') {
+        return {
+          action: 'allow',
+          createWindow: (options) => {
+            const adopt = (options as { webContents: WebContents }).webContents
+            const opened = this.create(url, { after: tab, adopt })
+            if (disposition === 'background-tab') this.changed()
+            else this.activate(opened.id)
+            return adopt
+          },
+        }
+      }
       this.open(url, { background: disposition === 'background-tab', after: tab })
       return { action: 'deny' }
     })
