@@ -1,5 +1,5 @@
 import { isBehindBase } from '../shared/map.ts'
-import { buildStacks, restackChain } from '../shared/stacks.ts'
+import { buildStacks, restackChain, stackOf } from '../shared/stacks.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { AlreadyBased, mirrorPath, rebaseOnto, rebaseOntoTip } from './git.ts'
@@ -23,8 +23,8 @@ export async function rebasePull(db: DashboardDb, key: string): Promise<Snapshot
   if (!list || !pr) throw new RebaseRejected('That pull request is no longer in this list.')
   if (!pr.behind) throw new RebaseRejected(`#${pr.number} is already up to date with ${pr.baseRef}.`)
 
-  const ordered = buildStacks(list).find((stack) => stack.prs.some((item) => item.key === key))?.prs ?? []
-  const stack = restackChain(ordered, key)
+  const family = stackOf(buildStacks(list), key)
+  const stack = family ? restackChain(family, key) : null
   if (!stack) throw new RebaseRejected('That pull request is no longer in this list.')
   if (db.queue.repoActive(pr.repo)) throw new RebaseRejected('A merge is in progress for this repo.')
   for (const item of stack) {
@@ -54,12 +54,14 @@ export async function rebasePull(db: DashboardDb, key: string): Promise<Snapshot
   const mirror = mirrorPath(pr.repo)
   const remote = `https://github.com/${pr.repo}.git`
   const rewritten: PullRequest[] = []
-  let previous: { branch: string; oldOid: string } | null = null
+  // Each branch follows the one it is based on, so two branches off the same parent both land on it.
+  const moved = new Map<string, { branch: string; oldOid: string }>()
   for (const item of stack) {
     const current = live.get(item.key)!
+    const previous = item === root ? null : (moved.get(item.baseRef) ?? null)
     const onto = previous?.branch ?? item.baseRef
     try {
-      if (!previous) {
+      if (item === root) {
         await rebaseOntoTip({
           mirror,
           remote,
@@ -69,6 +71,7 @@ export async function rebasePull(db: DashboardDb, key: string): Promise<Snapshot
           expectedOid: current.headOid,
         })
       } else {
+        if (!previous) throw new RebaseRejected('The stack changed. Refresh and try again.')
         await rebaseOnto({
           mirror,
           remote,
@@ -91,7 +94,7 @@ export async function rebasePull(db: DashboardDb, key: string): Promise<Snapshot
       throw new Error(`Rebased ${done}, then #${item.number} failed: ${detail}`)
     }
     rewritten.push(item)
-    previous = { branch: item.headRef, oldOid: current.headOid }
+    moved.set(item.headRef, { branch: item.headRef, oldOid: current.headOid })
   }
 
   return markCurrent(db, new Set(rewritten.map((item) => item.key)))

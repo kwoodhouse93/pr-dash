@@ -165,48 +165,40 @@ export function rowMarks(entries: MergeEntry[]): Map<string, RowMark> {
 }
 
 /**
- * After a squash, rewrite every branch above it, bottom-up.
- * While later pull requests still need to merge, the next one lands on trunk and the
- * ones above it stay stacked on their parent. Once nothing remains to merge, every
- * leftover branch is moved onto trunk so it no longer depends on a merged branch.
+ * After a squash, rewrite every branch above it, each after the branch it is based on.
+ * A pull request that still has to merge, and anything stacked above one, stays stacked:
+ * the next to merge lands on trunk and the rest follow their parent. Every other leftover
+ * branch is moved onto trunk so it no longer depends on a merged branch.
+ * A step's parent is the step whose branch it is based on, so a stack with several branches
+ * keeps each one on its own parent. Without that link the step before it stands in.
  */
 export function rebasesAfter(steps: MergeStep[], mergedId: string, trunk: string): RebaseInstruction[] {
   const index = steps.findIndex((step) => step.id === mergedId)
   if (index < 0) return []
   const merged = steps[index]!
   const remaining = steps.slice(index + 1).filter((step) => !DONE.has(step.status))
-  const mergeRemaining = remaining.some((step) => step.role === 'merge')
-  if (!mergeRemaining) {
-    let cutoffOid = merged.headOid
-    return remaining.map((step) => {
-      const instruction: RebaseInstruction = {
-        stepId: step.id,
-        branch: step.headRef,
-        onto: trunk,
-        cutoffOid,
-        expectedOid: step.headOid,
-        setBaseTo: trunk,
-        finishRestack: true,
-      }
-      cutoffOid = step.headOid
-      return instruction
-    })
-  }
+  const pending = new Set(remaining.map((step) => step.id))
+  const byHead = new Map(steps.map((step) => [step.headRef, step]))
+  const held = new Map<string, boolean>()
   const plan: RebaseInstruction[] = []
-  let onto = trunk
-  let cutoffOid = merged.headOid
+  let previous = merged
   for (const step of remaining) {
+    const linked = byHead.get(step.baseRef)
+    const parent = linked && linked.id !== step.id ? linked : previous
+    const stacked = pending.has(parent.id)
+    const waits = step.role === 'merge' || (stacked && held.get(parent.id) === true)
+    held.set(step.id, waits)
+    const onto = waits && stacked ? parent.headRef : trunk
     plan.push({
       stepId: step.id,
       branch: step.headRef,
       onto,
-      cutoffOid,
+      cutoffOid: parent.headOid,
       expectedOid: step.headOid,
       setBaseTo: onto === trunk ? trunk : null,
-      finishRestack: false,
+      finishRestack: !waits,
     })
-    onto = step.headRef
-    cutoffOid = step.headOid
+    previous = step
   }
   return plan
 }

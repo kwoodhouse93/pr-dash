@@ -1,14 +1,17 @@
 import type { Filters, Initiative, PullRequest, Sort } from './types.ts'
 import { approvedByLogin } from './approval.ts'
-import { buildStacks, summarize, type Stack, type StackSummary } from './stacks.ts'
+import { layoutRails, type Rail } from './rails.ts'
+import { buildStacks, downstackKeys, leadKey, summarize, type Parents, type Stack, type StackSummary } from './stacks.ts'
 
 export type ViewRow =
   | { type: 'pr'; pr: PullRequest }
-  | { type: 'ellipsis'; id: string; count: number; place: 'above' | 'between' | 'below'; reason: string }
+  | { type: 'ellipsis'; id: string; keys: string[]; count: number; place: 'above' | 'between' | 'below'; reason: string }
 
 export type StackBlock = {
   id: string
+  /** Every pull request in the stack, shown or not, each above the one it is based on. */
   stackKeys: string[]
+  parents: Parents
   collapsible: boolean
   summary: StackSummary
   rows: ViewRow[]
@@ -90,11 +93,23 @@ export function prMatches(
   return true
 }
 
+/**
+ * The rows of one stack in a view that may leave some of it out.
+ * A run of hidden pull requests on one branch becomes one line. A hidden branch that is neither
+ * above nor below anything shown is left out altogether.
+ */
 function ellipsisRows(
-  ordered: PullRequest[],
+  stack: Stack,
   include: (pr: PullRequest) => boolean,
   reasonFor: (pr: PullRequest) => string,
 ): ViewRow[] {
+  const shown = new Set(stack.prs.filter(include).map((pr) => pr.key))
+  const related = new Set<string>()
+  for (const pr of stack.prs) {
+    const down = downstackKeys(stack.parents, pr.key)
+    if (shown.has(pr.key)) for (const key of down) related.add(key)
+    else if (down.some((key) => shown.has(key))) related.add(pr.key)
+  }
   const rows: ViewRow[] = []
   let gap: PullRequest[] = []
   let started = false
@@ -105,23 +120,31 @@ function ellipsisRows(
     rows.push({
       type: 'ellipsis',
       id: `gap-${gap.map((pr) => pr.id).join('-')}`,
+      keys: gap.map((pr) => pr.key),
       count: gap.length,
       place,
       reason,
     })
     gap = []
   }
-  for (const pr of ordered) {
-    if (!include(pr)) {
-      gap.push(pr)
+  for (const pr of stack.prs) {
+    if (shown.has(pr.key)) {
+      flush(started ? 'between' : 'above')
+      started = true
+      rows.push({ type: 'pr', pr })
       continue
     }
-    flush(started ? 'between' : 'above')
-    started = true
-    rows.push({ type: 'pr', pr })
+    if (!related.has(pr.key)) continue
+    const last = gap.at(-1)
+    if (last && stack.parents[last.key] !== pr.key) flush(started ? 'between' : 'above')
+    gap.push(pr)
   }
   if (started) flush('below')
-  return rows
+  return rows.map((row, index) =>
+    row.type === 'ellipsis' && row.place !== 'above' && !rows.slice(index + 1).some((later) => later.type === 'pr')
+      ? { ...row, place: 'below' }
+      : row,
+  )
 }
 
 function toBlock(
@@ -132,14 +155,17 @@ function toBlock(
 ): StackBlock | null {
   const include = (pr: PullRequest) => inGroup(pr) && matches(pr)
   if (!stack.prs.some(include)) return null
-  const rows = ellipsisRows(stack.prs, include, (pr) => (inGroup(pr) ? 'filtered out' : outsideReason))
+  const rows = ellipsisRows(stack, include, (pr) => (inGroup(pr) ? 'filtered out' : outsideReason))
   const visible = rows.flatMap((row) => (row.type === 'pr' ? [row.pr] : []))
   const partial = rows.some((row) => row.type === 'ellipsis')
+  const stackKeys = stack.prs.map((pr) => pr.key)
+  const lead = leadKey(stackKeys, stack.parents)
   return {
     id: stack.id,
-    stackKeys: stack.prs.map((pr) => pr.key),
+    stackKeys,
+    parents: stack.parents,
     collapsible: visible.length > 1 || partial,
-    summary: summarize(visible, partial),
+    summary: summarize(visible, partial, visible.find((pr) => pr.key === lead) ?? null),
     rows,
   }
 }
@@ -417,4 +443,20 @@ function flatBucket(bucket: Bucket | null): Bucket[] {
 
 function countLabel(count: number): string {
   return count === 1 ? '1 pull request' : `${count} pull requests`
+}
+
+/** The rail for each row of an open stack, and how many lanes it needs. One lane means no branches. */
+export function blockRails(block: StackBlock): { rails: Rail[]; lanes: number } {
+  const rowOf = new Map<string, string>()
+  for (const row of block.rows) {
+    if (row.type === 'pr') rowOf.set(row.pr.key, row.pr.id)
+    else for (const key of row.keys) rowOf.set(key, row.id)
+  }
+  return layoutRails(
+    block.rows.map((row) => {
+      const bottom = row.type === 'pr' ? row.pr.key : row.keys.at(-1)
+      const parent = bottom ? (block.parents[bottom] ?? null) : null
+      return { id: row.type === 'pr' ? row.pr.id : row.id, parent: parent ? (rowOf.get(parent) ?? null) : null }
+    }),
+  )
 }

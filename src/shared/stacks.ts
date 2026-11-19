@@ -1,11 +1,16 @@
 import type { CiLevel, MergeMark, PullRequest } from './types.ts'
 import { worstCi } from './ci.ts'
 
+/** Which pull request each one is based on, by key. Null at the bottom of the stack. */
+export type Parents = Record<string, string | null>
+
 export type Stack = {
   id: string
   repo: string
   trunk: string
+  /** Every pull request once, each above the one it is based on. A branch keeps its rows together. */
   prs: PullRequest[]
+  parents: Parents
 }
 
 export type StackSummary = {
@@ -49,18 +54,90 @@ export type StackSummary = {
   topKey: string
 }
 
-/** The chosen pull request, then each one stacked above it, bottom-up. */
-export function restackChain(orderedTopToBottom: PullRequest[], key: string): PullRequest[] | null {
-  const index = orderedTopToBottom.findIndex((pr) => pr.key === key)
-  if (index < 0) return null
-  return orderedTopToBottom.slice(0, index + 1).reverse()
+/** The chosen pull request and each one below it, the chosen one first. */
+export function downstackKeys(parents: Parents, key: string): string[] {
+  if (!(key in parents)) return []
+  const path: string[] = []
+  const guard = new Set<string>()
+  let current: string | null = key
+  while (current != null && !guard.has(current)) {
+    guard.add(current)
+    path.push(current)
+    current = parents[current] ?? null
+  }
+  return path
+}
+
+/** Every pull request stacked above the chosen one, on any branch, each after the one it is based on. */
+export function upstackKeys(order: string[], parents: Parents, key: string): string[] {
+  const above = new Set<string>([key])
+  const found: string[] = []
+  for (let index = order.length - 1; index >= 0; index--) {
+    const candidate = order[index]!
+    const parent = parents[candidate]
+    if (candidate === key || parent == null || !above.has(parent)) continue
+    above.add(candidate)
+    found.push(candidate)
+  }
+  return found
+}
+
+/**
+ * The stack as one merge sees it: every other pull request first, then the chosen one down to the trunk.
+ * What comes before the chosen pull request is restacked when it and those below it merge.
+ */
+export function mergeLineKeys(order: string[], parents: Parents, key: string): string[] {
+  const down = downstackKeys(parents, key)
+  if (down.length === 0) return []
+  const merging = new Set(down)
+  return [...order.filter((item) => !merging.has(item)), ...down]
+}
+
+/** The top of the part every branch shares. On a stack with no branches this is the top pull request. */
+export function leadKey(order: string[], parents: Parents): string | null {
+  let current = order.find((key) => parents[key] == null) ?? null
+  const guard = new Set<string>()
+  while (current != null && !guard.has(current)) {
+    guard.add(current)
+    const children: string[] = order.filter((key) => parents[key] === current)
+    if (children.length !== 1) return current
+    current = children[0]!
+  }
+  return current
+}
+
+function pick(stack: Stack, keys: string[]): PullRequest[] {
+  const byKey = new Map(stack.prs.map((pr) => [pr.key, pr]))
+  return keys.flatMap((key) => {
+    const pr = byKey.get(key)
+    return pr ? [pr] : []
+  })
+}
+
+function order(stack: Stack): string[] {
+  return stack.prs.map((pr) => pr.key)
+}
+
+/** The chosen pull request, then every one stacked above it, each after the one it is based on. */
+export function restackChain(stack: Stack, key: string): PullRequest[] | null {
+  if (!(key in stack.parents)) return null
+  return pick(stack, [key, ...upstackKeys(order(stack), stack.parents, key)])
 }
 
 /** The chosen pull request and each one below it, closest to the trunk first. */
-export function downstackChain(orderedTopToBottom: PullRequest[], key: string): PullRequest[] | null {
-  const index = orderedTopToBottom.findIndex((pr) => pr.key === key)
-  if (index < 0) return null
-  return orderedTopToBottom.slice(index).reverse()
+export function downstackChain(stack: Stack, key: string): PullRequest[] | null {
+  if (!(key in stack.parents)) return null
+  return pick(stack, downstackKeys(stack.parents, key).reverse())
+}
+
+/** Top to bottom for one merge: what is restacked, then the chosen pull request down to the trunk. */
+export function mergeLine(stack: Stack, key: string): PullRequest[] | null {
+  if (!(key in stack.parents)) return null
+  return pick(stack, mergeLineKeys(order(stack), stack.parents, key))
+}
+
+export function stackOf(stacks: Stack[], key: string): Stack | null {
+  return stacks.find((stack) => key in stack.parents) ?? null
 }
 
 export function buildStacks(prs: PullRequest[]): Stack[] {
@@ -71,11 +148,12 @@ export function buildStacks(prs: PullRequest[]): Stack[] {
     byRepo.set(pr.repo, list)
   }
   const stacks: Stack[] = []
-  for (const [repo, group] of byRepo) stacks.push(...chains(repo, group))
+  for (const [repo, group] of byRepo) stacks.push(...trees(repo, group))
   return stacks
 }
 
-function chains(repo: string, group: PullRequest[]): Stack[] {
+/** One stack for each pull request that sits on the trunk, with every branch that grows from it. */
+function trees(repo: string, group: PullRequest[]): Stack[] {
   const byHead = new Map<string, PullRequest[]>()
   for (const pr of group) {
     const list = byHead.get(pr.headRef) ?? []
@@ -86,37 +164,48 @@ function chains(repo: string, group: PullRequest[]): Stack[] {
     const candidates = (byHead.get(pr.baseRef) ?? []).filter((other) => other.id !== pr.id)
     return candidates.length === 1 ? candidates[0]! : null
   }
-  const childCount = new Map<string, number>()
+  const children = new Map<string, PullRequest[]>()
+  const roots: PullRequest[] = []
   for (const pr of group) {
     const parent = parentOf(pr)
-    if (!parent) continue
-    childCount.set(parent.id, (childCount.get(parent.id) ?? 0) + 1)
+    if (!parent) {
+      roots.push(pr)
+      continue
+    }
+    const list = children.get(parent.id) ?? []
+    list.push(pr)
+    children.set(parent.id, list)
   }
-  const heads = group.filter((pr) => !childCount.get(pr.id))
-  heads.sort((a, b) => b.number - a.number)
+  roots.sort((a, b) => b.number - a.number)
   const stacks: Stack[] = []
   const seen = new Set<string>()
-  for (const head of heads) {
-    const path: PullRequest[] = []
-    const guard = new Set<string>()
-    let current: PullRequest | null = head
-    while (current && !guard.has(current.id)) {
-      guard.add(current.id)
-      path.push(current)
-      seen.add(current.id)
-      current = parentOf(current)
+  for (const root of roots) {
+    const prs: PullRequest[] = []
+    const parents: Parents = {}
+    const size = new Map<string, number>()
+    const measure = (pr: PullRequest): number => {
+      const total = 1 + (children.get(pr.id) ?? []).reduce((sum, child) => sum + measure(child), 0)
+      size.set(pr.id, total)
+      return total
     }
-    const root = path.at(-1)!
-    stacks.push({
-      id: `${repo}:${root.id}:${head.id}`,
-      repo,
-      trunk: root.baseRef,
-      prs: path,
-    })
+    measure(root)
+    // The longest branch goes first, so it keeps the straight rail.
+    const visit = (pr: PullRequest, parent: PullRequest | null) => {
+      seen.add(pr.id)
+      parents[pr.key] = parent?.key ?? null
+      const above = (children.get(pr.id) ?? [])
+        .slice()
+        .sort((a, b) => size.get(b.id)! - size.get(a.id)! || a.number - b.number)
+      for (const child of above) visit(child, pr)
+      prs.push(pr)
+    }
+    visit(root, null)
+    stacks.push({ id: `${repo}:${root.id}`, repo, trunk: root.baseRef, prs, parents })
   }
+  // Pull requests based on each other in a loop have no bottom, so each stands alone.
   for (const pr of group) {
     if (seen.has(pr.id)) continue
-    stacks.push({ id: `${repo}:${pr.id}:${pr.id}`, repo, trunk: pr.baseRef, prs: [pr] })
+    stacks.push({ id: `${repo}:${pr.id}`, repo, trunk: pr.baseRef, prs: [pr], parents: { [pr.key]: null } })
   }
   return stacks
 }
@@ -168,8 +257,9 @@ function worstMerge(prs: PullRequest[]): { mark: MergeMark; detail: string } {
   return { mark: 'none', detail: 'No review requirement applies to the pull requests in this stack.' }
 }
 
-export function summarize(prs: PullRequest[], partial: boolean): StackSummary {
-  const top = prs[0]!
+/** `lead` is the pull request the row is named after. It defaults to the first one. */
+export function summarize(prs: PullRequest[], partial: boolean, lead: PullRequest | null = null): StackSummary {
+  const top = lead ?? prs[0]!
   const merge = worstMerge(prs)
   const updatedAt = prs.map((pr) => pr.updatedAt).sort().at(-1)!
   const createdAt = prs.map((pr) => pr.createdAt).sort()[0]!

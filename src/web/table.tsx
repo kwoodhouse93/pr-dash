@@ -1,15 +1,16 @@
-import { createContext, useContext, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, useContext, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, selectChecks, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
 import { approvedByLogin } from '../shared/approval.ts'
 import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge, sliceParts } from '../shared/merge.ts'
 import { stepLabel, type MergeWatch, type RowMark, type StepStatus } from '../shared/queue.ts'
-import { downstackChain, type StackSummary } from '../shared/stacks.ts'
-import { rollup, SEGMENT_LABEL, segmentState } from '../shared/segments.ts'
+import type { Rail } from '../shared/rails.ts'
+import { downstackKeys, mergeLineKeys, upstackKeys, type Parents, type StackSummary } from '../shared/stacks.ts'
+import { rollup, SEGMENT_LABEL, segmentState, type SegmentState } from '../shared/segments.ts'
 import { RepoIcon } from './repo-mark.tsx'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
-import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
+import { blockRails, type Bucket, type Outline, type ProjectGroup, type StackBlock } from '../shared/view.ts'
 import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
 import { ageHeat, copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
@@ -117,6 +118,7 @@ export function PrTable({
   onFeedback: (key: string, counts: FeedbackCounts) => void
 }) {
   const tones = stackTones(outline)
+  const lanes = useMemo(() => widestRail(outline), [outline])
   const shared = {
     mode,
     namesList: initiatives,
@@ -147,7 +149,7 @@ export function PrTable({
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
     <AgentProvider start={onStartAgent}>
     <HoldContext.Provider value={holds}>
-    <table className="prs">
+    <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
       <thead>
         <tr>
           <th className="grip" aria-label="Stack" />
@@ -413,6 +415,19 @@ function stackTones(outline: Outline): Map<string, 'a' | 'b'> {
   return tones
 }
 
+/** The most lanes any stack needs, so the rail column is wide enough for the widest one. */
+function widestRail(outline: Outline): number {
+  let lanes = 1
+  const take = (bucket: Bucket) => {
+    for (const block of bucket.stacks) lanes = Math.max(lanes, blockRails(block).lanes)
+  }
+  for (const project of outline.projects) for (const issue of project.issues) take(issue)
+  for (const bucket of outline.initiatives) take(bucket)
+  for (const bucket of outline.looseIssues) take(bucket)
+  if (outline.unassigned) take(outline.unassigned)
+  return lanes
+}
+
 function spineAt(index: number, total: number): Spine {
   if (total <= 1) return 'only'
   if (index === 0) return 'start'
@@ -445,13 +460,17 @@ function BlockRows({
   }
   const visible = block.rows.flatMap((row) => (row.type === 'pr' ? [row.pr] : []))
   const stackTone = block.collapsible ? tone : null
+  const layout = useMemo(() => blockRails(block), [block])
+  // A stack with branches draws a lane for each one. A straight stack keeps the single spine.
+  const forked = stackTone != null && layout.lanes > 1
   const rows =
     !block.collapsible || open ? (
       block.rows.map((row, index) => {
       const spine = stackTone ? spineAt(index, block.rows.length) : null
+      const rail = forked ? (layout.rails[index] ?? null) : null
       return row.type === 'ellipsis' ? (
-        <tr key={row.id} className={`ellipsis${spineClass(spine, stackTone)}`}>
-          <td className="grip" />
+        <tr key={row.id} className={`ellipsis${rail ? ' forked' : ''}${spineClass(spine, stackTone)}`}>
+          <Grip spine={spine} rail={rail} hollow />
           <td />
           <td colSpan={COLUMNS - 2}>
             … {row.count} pull request{row.count === 1 ? '' : 's'} {row.place} · {row.reason}
@@ -465,6 +484,7 @@ function BlockRows({
           block={block}
           child={block.collapsible}
           spine={spine}
+          rail={rail}
           tone={stackTone}
           toggle={block.collapsible && row.pr.id === visible[0]?.id ? { id: openId, open, onToggle: shared.onToggle } : null}
           hideIssue={bucket.issueId ?? undefined}
@@ -529,6 +549,7 @@ function DataRow({
   block,
   child,
   spine,
+  rail,
   tone,
   toggle,
   initiatives,
@@ -556,6 +577,7 @@ function DataRow({
   block: StackBlock
   child: boolean
   spine: Spine | null
+  rail: Rail | null
   tone: 'a' | 'b' | null
   toggle: { id: string; open: boolean; onToggle: (id: string) => void } | null
   initiatives: Initiative[]
@@ -585,7 +607,7 @@ function DataRow({
   const prHref = usePrHref(pr.url)
   return (
     <tr
-      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${pr.isDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
+      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${pr.isDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${rail ? ' forked' : ''}${spineClass(spine, tone)}`}
       data-row={pr.key}
       onClick={(event) => {
         if (!toggle) return
@@ -593,7 +615,7 @@ function DataRow({
         toggle.onToggle(toggle.id)
       }}
     >
-      <Grip spine={spine} />
+      <Grip spine={spine} rail={rail} />
       <CopyNumber repoName={pr.repoName} number={pr.number} />
       <td className="title-block">
         <div className="title-line">
@@ -628,7 +650,7 @@ function DataRow({
       {pr.conflict ? (
         <Conflict id={`conflict:${pr.id}`} prs={[pr]} />
       ) : (
-        <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} prByKey={prByKey} onRebase={onRebase} />
+        <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} parents={block.parents} prByKey={prByKey} onRebase={onRebase} />
       )}
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
@@ -641,7 +663,7 @@ function DataRow({
         <td className="merge">
           <MergeControls
             pr={pr}
-            ordered={orderedStack(block, prByKey)}
+            ordered={mergeLineOf(block, pr.key, prByKey)}
             mark={mark}
             onMerge={onMerge}
             onRetry={onRetry}
@@ -658,6 +680,7 @@ function DataRow({
         primaryKey={pr.key}
         prs={[pr]}
         stackKeys={block.stackKeys}
+        parents={block.parents}
         defaultWholeStack={false}
         initiatives={initiatives}
         prByKey={prByKey}
@@ -731,16 +754,18 @@ function SummaryRow({
   const summaryHref = usePrHref(summary.url)
   const ci = shownLevel(visible, holds)
   const issues = hideIssue ? [] : sharedIssues(visible)
-  const ordered = orderedStack(block, prByKey)
+  const top = prByKey.get(summary.topKey) ?? null
+  const ordered = mergeLineOf(block, summary.topKey, prByKey)
   const mark = foremost(block.stackKeys, queueByKey)
-  const top = ordered[0] ?? null
   const { locked } = useStackLock()
   const viewer = useViewer()
   // Bottom of the stack first, so the strip reads in the order the pull requests merge.
   const segments = visible
     .slice()
     .reverse()
-    .map((pr) => ({ pr, state: segmentState(pr, ordered, mode, viewer) }))
+    .map((pr) => ({ pr, state: segmentState(pr, mergeLineOf(block, pr.key, prByKey), mode, viewer) }))
+  const forest = segmentForest(segments, block.parents)
+  const branches = branchCount(forest)
   const readyCount = segments.filter((segment) => segment.state === 'ready').length
   const allDraft = summary.draftCount === visible.length
   return (
@@ -765,13 +790,12 @@ function SummaryRow({
             title={`${readyCount} of ${segments.length} ${mode === 'review' ? 'approved by you' : 'ready to merge'}`}
             aria-label={`${segments.length} pull requests, bottom of the stack first: ${segments.map((segment) => SEGMENT_LABEL[mode][segment.state]).join(', ')}`}
           >
-            {segments.map((segment) => (
-              <i key={segment.pr.id} className={`seg ${segment.state}`} title={`#${segment.pr.number} · ${SEGMENT_LABEL[mode][segment.state]}`} />
-            ))}
+            <SegmentRun nodes={forest} mode={mode} />
           </span>
           <a href={summaryHref} target="_blank" rel="noreferrer" title={summary.title}>
             {summary.title}
           </a>
+          {branches > 1 ? <span className="pill">{branches} branches</span> : null}
           {summary.partial ? <span className="pill">partial</span> : null}
         </div>
         <Subline
@@ -804,6 +828,7 @@ function SummaryRow({
           id={`uptodate:${block.id}`}
           targetKey={lowestBehindKey(block.stackKeys, visible)}
           stackKeys={block.stackKeys}
+          parents={block.parents}
           prByKey={prByKey}
           onRebase={onRebase}
         />
@@ -841,6 +866,7 @@ function SummaryRow({
         primaryKey={summary.topKey}
         prs={visible}
         stackKeys={block.stackKeys}
+        parents={block.parents}
         defaultWholeStack
         initiatives={initiatives}
         prByKey={prByKey}
@@ -901,24 +927,90 @@ async function copyPlain(text: string, confirmation: string): Promise<boolean> {
   }
 }
 
+/** The chosen pull request and each one below it, closest to the trunk first. */
 function downstackTargets(
-  stackKeys: string[],
+  parents: Parents,
   primaryKey: string,
   prByKey: Map<string, PullRequest>,
   shown: PullRequest[],
 ): PullRequest[] {
-  const ordered = stackKeys.flatMap((key) => {
-    const pr = prByKey.get(key)
-    return pr ? [pr] : []
-  })
-  return downstackChain(ordered, primaryKey) ?? downstackChain(shown, primaryKey) ?? []
+  const chain = downstackKeys(parents, primaryKey)
+    .reverse()
+    .flatMap((key) => {
+      const pr = prByKey.get(key)
+      return pr ? [pr] : []
+    })
+  return chain.length ? chain : shown.filter((pr) => pr.key === primaryKey)
 }
 
-function Grip({ spine }: { spine: Spine | null }) {
+function lane(index: number, span = 0): CSSProperties {
+  return { '--lane': index, '--span': span } as CSSProperties
+}
+
+/** `rail` is set on a stack with branches. `hollow` is a line that stands for pull requests not shown. */
+function Grip({ spine, rail = null, hollow = false }: { spine: Spine | null; rail?: Rail | null; hollow?: boolean }) {
   return (
     <td className="grip">
       {spine === 'only' ? <span className="stack-mark" aria-hidden="true" /> : null}
+      {rail ? (
+        <span className="rails" aria-hidden="true">
+          {rail.through.map((index) => (
+            <i key={`through-${index}`} className="rail through" style={lane(index)} />
+          ))}
+          {rail.up ? <i className="rail up" style={lane(rail.lane)} /> : null}
+          {rail.down ? <i className="rail down" style={lane(rail.lane)} /> : null}
+          {rail.joins.map((index) => (
+            <i key={`join-${index}`} className="rail join" style={lane(rail.lane, index - rail.lane)} />
+          ))}
+          <i className={`rail node${hollow ? ' hollow' : ''}`} style={lane(rail.lane)} />
+        </span>
+      ) : null}
     </td>
+  )
+}
+
+type SegmentNode = { pr: PullRequest; state: SegmentState; above: SegmentNode[] }
+
+/** The shown pull requests as a tree, bottom first. One hidden in between does not break the line. */
+function segmentForest(bottomFirst: { pr: PullRequest; state: SegmentState }[], parents: Parents): SegmentNode[] {
+  const nodes = new Map<string, SegmentNode>(bottomFirst.map((item) => [item.pr.key, { ...item, above: [] }]))
+  const roots: SegmentNode[] = []
+  // Top first, so the branch that is listed first is also drawn first.
+  for (const item of bottomFirst.slice().reverse()) {
+    const node = nodes.get(item.pr.key)!
+    const below = downstackKeys(parents, item.pr.key)
+      .slice(1)
+      .find((key) => nodes.has(key))
+    if (below) nodes.get(below)!.above.push(node)
+    else roots.push(node)
+  }
+  return roots
+}
+
+function branchCount(nodes: SegmentNode[]): number {
+  return nodes.reduce((total, node) => total + (node.above.length ? branchCount(node.above) : 1), 0)
+}
+
+/** One segment for each pull request. Where the stack branches, each branch gets its own line. */
+function SegmentRun({ nodes, mode }: { nodes: SegmentNode[]; mode: 'mine' | 'review' }) {
+  if (nodes.length === 0) return null
+  if (nodes.length > 1) {
+    return (
+      <span className="seg-fork">
+        {nodes.map((node) => (
+          <span key={node.pr.id} className="segments">
+            <SegmentRun nodes={[node]} mode={mode} />
+          </span>
+        ))}
+      </span>
+    )
+  }
+  const node = nodes[0]!
+  return (
+    <>
+      <i className={`seg ${node.state}`} title={`#${node.pr.number} · ${SEGMENT_LABEL[mode][node.state]}`} />
+      <SegmentRun nodes={node.above} mode={mode} />
+    </>
   )
 }
 
@@ -1151,16 +1243,18 @@ function UpToDate({
   id,
   targetKey,
   stackKeys,
+  parents,
   prByKey,
   onRebase,
 }: {
   id: string
   targetKey: string | null
   stackKeys: string[]
+  parents: Parents
   prByKey: Map<string, PullRequest>
   onRebase: (key: string) => Promise<void>
 }) {
-  const plan = targetKey ? rebasePlan(stackKeys, targetKey, prByKey) : null
+  const plan = targetKey ? rebasePlan(stackKeys, parents, targetKey, prByKey) : null
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { locked, lock, unlock } = useStackLock()
@@ -1219,25 +1313,20 @@ function UpToDate({
 
 function rebasePlan(
   stackKeys: string[],
+  parents: Parents,
   targetKey: string,
   prByKey: Map<string, PullRequest>,
 ): { target: PullRequest; above: PullRequest[] } | null {
   const target = prByKey.get(targetKey)
   if (!target) return null
-  const index = stackKeys.indexOf(targetKey)
-  const above =
-    index < 0
-      ? []
-      : stackKeys
-          .slice(0, index)
-          .reverse()
-          .flatMap((key) => {
-            const pr = prByKey.get(key)
-            return pr ? [pr] : []
-          })
+  const above = upstackKeys(stackKeys, parents, targetKey).flatMap((key) => {
+    const pr = prByKey.get(key)
+    return pr ? [pr] : []
+  })
   return { target, above }
 }
 
+/** Walks up from the trunk, so the one it finds has nothing behind beneath it. */
 function lowestBehindKey(stackKeys: string[], prs: PullRequest[]): string | null {
   const behind = new Set(prs.filter((pr) => pr.behind).map((pr) => pr.key))
   for (let index = stackKeys.length - 1; index >= 0; index--) {
@@ -1330,6 +1419,7 @@ type RowMenuProps = {
   /** Pull requests shown on this row. */
   prs: PullRequest[]
   stackKeys: string[]
+  parents: Parents
   defaultWholeStack: boolean
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
@@ -1371,7 +1461,7 @@ function RowMenuBody(props: RowMenuProps) {
   const pr = props.prByKey.get(props.primaryKey)
   const promptTargets = props.prs.length ? props.prs : pr ? [pr] : []
   const failing = props.prs.filter((item) => failingChecks(item).length > 0)
-  const copyTargets = downstackTargets(props.stackKeys, props.primaryKey, props.prByKey, props.prs)
+  const copyTargets = downstackTargets(props.parents, props.primaryKey, props.prByKey, props.prs)
 
   if (view === 'initiative') {
     return (
@@ -1563,10 +1653,11 @@ function Age({ readyAt, createdAt }: { readyAt: string | null; createdAt: string
 function SectionRollup({ buckets, prByKey, mode }: { buckets: Bucket[]; prByKey: Map<string, PullRequest>; mode: 'mine' | 'review' }) {
   const viewer = useViewer()
   const states = buckets.flatMap((bucket) =>
-    [...bucket.stacks, ...bucket.singles].flatMap((block) => {
-      const ordered = orderedStack(block, prByKey)
-      return block.rows.flatMap((row) => (row.type === 'pr' ? [segmentState(row.pr, ordered, mode, viewer)] : []))
-    }),
+    [...bucket.stacks, ...bucket.singles].flatMap((block) =>
+      block.rows.flatMap((row) =>
+        row.type === 'pr' ? [segmentState(row.pr, mergeLineOf(block, row.pr.key, prByKey), mode, viewer)] : [],
+      ),
+    ),
   )
   const counts = rollup(states)
   if (counts.ready + counts.you + counts.broken === 0) return null
@@ -1587,9 +1678,11 @@ function When({ iso }: { iso: string }) {
   )
 }
 
-function orderedStack(block: StackBlock, prByKey: Map<string, PullRequest>): PullRequest[] {
-  const prs = block.stackKeys.map((key) => prByKey.get(key)).filter((pr): pr is PullRequest => pr != null)
-  return prs.length === block.stackKeys.length ? prs : []
+/** The stack as merging this pull request sees it: what gets restacked, then it and each one below it. */
+function mergeLineOf(block: StackBlock, key: string, prByKey: Map<string, PullRequest>): PullRequest[] {
+  const keys = mergeLineKeys(block.stackKeys, block.parents, key)
+  const prs = keys.map((item) => prByKey.get(item)).filter((pr): pr is PullRequest => pr != null)
+  return prs.length === keys.length ? prs : []
 }
 
 const MARK_RANK: StepStatus[] = ['failed', 'merging', 'rebasing', 'waiting', 'queued', 'restacked', 'merged', 'cancelled']

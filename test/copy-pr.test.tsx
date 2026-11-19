@@ -92,6 +92,7 @@ function outlineFor(prs: PullRequest[]): Outline {
   const block: StackBlock = {
     id: 'stack',
     stackKeys: prs.map((pr) => pr.key),
+    parents: Object.fromEntries(prs.map((pr, index) => [pr.key, prs[index + 1]?.key ?? null])),
     collapsible: prs.length > 1,
     summary: summarize(prs, false),
     rows: prs.map((pr) => ({ type: 'pr', pr })),

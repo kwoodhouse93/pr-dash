@@ -20,9 +20,9 @@ import { checksFromRaw, isBehindBase, mapPullRequest, shadowedRuns, type GitHubP
 import { reviewSearchQueries } from '../src/shared/repos.ts'
 import { mergeLinkedIssues, parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
-import { buildStacks, downstackChain, restackChain, summarize } from '../src/shared/stacks.ts'
+import { buildStacks, downstackChain, mergeLine, restackChain, summarize } from '../src/shared/stacks.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
-import { buildOutline } from '../src/shared/view.ts'
+import { blockRails, buildOutline } from '../src/shared/view.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT } from '../src/shared/types.ts'
 
 function check(over: Partial<Check> & Pick<Check, 'name' | 'conclusion'>): Check {
@@ -810,19 +810,21 @@ describe('stacks and grouping', () => {
   })
 
   it('restacks the chosen pull request and everything above it', () => {
-    const ordered = buildStacks(stack)[0]!.prs
-    expect(restackChain(ordered, ordered[2]!.key)?.map((item) => item.number)).toEqual([1, 2, 3])
-    expect(restackChain(ordered, ordered[1]!.key)?.map((item) => item.number)).toEqual([2, 3])
-    expect(restackChain(ordered, ordered[0]!.key)?.map((item) => item.number)).toEqual([3])
-    expect(restackChain(ordered, 'missing')).toBeNull()
+    const built = buildStacks(stack)[0]!
+    const ordered = built.prs
+    expect(restackChain(built, ordered[2]!.key)?.map((item) => item.number)).toEqual([1, 2, 3])
+    expect(restackChain(built, ordered[1]!.key)?.map((item) => item.number)).toEqual([2, 3])
+    expect(restackChain(built, ordered[0]!.key)?.map((item) => item.number)).toEqual([3])
+    expect(restackChain(built, 'missing')).toBeNull()
   })
 
   it('lists the chosen pull request and everything below it, trunk first', () => {
-    const ordered = buildStacks(stack)[0]!.prs
-    expect(downstackChain(ordered, ordered[0]!.key)?.map((item) => item.number)).toEqual([1, 2, 3])
-    expect(downstackChain(ordered, ordered[1]!.key)?.map((item) => item.number)).toEqual([1, 2])
-    expect(downstackChain(ordered, ordered[2]!.key)?.map((item) => item.number)).toEqual([1])
-    expect(downstackChain(ordered, 'missing')).toBeNull()
+    const built = buildStacks(stack)[0]!
+    const ordered = built.prs
+    expect(downstackChain(built, ordered[0]!.key)?.map((item) => item.number)).toEqual([1, 2, 3])
+    expect(downstackChain(built, ordered[1]!.key)?.map((item) => item.number)).toEqual([1, 2])
+    expect(downstackChain(built, ordered[2]!.key)?.map((item) => item.number)).toEqual([1])
+    expect(downstackChain(built, 'missing')).toBeNull()
   })
 
   it('does not link pull requests across repositories', () => {
@@ -1225,5 +1227,77 @@ describe('squash merge', () => {
   it('refuses a pull request whose workflow failed before creating jobs', () => {
     const checks = checksFromRaw([], [], { mergeStateStatus: 'CLEAN', suites: [startupSuite('Test')] })
     expect(canSquashMerge({ ...ready, checks })).toBe(false)
+  })
+})
+
+describe('a stack with branches', () => {
+  // main ← 101 ← 102 ← 103 ← 104
+  //                  ↖ 105
+  const issue = (identifier: string) => [{ identifier, title: identifier, url: null, projectId: null, projectName: null }]
+  const family = [
+    pr({ id: 'p101', number: 101, baseRef: 'dev', headRef: 'tables' }),
+    pr({ id: 'p102', number: 102, baseRef: 'tables', headRef: 'write' }),
+    pr({ id: 'p103', number: 103, baseRef: 'write', headRef: 'job' }),
+    pr({ id: 'p104', number: 104, baseRef: 'job', headRef: 'alerts' }),
+    pr({ id: 'p105', number: 105, baseRef: 'write', headRef: 'export' }),
+  ]
+  const numbers = (list: PullRequest[] | null | undefined) => list?.map((item) => item.number)
+  const keyOf = (number: number) => family.find((item) => item.number === number)!.key
+
+  it('is one stack that lists each pull request once, the longest branch first', () => {
+    const stacks = buildStacks(family)
+    expect(stacks).toHaveLength(1)
+    expect(numbers(stacks[0]!.prs)).toEqual([104, 103, 105, 102, 101])
+    expect(stacks[0]!.parents[keyOf(105)]).toBe(keyOf(102))
+    expect(stacks[0]!.parents[keyOf(101)]).toBeNull()
+  })
+
+  it('restacks every branch above the chosen pull request, each after its parent', () => {
+    const stack = buildStacks(family)[0]!
+    expect(numbers(restackChain(stack, keyOf(102)))).toEqual([102, 105, 103, 104])
+    expect(numbers(restackChain(stack, keyOf(103)))).toEqual([103, 104])
+    expect(numbers(downstackChain(stack, keyOf(105)))).toEqual([101, 102, 105])
+  })
+
+  it('merges one branch down to the trunk and restacks the rest', () => {
+    const stack = buildStacks(family)[0]!
+    expect(numbers(mergeLine(stack, keyOf(105)))).toEqual([104, 103, 105, 102, 101])
+    expect(numbers(mergeLine(stack, keyOf(102)))).toEqual([104, 103, 105, 102, 101])
+    expect(numbers(mergeLine(stack, keyOf(104)))).toEqual([105, 104, 103, 102, 101])
+  })
+
+  it('names the collapsed row after the top of the part every branch shares', () => {
+    const view = buildOutline(family, [], DEFAULT_FILTERS, DEFAULT_SORT)
+    expect(view.unassigned?.count).toBe(5)
+    expect(view.unassigned?.stacks).toHaveLength(1)
+    expect(view.unassigned?.stacks[0]?.summary.number).toBe(102)
+  })
+
+  it('draws a lane for the second branch and joins it where the branches meet', () => {
+    const block = buildOutline(family, [], DEFAULT_FILTERS, DEFAULT_SORT).unassigned!.stacks[0]!
+    const { rails, lanes } = blockRails(block)
+    expect(lanes).toBe(2)
+    expect(rails).toEqual([
+      { lane: 0, up: false, down: true, joins: [], through: [] },
+      { lane: 0, up: true, down: true, joins: [], through: [] },
+      { lane: 1, up: false, down: true, joins: [], through: [0] },
+      { lane: 0, up: true, down: true, joins: [1], through: [] },
+      { lane: 0, up: true, down: false, joins: [], through: [] },
+    ])
+  })
+
+  it('leaves out a branch that is neither above nor below what an issue shows', () => {
+    const prs = family.map((item) => ({
+      ...item,
+      linearIssues: issue(item.number === 105 ? 'ENG-2' : item.number >= 103 ? 'ENG-3' : 'ENG-1'),
+    }))
+    const view = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT)
+    const rowsOf = (identifier: string) =>
+      view.looseIssues
+        .find((section) => section.issueId === identifier)
+        ?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : `${row.place}:${row.count}`))
+    expect(rowsOf('ENG-2')).toEqual([105, 'below:2'])
+    expect(rowsOf('ENG-3')).toEqual([104, 103, 'below:2'])
+    expect(rowsOf('ENG-1')).toEqual(['above:2', 'above:1', 102, 101])
   })
 })

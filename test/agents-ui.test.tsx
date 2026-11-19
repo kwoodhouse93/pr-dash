@@ -111,7 +111,7 @@ function outlineFor(pr: PullRequest): Outline {
       count: 1,
       issueId: null,
       stacks: [],
-      singles: [{ id: 'only', stackKeys: [pr.key], collapsible: false, summary: summarize([pr], false), rows: [{ type: 'pr', pr }] }],
+      singles: [{ id: 'only', stackKeys: [pr.key], parents: { [pr.key]: null }, collapsible: false, summary: summarize([pr], false), rows: [{ type: 'pr', pr }] }],
     },
   }
 }

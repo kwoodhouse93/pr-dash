@@ -187,6 +187,54 @@ describe('rebase plan', () => {
   })
 })
 
+describe('rebase plan for a stack with branches', () => {
+  // main ← r ← f ← x      merging r, f and then x
+  //            ↖ s ← t    s and t are a second branch off f
+  //        x ← y          y sits above x
+  const oid = (letter: string) => letter.repeat(40)
+  const steps = [
+    step({ id: 'r', role: 'merge', headRef: 'r', headOid: oid('1'), baseRef: 'main', status: 'merged' }),
+    step({ id: 'f', role: 'merge', headRef: 'f', headOid: oid('2'), baseRef: 'r' }),
+    step({ id: 'x', role: 'merge', headRef: 'x', headOid: oid('3'), baseRef: 'f' }),
+    step({ id: 's', role: 'restack', headRef: 's', headOid: oid('4'), baseRef: 'f' }),
+    step({ id: 't', role: 'restack', headRef: 't', headOid: oid('5'), baseRef: 's' }),
+    step({ id: 'y', role: 'restack', headRef: 'y', headOid: oid('6'), baseRef: 'x' }),
+  ]
+  const shape = (plan: ReturnType<typeof rebasesAfter>) =>
+    plan.map((item) => [item.branch, item.onto, item.cutoffOid[0], item.setBaseTo, item.finishRestack])
+
+  it('keeps every branch on its own parent while pull requests below it still have to merge', () => {
+    expect(shape(rebasesAfter(steps, 'r', 'main'))).toEqual([
+      ['f', 'main', '1', 'main', false],
+      ['x', 'f', '2', null, false],
+      ['s', 'f', '2', null, false],
+      ['t', 's', '4', null, false],
+      ['y', 'x', '3', null, false],
+    ])
+  })
+
+  it('moves a side branch onto trunk once its parent has merged, and leaves the merging branch stacked', () => {
+    const merged = steps.map((item) => (item.id === 'f' ? { ...item, status: 'merged' as const } : item))
+    expect(shape(rebasesAfter(merged, 'f', 'main'))).toEqual([
+      ['x', 'main', '2', 'main', false],
+      ['s', 'main', '2', 'main', true],
+      ['t', 'main', '4', 'main', true],
+      ['y', 'x', '3', null, false],
+    ])
+  })
+
+  it('finishes with only what sits above the last merge', () => {
+    const done = steps.map((item) =>
+      item.id === 'f' || item.id === 'x'
+        ? { ...item, status: 'merged' as const }
+        : item.id === 's' || item.id === 't'
+          ? { ...item, status: 'restacked' as const }
+          : item,
+    )
+    expect(shape(rebasesAfter(done, 'x', 'main'))).toEqual([['y', 'main', '3', 'main', true]])
+  })
+})
+
 function live(over: Partial<LivePull> = {}): LivePull {
   return {
     number: 4,

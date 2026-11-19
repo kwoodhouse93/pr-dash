@@ -97,6 +97,7 @@ function outlineFor(pr: PullRequest): Outline {
         {
           id: 'only',
           stackKeys: [pr.key],
+          parents: { [pr.key]: null },
           collapsible: false,
           summary: summarize([pr], false),
           rows: [{ type: 'pr', pr }],

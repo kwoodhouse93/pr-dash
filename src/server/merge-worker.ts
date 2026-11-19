@@ -2,7 +2,7 @@ import { ciLevel } from '../shared/ci.ts'
 import { isBehindBase } from '../shared/map.ts'
 import { canSquashMerge, sliceParts, stackReviewBar, upstackBlock } from '../shared/merge.ts'
 import { bootAction, cancelGrace, interpretWait, rebasesAfter, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
-import { buildStacks } from '../shared/stacks.ts'
+import { buildStacks, mergeLine, stackOf } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { abortRebases, GitCancelled, interruptGit, mirrorPath, rebaseOnto } from './git.ts'
@@ -53,9 +53,9 @@ export async function enqueuePull(db: DashboardDb, key: string) {
 
 export async function enqueueDownstack(db: DashboardDb, key: string) {
   const snap = db.snapshot()
-  const stack = buildStacks(snap.pullRequests).find((item) => item.prs.some((pr) => pr.key === key))
-  if (!stack) throw new MergeRejected('That pull request is no longer in this list.')
-  const parts = sliceParts(stack.prs, key)
+  const line = mergeLineFor(snap.pullRequests, key)
+  if (!line) throw new MergeRejected('That pull request is no longer in this list.')
+  const parts = sliceParts(line, key)
   if (!parts) throw new MergeRejected('The bottom pull request merges on its own.')
   assertSliceReady(parts.merge)
   for (const pr of [...parts.merge, ...parts.restack]) {
@@ -102,8 +102,8 @@ export async function setMergeWhenReady(
     if (pr.baseRef !== pr.defaultBranch) throw new MergeRejected(`#${pr.number} does not target ${pr.defaultBranch}.`)
     db.queue.armWatch({ key, scope, repo: pr.repo, keys: [key] })
   } else {
-    const stack = buildStacks(db.snapshot().pullRequests).find((item) => item.prs.some((item) => item.key === key))
-    const parts = stack ? sliceParts(stack.prs, key) : null
+    const line = mergeLineFor(db.snapshot().pullRequests, key)
+    const parts = line ? sliceParts(line, key) : null
     if (!parts) throw new MergeRejected('That pull request does not have a downstack to merge.')
     const affected = [...parts.merge, ...parts.restack]
     if (affected.some((item) => db.queue.blocksKey(item.key))) {
@@ -146,8 +146,8 @@ async function runMergeWatches(db: DashboardDb) {
       db.queue.setWatchDetail(watch.key, reason)
       if (reason) continue
     } else {
-      const stack = buildStacks(snap.pullRequests).find((item) => item.prs.some((item) => item.key === watch.key))
-      const parts = stack ? sliceParts(stack.prs, watch.key) : null
+      const line = mergeLineFor(snap.pullRequests, watch.key)
+      const parts = line ? sliceParts(line, watch.key) : null
       const keys = parts ? [...parts.merge, ...parts.restack].map((item) => item.key) : []
       if (!parts || keys.length !== watch.keys.length || keys.some((key, index) => key !== watch.keys[index])) {
         db.queue.setWatchDetail(watch.key, 'Stack changed. Turn merge when ready off and on again to use the new stack.')
@@ -167,6 +167,12 @@ async function runMergeWatches(db: DashboardDb) {
       )
     }
   }
+}
+
+/** Top to bottom: every branch that has to be restacked, then the chosen pull request down to the trunk. */
+function mergeLineFor(pulls: PullRequest[], key: string): PullRequest[] | null {
+  const stack = stackOf(buildStacks(pulls), key)
+  return stack ? mergeLine(stack, key) : null
 }
 
 function pullWatchBlock(pr: PullRequest): string | null {

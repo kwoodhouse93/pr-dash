@@ -479,8 +479,9 @@ tr.pending button { pointer-events: none; }
 th.grip,
 td.grip {
   position: relative;
-  width: 22px;
-  min-width: 22px;
+  /* One lane is 12px. A stack with branches needs one more for each branch that runs alongside. */
+  width: calc(22px + (var(--lanes, 1) - 1) * 12px);
+  min-width: calc(22px + (var(--lanes, 1) - 1) * 12px);
   padding-left: 0;
   padding-right: 0;
 }
@@ -521,6 +522,40 @@ tr.spine-end td.grip::after {
 }
 .stack-mark { left: 8px; top: calc(50% - 5px); width: 12px; }
 .stack-mark::after { content: ""; left: 0; top: 6px; width: 12px; }
+/* A stack with branches draws its own rail: a lane for each branch, and a curve where one joins its parent. */
+tr.forked td.grip::before,
+tr.forked td.grip::after { display: none; }
+.rail {
+  position: absolute;
+  left: calc(12px + var(--lane, 0) * 12px);
+  width: 2px;
+  background: var(--spine, var(--accent));
+}
+.rail.through { top: -1px; bottom: -1px; }
+.rail.up { top: -1px; bottom: 50%; }
+.rail.down { top: 50%; bottom: -1px; }
+.rail.node {
+  left: calc(9px + var(--lane, 0) * 12px);
+  top: calc(50% - 4px);
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+}
+.rail.node.hollow {
+  background: var(--row-bg, var(--bg));
+  box-shadow: inset 0 0 0 2px var(--spine, var(--accent));
+}
+.rail.join {
+  left: calc(13px + var(--lane, 0) * 12px);
+  top: -1px;
+  width: calc(var(--span, 1) * 12px + 1px);
+  height: calc(50% + 2px);
+  background: none;
+  border: solid var(--spine, var(--accent));
+  border-width: 0 2px 2px 0;
+  border-bottom-right-radius: 9px;
+}
+tr.held .rail { opacity: 0.35; }
 tr.spine-end + tr.spine-start > td,
 tr.spine-end + tr.spine-only > td,
 tr.spine-only + tr.spine-start > td,
@@ -1734,7 +1769,17 @@ td.when.age.hot { color: var(--red); }
 tr.held > td.when.age { color: var(--faint); }
 
 /* One segment per pull request in a collapsed stack, bottom of the stack first. */
-.segments { display: inline-flex; gap: 2px; }
+.segments { display: inline-flex; align-items: center; gap: 2px; }
+/* Where a stack branches, each branch is a line of its own beside the part they share. */
+.seg-fork {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 1px;
+  padding-left: 3px;
+  border-left: 2px solid var(--line-strong);
+}
+.seg-fork .seg { height: 5px; }
 .seg { width: 10px; height: 6px; border-radius: 2px; background: var(--line-strong); }
 .seg.ready { background: var(--green); }
 .seg.you { background: var(--accent); }

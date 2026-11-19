@@ -38,6 +38,8 @@ Required check names come from each repository’s rulesets, so a check that is 
 
 A collapsed stack shows one segment for each pull request, the bottom of the stack first. Green can merge now, amber needs you, red has a conflict or failing CI, grey is waiting on someone else, and an outline is a draft. On Review, green means you approved it. Hover a segment for the pull request number.
 
+A stack with branches is one stack, and each pull request is listed once. Collapsed, the row is named after the top of the part every branch shares, the strip splits into a line for each branch, and the row says how many branches there are. Expanded, the rail gives each branch its own lane and curves in where a branch joins the pull request it is based on. Merging a pull request merges it and the ones below it, and restacks every other branch in the stack. Rebasing one restacks every branch above it. A branch that is neither above nor below what a section shows is left out of that section.
+
 Project, issue and initiative headings count the same states for the rows under them, so a collapsed heading still says whether it needs you.
 
 ## Repositories
