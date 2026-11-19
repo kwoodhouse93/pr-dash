@@ -20,7 +20,7 @@ import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { linkHostName, noteAnchor, prHref, threadAnchor, usePrHref, usePrLinkHost } from './pr-links.tsx'
 
-export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'threads' | 'comments'
+export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'all' | 'comments'
 
 export type FeedbackTarget = {
   key: string
@@ -43,7 +43,7 @@ const FOCUS_TITLE: Record<FeedbackFocus, string> = {
   unread: 'Unread',
   unresolved: 'Unresolved',
   resolved: 'Resolved unread',
-  threads: 'Threads',
+  all: 'All',
   comments: 'Comments',
 }
 
@@ -52,7 +52,7 @@ const FOCUS_HINT: Record<FeedbackFocus, string> = {
   unread: 'Show unread threads',
   unresolved: 'Show unresolved threads',
   resolved: 'Show resolved threads you have not caught up on',
-  threads: 'Show review threads',
+  all: 'Show all feedback',
   comments: 'Show comments',
 }
 
@@ -89,21 +89,17 @@ export function feedbackTarget(pr: PullRequest): FeedbackTarget {
   }
 }
 
-function targetMatches(target: FeedbackTarget, focus: FeedbackFocus): boolean {
-  switch (focus) {
-    case 'awaiting':
-      return target.awaiting > 0
-    case 'unread':
-      return target.unread > 0
-    case 'unresolved':
-      return target.unresolved > 0
-    case 'resolved':
-      return target.resolvedUnread > 0
-    case 'threads':
-      return target.threads > 0 || target.truncated
-    case 'comments':
-      return target.comments > 0
-  }
+const FILTERS: Record<'mine' | 'review', FeedbackFocus[]> = {
+  mine: ['all', 'awaiting', 'comments', 'unresolved'],
+  review: ['all', 'unread', 'comments', 'resolved', 'unresolved'],
+}
+
+const FILTER_COUNT: Record<Exclude<FeedbackFocus, 'all'>, (target: FeedbackTarget) => number> = {
+  awaiting: (target) => target.awaiting,
+  unread: (target) => target.unread,
+  unresolved: (target) => target.unresolved,
+  resolved: (target) => target.resolvedUnread,
+  comments: (target) => target.comments,
 }
 
 export function Feedback({ mode, targets }: { mode: 'mine' | 'review'; targets: FeedbackTarget[] }) {
@@ -132,17 +128,12 @@ export function Feedback({ mode, targets }: { mode: 'mine' | 'review'; targets: 
   add('unresolved', unresolved, 'unresolved', true)
   if (parts.length === 0) {
     const count = `${threads}${truncated ? '+' : ''}`
-    parts.push({ count, text: `${count} thread${threads === 1 ? '' : 's'}`, hot: false, focus: 'threads' })
+    parts.push({ count, text: `${count} thread${threads === 1 ? '' : 's'}`, hot: false, focus: 'all' })
   }
   const pending = targets.some((target) => target.detailsPending)
   const title = `${mode === 'review'
     ? 'Unread is an open thread you joined that has a newer reply. Comments are review messages and conversation notes you have not answered, highlighted when one is a review message or a conversation you joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
     : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'} Unresolved threads block merge.${pending ? ' Reply details are still loading.' : ''}`
-  function choose(focus: FeedbackFocus) {
-    const matching = targets.filter((target) => targetMatches(target, focus))
-    const picked = matching.length > 0 ? matching : focus === 'threads' ? targets : matching
-    setOpen({ focus, targets: picked })
-  }
   return (
     <span className="feedback" title={title}>
       {parts.map((part) => (
@@ -152,13 +143,13 @@ export function Feedback({ mode, targets }: { mode: 'mine' | 'review'; targets: 
           className={part.hot ? 'feedback-hit await' : 'feedback-hit'}
           title={FOCUS_HINT[part.focus]}
           aria-label={part.text}
-          onClick={() => choose(part.focus)}
+          onClick={() => setOpen({ focus: part.focus, targets })}
         >
           <FocusIcon focus={part.focus} />
           {part.count}
         </button>
       ))}
-      {open ? <FeedbackDrawer focus={open.focus} targets={open.targets} onClose={() => setOpen(null)} /> : null}
+      {open ? <FeedbackDrawer mode={mode} focus={open.focus} targets={open.targets} onClose={() => setOpen(null)} /> : null}
     </span>
   )
 }
@@ -189,7 +180,7 @@ const FOCUS_ICON: Record<FeedbackFocus, ReactNode> = {
       <path d="M5.6 8.2 7.3 9.9l3.1-3.5" />
     </>
   ),
-  threads: <path d="M3 4.5h10M3 8h10M3 11.5h6" />,
+  all: <path d="M3 4.5h10M3 8h10M3 11.5h6" />,
 }
 
 function FocusIcon({ focus }: { focus: FeedbackFocus }) {
@@ -207,16 +198,46 @@ function sum(targets: FeedbackTarget[], pick: (target: FeedbackTarget) => number
 type Loaded = {
   target: FeedbackTarget
   detail: FeedbackDetail
-  threadIds: string[]
 }
 
-function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; targets: FeedbackTarget[]; onClose: () => void }) {
+function withCounts(target: FeedbackTarget, counts: FeedbackCounts): FeedbackTarget {
+  return {
+    ...target,
+    threads: counts.threadCount,
+    unresolved: counts.unresolvedCount,
+    awaiting: counts.awaitingYouCount,
+    unread: counts.unreadCount,
+    resolvedUnread: counts.resolvedUnreadCount,
+    comments: counts.commentAwaitingCount,
+    reviewComments: counts.reviewCommentAwaitingCount,
+    truncated: counts.threadsTruncated,
+  }
+}
+
+/** The threads each pull request shows under a filter, fixed until the filter changes so a thread you answer stays put. */
+function shownThreads(sections: Loaded[], filter: FeedbackFocus, viewer: string | null): Record<string, string[]> {
+  return Object.fromEntries(sections.map((section) => [section.target.key, threadIdsFor(section.detail, filter, viewer)]))
+}
+
+function FeedbackDrawer({
+  mode,
+  focus,
+  targets,
+  onClose,
+}: {
+  mode: 'mine' | 'review'
+  focus: FeedbackFocus
+  targets: FeedbackTarget[]
+  onClose: () => void
+}) {
   const { viewer, onCounts } = useContext(FeedbackContext)
   const [sections, setSections] = useState<Loaded[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openNotes, setOpenNotes] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState(focus)
+  const [shown, setShown] = useState<Record<string, string[]>>({})
+  const filterNow = useRef(filter)
   const scrimPress = useRef(false)
-  const notes = focus === 'comments'
   const key = targets.map((target) => target.key).join('\n')
 
   useEffect(() => {
@@ -240,14 +261,11 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
     Promise.all(targets.map((target) => api.pullFeedback(target.key).then((payload) => ({ target, payload }))))
       .then((loaded) => {
         if (cancel) return
-        const next = loaded.map(({ target, payload }) => ({
-          target,
-          detail: payload.detail,
-          threadIds: threadIdsFor(payload.detail, focus, viewer),
-        }))
+        const next = loaded.map(({ target, payload }) => ({ target: withCounts(target, payload.counts), detail: payload.detail }))
         for (const item of loaded) onCounts(item.target.key, item.payload.counts)
         setSections(next)
-        if (notes && viewer) {
+        setShown(shownThreads(next, filterNow.current, viewer))
+        if (viewer) {
           const ids = next.flatMap((section) => {
             const id = unansweredId(section.detail, viewer)
             return id ? [id] : []
@@ -261,15 +279,29 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
     return () => {
       cancel = true
     }
-  }, [key, focus, viewer, notes, onCounts, targets])
+  }, [key, viewer, onCounts, targets])
 
   function apply(targetKey: string, payload: FeedbackPayload) {
     onCounts(targetKey, payload.counts)
     setSections((current) =>
-      current?.map((section) => (section.target.key === targetKey ? { ...section, detail: payload.detail } : section)) ?? current,
+      current?.map((section) =>
+        section.target.key === targetKey ? { target: withCounts(section.target, payload.counts), detail: payload.detail } : section,
+      ) ?? current,
     )
   }
 
+  function choose(next: FeedbackFocus) {
+    filterNow.current = next
+    setFilter(next)
+    if (sections) setShown(shownThreads(sections, next, viewer))
+  }
+
+  const live = sections?.map((section) => section.target) ?? targets
+  const visible = sections?.flatMap((section) => {
+    const threadIds = shown[section.target.key] ?? []
+    const notes = (filter === 'all' || filter === 'comments') && section.detail.notes.length > 0
+    return threadIds.length > 0 || notes ? [{ section, threadIds, notes }] : []
+  })
   const single = targets.length === 1 ? targets[0] : null
   const host = usePrLinkHost()
   return createPortal(
@@ -287,7 +319,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
         <header className="drawer-head">
           <div>
-            <p className="eyebrow" id="feedback-title">{FOCUS_TITLE[focus]}</p>
+            <p className="eyebrow" id="feedback-title">Feedback</p>
             {single ? (
               <a className="drawer-pr external" href={prHref(single.url, host)} target="_blank" rel="noreferrer">
                 #{single.number} {single.title}
@@ -302,11 +334,22 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
             </svg>
           </button>
         </header>
+        <div className="feedback-filters" role="group" aria-label="Show">
+          {FILTERS[mode].map((item) => (
+            <button key={item} type="button" aria-pressed={filter === item} onClick={() => choose(item)}>
+              {item === 'all' ? null : <FocusIcon focus={item} />}
+              {FOCUS_TITLE[item]}
+              {item === 'all' ? null : <span className="filter-count">{sum(live, FILTER_COUNT[item])}</span>}
+            </button>
+          ))}
+        </div>
         <div className="drawer-body">
           {error ? <p className="launch-error">{error}</p> : null}
           {sections === null && !error ? <p className="faint">Loading feedback…</p> : null}
-          {sections && sections.length === 0 ? <p className="faint">Nothing in this list.</p> : null}
-          {sections?.map((section) => (
+          {visible && visible.length === 0 ? (
+            <p className="faint">{filter === 'all' ? 'No feedback yet.' : `Nothing under ${FOCUS_TITLE[filter]}.`}</p>
+          ) : null}
+          {visible?.map(({ section, threadIds, notes }) => (
             <section key={section.target.key} className="feedback-section">
               {targets.length > 1 ? (
                 <h3>
@@ -315,6 +358,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
                   </a>
                 </h3>
               ) : null}
+              {notes && threadIds.length > 0 ? <p className="eyebrow">Conversation</p> : null}
               {notes ? (
                 <NoteList
                   detail={section.detail}
@@ -322,18 +366,20 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
                   onOpen={(id) => setOpenNotes((current) => new Set([...current, id]))}
                   onReply={(noteId, body) => api.replyToNote(section.target.key, noteId, body).then((payload) => apply(section.target.key, payload))}
                 />
-              ) : (
+              ) : null}
+              {notes && threadIds.length > 0 ? <p className="eyebrow">Review threads</p> : null}
+              {threadIds.length > 0 ? (
                 <ThreadList
                   prKey={section.target.key}
                   detail={section.detail}
-                  threadIds={section.threadIds}
+                  threadIds={threadIds}
                   prUrl={section.target.url}
                   onReply={(threadId, body) => api.replyToThread(section.target.key, threadId, body).then((payload) => apply(section.target.key, payload))}
                   onResolve={(threadId, resolved) =>
                     api.setThreadResolved(section.target.key, threadId, resolved).then((payload) => apply(section.target.key, payload))
                   }
                 />
-              )}
+              ) : null}
             </section>
           ))}
         </div>
@@ -345,7 +391,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
 
 function threadIdsFor(detail: FeedbackDetail, focus: FeedbackFocus, viewer: string | null): string[] {
   if (focus === 'comments') return []
-  if (focus === 'threads' || !viewer) return detail.threads.map((thread) => thread.id)
+  if (focus === 'all' || !viewer) return detail.threads.map((thread) => thread.id)
   const kind = focus === 'resolved' ? 'resolvedUnread' : focus
   return detail.threads.filter((thread) => threadKinds(asThread(thread), viewer).includes(kind)).map((thread) => thread.id)
 }
@@ -376,7 +422,6 @@ function ThreadList({
     return thread ? [thread] : []
   })
   const openHref = usePrHref(prUrl)
-  if (threads.length === 0) return <p className="faint">No review threads in this list.</p>
   return (
     <>
       {detail.threadsTruncated ? (
@@ -668,7 +713,6 @@ function NoteList({
   onReply: (noteId: string, body: string) => Promise<void>
 }) {
   const notes = detail.notes.slice().sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
-  if (notes.length === 0) return <p className="faint">No conversation comments.</p>
   return (
     <>
       {notes.map((note) => (

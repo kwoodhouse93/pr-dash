@@ -1560,13 +1560,40 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
   padding: 16px 44px 14px 18px;
   border-bottom: 1px solid var(--line);
 }
-.drawer-head .eyebrow {
+.drawer-head .eyebrow, .feedback-section .eyebrow {
   margin: 0 0 2px;
   color: var(--faint);
   font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.feedback-section .eyebrow { margin: 14px 0 8px; }
+.feedback-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.feedback-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  padding: 3px 10px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.feedback-filters button:hover { color: var(--text); }
+.feedback-filters button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--text);
+}
+.filter-count { color: var(--faint); font-variant-numeric: tabular-nums; }
+.feedback-filters button[aria-pressed="true"] .filter-count { color: var(--accent); }
 .drawer-pr {
   margin: 0;
   color: var(--text);

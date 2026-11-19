@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FeedbackPayload } from '../src/shared/feedback.ts'
 import { api } from '../src/web/api.ts'
-import { Feedback, type FeedbackTarget } from '../src/web/feedback.tsx'
+import { Feedback, FeedbackProvider, type FeedbackTarget } from '../src/web/feedback.tsx'
 import { PrLinksProvider } from '../src/web/pr-links.tsx'
 
 vi.mock('../src/web/api.ts', () => ({
@@ -23,10 +23,10 @@ const target: FeedbackTarget = {
   title: 'Ship the queue',
   url: 'https://github.com/acme/app/pull/7',
   threads: 2,
-  unresolved: 0,
+  unresolved: 1,
   awaiting: 0,
   unread: 0,
-  resolvedUnread: 0,
+  resolvedUnread: 1,
   comments: 0,
   reviewComments: 0,
   truncated: false,
@@ -120,7 +120,19 @@ describe('feedback drawer', () => {
   }
 
   async function openThreads() {
-    const button = document.querySelector<HTMLButtonElement>('button[title="Show review threads"]')
+    const button = document.querySelector<HTMLButtonElement>('button[title="Show unresolved threads"]')
+    expect(button).toBeTruthy()
+    await act(async () => {
+      button?.click()
+    })
+  }
+
+  function filterButton(label: string) {
+    return [...document.querySelectorAll<HTMLButtonElement>('.feedback-filters button')].find((button) => button.textContent?.startsWith(label))
+  }
+
+  async function pick(label: string) {
+    const button = filterButton(label)
     expect(button).toBeTruthy()
     await act(async () => {
       button?.click()
@@ -152,6 +164,30 @@ describe('feedback drawer', () => {
     })
     expect(cards[1]?.classList.contains('collapsed')).toBe(false)
     expect(cards[1]?.textContent).toContain('Already handled.')
+  })
+
+  it('opens on the filter you clicked and switches to any other', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <FeedbackProvider viewer="grace" onCounts={() => {}}>
+          <Feedback mode="review" targets={[target]} />
+        </FeedbackProvider>,
+      )
+    })
+    await openThreads()
+    expect(filterButton('Unresolved')?.getAttribute('aria-pressed')).toBe('true')
+    expect(filterButton('Unresolved')?.textContent).toBe('Unresolved1')
+    expect([...document.querySelectorAll('.thread-card')].map((card) => card.querySelector('.file-link')?.textContent)).toEqual(['src/web/queue.tsx:18'])
+
+    await pick('All')
+    expect(document.querySelectorAll('.thread-card')).toHaveLength(2)
+
+    await pick('Comments')
+    expect(document.querySelectorAll('.thread-card')).toHaveLength(0)
+    expect(document.querySelector('.drawer-body')?.textContent).toBe('Nothing under Comments.')
   })
 
   it('keeps the drawer open when the review list behind it would otherwise collapse', async () => {
