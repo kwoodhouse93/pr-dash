@@ -327,7 +327,7 @@ describe('queue store', () => {
       steps: [{ prKey: 'acme/app#2', number: 2, title: 'Second', url: 'https://example.test', headRef: 'b', headOid: 'b'.repeat(40), baseRef: 'main', role: 'merge' }],
     })
     db.queue.fail(first.id, first.steps[0]!.id, 'Check failed.')
-    expect(db.queue.nextRunnable()?.id).toBe(second.id)
+    expect(db.queue.nextRunnable('acme/app')?.id).toBe(second.id)
     expect(db.queue.blocksKey('acme/app#1')).toBe(true)
     expect(() => db.queue.retry(second.id, [])).toThrow(/held/)
 
@@ -335,7 +335,7 @@ describe('queue store', () => {
     const retried = db.queue.get(first.id)!
     expect(retried).toMatchObject({ status: 'queued', error: null, finishedAt: null })
     expect(retried.steps[0]).toMatchObject({ status: 'queued', detail: null, headOid: 'c'.repeat(40) })
-    expect(db.queue.nextRunnable()?.id).toBe(first.id)
+    expect(db.queue.nextRunnable('acme/app')?.id).toBe(first.id)
 
     db.queue.fail(first.id, first.steps[0]!.id, 'Check failed.')
     expect(db.queue.requestCancel(first.id)).toBe('now')
@@ -411,7 +411,7 @@ describe('queue store', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('reorders queued entries and leaves the active one in front', () => {
+  it('reorders queued entries within a repo, leaves the active one in front, and runs each repo on its own', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-queue-'))
     const db = openDatabase(path.join(dir, 'dash.sqlite'))
     const active = db.queue.enqueue(entry('Active', 1))
@@ -421,8 +421,14 @@ describe('queue store', () => {
     db.queue.move(upper.id, 'up')
     expect(db.queue.snapshot().entries.map((item) => item.title)).toEqual(['Active', 'Upper', 'Lower'])
     expect(() => db.queue.move(active.id, 'down')).toThrow(/queued/)
-    expect(db.queue.nextRunnable()?.id).toBe(active.id)
+    expect(db.queue.nextRunnable('acme/app')?.id).toBe(active.id)
     expect(lower.id).not.toBe(upper.id)
+
+    const other = db.queue.enqueue({ ...entry('Elsewhere', 4), repo: 'acme/web' })
+    expect(db.queue.runnableRepos().sort()).toEqual(['acme/app', 'acme/web'])
+    expect(db.queue.nextRunnable('acme/web')?.id).toBe(other.id)
+    db.queue.move(other.id, 'up')
+    expect(db.queue.snapshot().entries.map((item) => item.title)).toEqual(['Active', 'Upper', 'Lower', 'Elsewhere'])
     rmSync(dir, { recursive: true, force: true })
   })
 })

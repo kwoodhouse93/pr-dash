@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { rm, mkdtemp } from 'node:fs/promises'
@@ -21,11 +22,24 @@ export class GitCancelled extends Error {
 const REF = /^(?!@)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)[A-Za-z0-9._/-]+$/
 const OID = /^[0-9a-f]{40}$/
 
-let current: ReturnType<typeof execFile> | null = null
-let interruptible = true
+/** Git work on one mirror. Repos run side by side, so a cancel must only reach its own mirror. */
+type Scope = { child: ReturnType<typeof execFile> | null; interruptible: boolean }
+const scopes = new Map<string, Scope>()
+const running = new AsyncLocalStorage<Scope>()
 
-export function interruptGit() {
-  if (interruptible) current?.kill('SIGTERM')
+function scoped<T>(mirror: string, work: () => Promise<T>): Promise<T> {
+  const key = path.resolve(mirror)
+  let scope = scopes.get(key)
+  if (!scope) {
+    scope = { child: null, interruptible: true }
+    scopes.set(key, scope)
+  }
+  return running.run(scope, work)
+}
+
+export function interruptGit(mirror: string) {
+  const scope = scopes.get(path.resolve(mirror))
+  if (scope?.interruptible) scope.child?.kill('SIGTERM')
 }
 
 function assertRef(ref: string) {
@@ -44,6 +58,7 @@ function git(cwd: string | null, args: string[], token: string | null): Promise<
       ? []
       : ['-c', `http.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`]
   const prefix = cwd ? ['-C', cwd] : []
+  const scope = running.getStore()
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
@@ -54,7 +69,7 @@ function git(cwd: string | null, args: string[], token: string | null): Promise<
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
       },
       (error, stdout, stderr) => {
-        if (current === child) current = null
+        if (scope?.child === child) scope.child = null
         if (error) {
           const killed = error.killed || /SIGTERM/.test(error.message)
           if (killed) {
@@ -68,7 +83,7 @@ function git(cwd: string | null, args: string[], token: string | null): Promise<
         resolve(String(stdout).trim())
       },
     )
-    current = child
+    if (scope) scope.child = child
   })
 }
 
@@ -133,7 +148,11 @@ async function fetchHeads(mirror: string, token: string | null, refs: string[]) 
 }
 
 /** Replay `branch` onto the latest tip of `base`, using their merge base as the cutoff. */
-export async function rebaseOntoTip(input: {
+export function rebaseOntoTip(input: Parameters<typeof ontoTip>[0]): Promise<string> {
+  return scoped(input.mirror, () => ontoTip(input))
+}
+
+async function ontoTip(input: {
   mirror: string
   remote: string
   token: string | null
@@ -168,7 +187,11 @@ export async function rebaseOntoTip(input: {
   })
 }
 
-export async function rebaseOnto(input: {
+export function rebaseOnto(input: Parameters<typeof onto>[0]): Promise<string> {
+  return scoped(input.mirror, () => onto(input))
+}
+
+async function onto(input: {
   mirror: string
   remote: string
   token: string | null
@@ -223,7 +246,8 @@ async function replay(input: {
     }
     if (input.shouldStop?.()) throw new GitCancelled()
     const next = (await git(worktree, ['rev-parse', 'HEAD'], null)).toLowerCase()
-    interruptible = false
+    const scope = running.getStore()
+    if (scope) scope.interruptible = false
     try {
       await git(
         worktree,
@@ -231,7 +255,7 @@ async function replay(input: {
         input.token,
       )
     } finally {
-      interruptible = true
+      if (scope) scope.interruptible = true
     }
     return next
   } finally {

@@ -153,7 +153,7 @@ describe('merge queue logs', () => {
       )
     })
 
-    expect(document.querySelector('.queue-label.held')?.textContent).toBe('Held 1')
+    expect(document.querySelector('.queue-repo-head')?.textContent).toBe('acme/app1 held')
     expect(document.body.textContent).toContain('#7 has a merge conflict.')
     expect(document.querySelector('.queue-clock')).toBeNull()
 
@@ -169,6 +169,29 @@ describe('merge queue logs', () => {
       remove!.click()
     })
     expect(removed).toEqual(['entry-1'])
+  })
+
+  it('gives each repository its own section, with its own numbering and reorder limits', async () => {
+    const queued = (id: string, repo: string, title: string): MergeEntry => ({ ...entry([]), id, repo, title, status: 'queued', error: null })
+    await render({
+      entries: [
+        { ...entry([]), id: 'web-now', repo: 'acme/web', error: null },
+        queued('web-1', 'acme/web', 'Web first'),
+        queued('app-1', 'acme/app', 'App first'),
+        queued('web-2', 'acme/web', 'Web second'),
+      ],
+      history: [],
+      watches: [],
+    })
+
+    const sections = [...document.querySelectorAll('.queue-repo-section')]
+    expect(sections.map((section) => section.querySelector('.queue-repo-head')?.textContent)).toEqual(['acme/app1 waiting', 'acme/webmerging · 2 waiting'])
+    const web = sections[1]!
+    expect(web.querySelectorAll('.queue-now')).toHaveLength(1)
+    expect([...web.querySelectorAll('.queue-row')].map((row) => row.textContent)).toEqual(['1Web first#7', '2Web second#7'])
+    const app = sections[0]!
+    expect(app.querySelector<HTMLButtonElement>('[aria-label="Move up"]')?.disabled).toBe(true)
+    expect(app.querySelector<HTMLButtonElement>('[aria-label="Move down"]')?.disabled).toBe(true)
   })
 
   it('lists pull requests set to merge when ready, with what holds them', async () => {

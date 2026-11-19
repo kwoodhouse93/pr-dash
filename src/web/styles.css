@@ -659,7 +659,10 @@ tr.held .stack-mark::after { opacity: 0.35; }
   text-transform: uppercase;
 }
 .queue-label span { color: var(--muted); }
-.queue-label.held { color: var(--red); }
+.queue-repo-head { display: flex; align-items: center; gap: 9px; margin: 0 0 10px; font-size: 17px; font-weight: 500; }
+.queue-repo-head::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.queue-repo-sum { color: var(--faint); font-size: 14px; font-weight: 400; }
+.queue-now + .queue-rows { margin-top: 10px; }
 
 .queue-now {
   border: 1px solid var(--line-strong);

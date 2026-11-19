@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { stepLabel, type MergeEntry, type MergeLog, type MergeStep, type MergeWatch, type QueueSnapshot } from '../shared/queue.ts'
+import { pullKeyRepo } from '../shared/repos.ts'
 import { formatClock, formatDuration, formatExact, formatWhen } from './format.ts'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 
@@ -32,63 +33,51 @@ export function MergeQueuePage({
       </div>
     )
   }
-  const held = queue.entries.filter((entry) => entry.status === 'failed')
-  const active = queue.entries.filter((entry) => entry.status === 'active')
-  const next = queue.entries.filter((entry) => entry.status !== 'failed' && entry.status !== 'active')
-  const idle = queue.entries.length === 0 && queue.watches.length === 0
+  const repos = groupByRepo(queue)
   return (
     <div className="queue-page">
-      {idle ? (
+      {repos.length === 0 ? (
         <div className="empty">
           <h2>Nothing queued</h2>
-          <p>Queue a pull request, or merge a stack, and it will show up here.</p>
+          <p>Merge a pull request or a stack and it will show up here. Each repository runs its own line.</p>
         </div>
       ) : null}
-      {held.length > 0 ? (
-        <section>
-          <h2 className="queue-label held">
-            Held <span>{held.length}</span>
+      {repos.map((group) => (
+        <section key={group.repo} className="queue-repo-section">
+          <h2 className="queue-repo-head">
+            <span className={`queue-dot ${group.held.length > 0 ? 'failed' : group.active.length > 0 ? 'live' : ''}`} aria-hidden="true" />
+            {group.repo}
+            <span className="queue-repo-sum">{repoSummary(group)}</span>
           </h2>
-          {held.map((entry) => (
+          {group.held.map((entry) => (
             <NowCard key={entry.id} entry={entry} onCancel={onCancel} onRetry={onRetry} />
           ))}
-        </section>
-      ) : null}
-      {active.length > 0 ? (
-        <section>
-          <h2 className="queue-label">Merging now</h2>
-          {active.map((entry) => (
+          {group.active.map((entry) => (
             <NowCard key={entry.id} entry={entry} onCancel={onCancel} />
           ))}
+          {group.next.length > 0 || group.watches.length > 0 ? (
+            <ol className="queue-rows">
+              {group.next.map((entry, index) => (
+                <EntryRow
+                  key={entry.id}
+                  entry={entry}
+                  lead={<span className="queue-pos">{index + 1}</span>}
+                  trail={
+                    <>
+                      <IconButton label="Move up" icon="up" disabled={index === 0} onClick={() => void onMove(entry.id, 'up')} />
+                      <IconButton label="Move down" icon="down" disabled={index === group.next.length - 1} onClick={() => void onMove(entry.id, 'down')} />
+                      <IconButton label="Remove from the queue" icon="x" onClick={() => void onCancel(entry.id)} />
+                    </>
+                  }
+                />
+              ))}
+              {group.watches.map((watch) => (
+                <WatchRow key={watch.key} watch={watch} pull={pulls?.get(watch.key)} />
+              ))}
+            </ol>
+          ) : null}
         </section>
-      ) : null}
-      {next.length > 0 || queue.watches.length > 0 ? (
-        <section>
-          <h2 className="queue-label">
-            Up next {next.length > 0 ? <span>{next.length}</span> : null}
-          </h2>
-          <ol className="queue-rows">
-            {next.map((entry, index) => (
-              <EntryRow
-                key={entry.id}
-                entry={entry}
-                lead={<span className="queue-pos">{index + 1}</span>}
-                trail={
-                  <>
-                    <span className="queue-repo">{entry.repo}</span>
-                    <IconButton label="Move up" icon="up" disabled={index === 0} onClick={() => void onMove(entry.id, 'up')} />
-                    <IconButton label="Move down" icon="down" disabled={index === next.length - 1} onClick={() => void onMove(entry.id, 'down')} />
-                    <IconButton label="Remove from the queue" icon="x" onClick={() => void onCancel(entry.id)} />
-                  </>
-                }
-              />
-            ))}
-            {queue.watches.map((watch) => (
-              <WatchRow key={watch.key} watch={watch} pull={pulls?.get(watch.key)} />
-            ))}
-          </ol>
-        </section>
-      ) : null}
+      ))}
       {queue.history.length > 0 ? (
         <section>
           <h2 className="queue-label">Earlier</h2>
@@ -100,6 +89,7 @@ export function MergeQueuePage({
                 lead={<span className={`queue-dot ${entry.error ? 'failed' : entry.status}`} role="img" aria-label={outcome(entry)} title={outcome(entry)} />}
                 trail={
                   <>
+                    <span className="queue-repo">{entry.repo}</span>
                     {entry.startedAt && entry.finishedAt ? (
                       <span className="queue-took">took {formatDuration(Date.parse(entry.finishedAt) - Date.parse(entry.startedAt))}</span>
                     ) : null}
@@ -117,6 +107,38 @@ export function MergeQueuePage({
   )
 }
 
+type RepoGroup = { repo: string; held: MergeEntry[]; active: MergeEntry[]; next: MergeEntry[]; watches: MergeWatch[] }
+
+/** Each repository runs its own line, so the page reads as one queue per repo, in name order. */
+function groupByRepo(queue: QueueSnapshot): RepoGroup[] {
+  const groups = new Map<string, RepoGroup>()
+  const group = (repo: string) => {
+    let found = groups.get(repo)
+    if (!found) {
+      found = { repo, held: [], active: [], next: [], watches: [] }
+      groups.set(repo, found)
+    }
+    return found
+  }
+  for (const entry of queue.entries) {
+    const target = group(entry.repo)
+    if (entry.status === 'failed') target.held.push(entry)
+    else if (entry.status === 'active') target.active.push(entry)
+    else target.next.push(entry)
+  }
+  for (const watch of queue.watches) group(pullKeyRepo(watch.key) ?? watch.key).watches.push(watch)
+  return [...groups.values()].sort((a, b) => a.repo.localeCompare(b.repo))
+}
+
+function repoSummary(group: RepoGroup): string {
+  const parts: string[] = []
+  if (group.active.length > 0) parts.push('merging')
+  if (group.next.length > 0) parts.push(`${group.next.length} waiting`)
+  if (group.held.length > 0) parts.push(`${group.held.length} held`)
+  if (group.watches.length > 0) parts.push(`${group.watches.length} when ready`)
+  return parts.join(' · ')
+}
+
 function NowCard({ entry, onCancel, onRetry }: { entry: MergeEntry; onCancel: CancelFn; onRetry?: RetryFn }) {
   const failed = entry.status === 'failed'
   const [retrying, setRetrying] = useState(false)
@@ -128,7 +150,7 @@ function NowCard({ entry, onCancel, onRetry }: { entry: MergeEntry; onCancel: Ca
         <div className="queue-now-title">
           <h3>{entry.title}</h3>
           <p>
-            {entry.repo} · {shape}
+            {shape}
             {merged > 0 ? ` · ${merged} merged` : ''}
           </p>
         </div>

@@ -497,10 +497,10 @@ export function attachQueue(db: DatabaseSync) {
       const neighbor = db.prepare(
         direction === 'up'
           ? `SELECT id, position FROM merge_entries
-             WHERE archived = 0 AND status = 'queued' AND position < ? ORDER BY position DESC LIMIT 1`
+             WHERE archived = 0 AND status = 'queued' AND repo = ? AND position < ? ORDER BY position DESC LIMIT 1`
           : `SELECT id, position FROM merge_entries
-             WHERE archived = 0 AND status = 'queued' AND position > ? ORDER BY position ASC LIMIT 1`,
-      ).get(entry.position) as { id: string; position: number } | undefined
+             WHERE archived = 0 AND status = 'queued' AND repo = ? AND position > ? ORDER BY position ASC LIMIT 1`,
+      ).get(entry.repo, entry.position) as { id: string; position: number } | undefined
       if (!neighbor) return
       db.exec('BEGIN')
       try {
@@ -513,14 +513,22 @@ export function attachQueue(db: DatabaseSync) {
       }
     },
 
-    nextRunnable(): MergeEntry | null {
+    /** Repos with an entry in flight or waiting. Each one runs its own line. */
+    runnableRepos(): string[] {
+      const rows = db.prepare(
+        `SELECT DISTINCT repo FROM merge_entries WHERE status IN ('queued', 'active') AND archived = 0`,
+      ).all() as { repo: string }[]
+      return rows.map((row) => row.repo)
+    },
+
+    nextRunnable(repo: string): MergeEntry | null {
       const active = db.prepare(
-        `SELECT id FROM merge_entries WHERE status = 'active' AND archived = 0 ORDER BY position ASC LIMIT 1`,
-      ).get() as { id: string } | undefined
+        `SELECT id FROM merge_entries WHERE status = 'active' AND archived = 0 AND repo = ? ORDER BY position ASC LIMIT 1`,
+      ).get(repo) as { id: string } | undefined
       if (active) return load(active.id)
       const queued = db.prepare(
-        `SELECT id FROM merge_entries WHERE ${OPEN} AND status = 'queued' ORDER BY position ASC LIMIT 1`,
-      ).get() as { id: string } | undefined
+        `SELECT id FROM merge_entries WHERE ${OPEN} AND status = 'queued' AND repo = ? ORDER BY position ASC LIMIT 1`,
+      ).get(repo) as { id: string } | undefined
       return queued ? load(queued.id) : null
     },
 

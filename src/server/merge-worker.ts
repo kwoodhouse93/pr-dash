@@ -19,18 +19,18 @@ export class MergeRejected extends Error {
 
 let database: DashboardDb | null = null
 let booted: Promise<void> | null = null
-let pumping = false
+const pumping = new Set<string>()
 
 export function startMergeWorker(db: DashboardDb) {
   database = db
   booted = boot().finally(() => {
     booted = null
   })
-  void booted.then(() => pump())
+  void booted.then(() => pumpAll())
 }
 
 export function kickMergeWorker() {
-  void Promise.resolve(booted).then(() => pump())
+  void Promise.resolve(booted).then(() => pumpAll())
 }
 
 export async function enqueuePull(db: DashboardDb, key: string) {
@@ -190,8 +190,11 @@ function sliceWatchBlock(mergeTopToBottom: PullRequest[]): string | null {
 }
 
 export function cancelEntry(db: DashboardDb, id: string) {
+  const repo = db.queue.get(id)?.repo
   const when = db.queue.requestCancel(id)
-  if (when === 'later') interruptGit()
+  if (when === 'later') {
+    if (repo) interruptGit(mirrorFor(repo))
+  }
   else {
     const entry = db.queue.get(id)
     if (entry) settle(db, entry)
@@ -291,9 +294,14 @@ function db(): DashboardDb {
 }
 
 async function boot() {
+  for (const entry of db().queue.snapshot().entries) {
+    if (entry.status === 'active') await recover(entry)
+  }
+}
+
+/** An entry that was in flight when the server stopped either carries on or is held aside. */
+async function recover(active: MergeEntry) {
   const store = db().queue
-  const active = store.snapshot().entries.find((entry) => entry.status === 'active')
-  if (!active) return
   const step = active.steps.find((item) => item.status !== 'merged' && item.status !== 'restacked' && item.status !== 'cancelled')
   if (!step) {
     store.markDone(active.id)
@@ -324,18 +332,23 @@ async function boot() {
   }
 }
 
-async function pump() {
-  if (pumping) return
-  pumping = true
+function pumpAll() {
+  for (const repo of db().queue.runnableRepos()) void pump(repo)
+}
+
+/** One line per repo: a slow merge in one repo does not hold up another. */
+async function pump(repo: string) {
+  if (pumping.has(repo)) return
+  pumping.add(repo)
   try {
     for (;;) {
-      const entry = db().queue.nextRunnable()
+      const entry = db().queue.nextRunnable(repo)
       if (!entry) break
       await runEntry(entry)
     }
   } finally {
-    pumping = false
-    if (db().queue.nextRunnable()) void pump()
+    pumping.delete(repo)
+    if (db().queue.nextRunnable(repo)) void pump(repo)
   }
 }
 
