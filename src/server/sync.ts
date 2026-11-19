@@ -103,20 +103,6 @@ function note(message: string) {
 
 export type RefreshFocus = 'mine' | 'review'
 
-const mergedKeys = new Set<string>()
-
-export function markMerged(key: string) {
-  mergedKeys.add(key)
-}
-
-export function omitMerged(pullRequests: PullRequest[]): PullRequest[] {
-  for (const key of mergedKeys) {
-    if (!pullRequests.some((pr) => pr.key === key)) mergedKeys.delete(key)
-  }
-  if (mergedKeys.size === 0) return pullRequests
-  return pullRequests.filter((pr) => !mergedKeys.has(pr.key))
-}
-
 export function refreshSnapshot(
   db: DashboardDb,
   next: RefreshFocus = 'mine',
@@ -386,7 +372,7 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   await confirmLandedMerges(db, token, fetched.pullRequests)
   const current = db.snapshot()
-  const next = db.queue.overlay(omitMerged(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr))))
+  const next = db.queue.overlay(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr)))
   db.saveSnapshot({
     viewer: fetched.viewer || current.viewer || '',
     syncedAt: new Date().toISOString(),

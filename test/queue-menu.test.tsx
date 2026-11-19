@@ -106,7 +106,7 @@ function outlineFor(pr: PullRequest): Outline {
   }
 }
 
-describe('queue menu', () => {
+describe('merge action', () => {
   let root: Root | null = null
 
   afterEach(() => {
@@ -116,7 +116,7 @@ describe('queue menu', () => {
   })
 
   async function render(
-    onQueue: (key: string) => Promise<void>,
+    onMerge: (key: string) => Promise<void>,
     options: {
       pr?: Partial<PullRequest>
       onSetMergeWhenReady?: (key: string, scope: 'pr' | 'downstack', enabled: boolean) => Promise<void>
@@ -143,8 +143,7 @@ describe('queue menu', () => {
             onToggleSection={() => {}}
             onAssign={async () => {}}
             onCreateAssigned={async () => {}}
-            onMerge={async () => {}}
-            onQueue={onQueue}
+            onMerge={onMerge}
             onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}
@@ -169,18 +168,7 @@ describe('queue menu', () => {
     return pr
   }
 
-  async function openMenu() {
-    const caret = document.querySelector<HTMLButtonElement>('button[aria-label="More merge actions for #7"]')
-    expect(caret).not.toBeNull()
-    await act(async () => {
-      caret!.click()
-    })
-    const item = document.querySelector<HTMLButtonElement>('button[role="menuitem"]')
-    expect(item?.textContent).toBe('Queue')
-    return item!
-  }
-
-  it('queues the pull request when Queue is pressed', async () => {
+  it('queues the pull request when Merge is pressed, with no second action to choose', async () => {
     const queued: string[] = []
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => {
@@ -190,30 +178,15 @@ describe('queue menu', () => {
       queued.push(key)
       await gate
     })
-    const item = await openMenu()
+    expect(document.querySelector('button[aria-label="More merge actions for #7"]')).toBeNull()
+    const merge = document.querySelector<HTMLButtonElement>('button[aria-label="Squash and merge #7"]')
+    expect(merge?.textContent).toBe('Merge')
     await act(async () => {
-      item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    })
-    expect(item.isConnected).toBe(true)
-    await act(async () => {
-      item.click()
+      merge!.click()
     })
     expect(queued).toEqual(['acme/app#7'])
     expect(document.body.textContent).toContain('Queuing')
     await act(async () => release())
-  })
-
-  it('closes the menu on an outside press without queueing', async () => {
-    const queued: string[] = []
-    await render(async (key) => {
-      queued.push(key)
-    })
-    await openMenu()
-    await act(async () => {
-      document.documentElement.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    })
-    expect(document.querySelector('button[role="menuitem"]')).toBeNull()
-    expect(queued).toEqual([])
   })
 
   it('offers merge when ready while a pull request is not mergeable', async () => {

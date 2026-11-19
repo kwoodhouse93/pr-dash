@@ -51,7 +51,6 @@ export function App() {
   const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
   const [queue, setQueue] = useState<QueueSnapshot | null>(null)
   const applyId = useRef(0)
-  const mergedKeys = useRef(new Set<string>())
   const seenQueue = useRef(new Set<string>())
   const watchedRef = useRef<string[]>([])
   const pageRef = useRef<DashboardPage>(prefs.page)
@@ -64,14 +63,7 @@ export function App() {
   function adopt(snap: Snapshot): Snapshot {
     const reviewPullRequests = snap.reviewPullRequests ?? []
     watchedRef.current = snap.repos ?? []
-    const next =
-      mergedKeys.current.size === 0
-        ? { ...snap, reviewPullRequests }
-        : {
-            ...snap,
-            pullRequests: snap.pullRequests.filter((pr) => !mergedKeys.current.has(pr.key)),
-            reviewPullRequests: reviewPullRequests.filter((pr) => !mergedKeys.current.has(pr.key)),
-          }
+    const next = { ...snap, reviewPullRequests }
     dataRef.current = next
     return next
   }
@@ -660,11 +652,6 @@ export function App() {
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
               onLinkIssue={(key, identifier) => mutate(() => api.linkLinearIssue(key, identifier))}
               onMerge={async (key) => {
-                await api.merge(key)
-                mergedKeys.current.add(key)
-                setData((current) => (current ? adopt(current) : current))
-              }}
-              onQueue={async (key) => {
                 setQueue(await api.enqueue(key, 'pr'))
               }}
               onRetry={async (entryId) => {

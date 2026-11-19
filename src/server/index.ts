@@ -14,7 +14,6 @@ import {
   repositoryVisible,
   rerunWorkflows,
   setReviewThreadResolved,
-  squashMergePullRequest,
   markPullReadyForReview,
 } from './github.ts'
 import { removeMirror } from './git.ts'
@@ -33,8 +32,7 @@ import {
 import { isLinearIdentifier } from '../shared/linear.ts'
 import { linkGitHubPullRequest, listStatuses, listUsers, searchLinearIssues, updateLinearIssue } from './linear.ts'
 import type { FeedbackDetail } from '../shared/feedback.ts'
-import { canSquashMerge } from '../shared/merge.ts'
-import { cancelQueuedSync, describeSync, enqueueSync, markMerged, loadThreadFeedback, noteListFocus, refreshPull, refreshSnapshot, startBackgroundSync, SyncCancelled } from './sync.ts'
+import { cancelQueuedSync, describeSync, enqueueSync, loadThreadFeedback, noteListFocus, refreshPull, refreshSnapshot, startBackgroundSync, SyncCancelled } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase, selectChecks } from '../shared/ci.ts'
 import { agentBlocker, parseAgentRequest } from '../shared/agents.ts'
@@ -267,38 +265,6 @@ app.post('/api/linear/issues/:identifier', async (c) => {
       ...(hasAssignee ? { assigneeId: body.assigneeId ?? null } : {}),
     })
     return c.json(db.updateLinearIssue(updated.identifier, updated))
-  } catch (error) {
-    return c.json({ error: messageOf(error) }, 502)
-  }
-})
-
-app.post('/api/merge', async (c) => {
-  try {
-    const body = await c.req.json<{ key?: string }>()
-    const key = body.key ?? ''
-    const snap = db.snapshot()
-    const pr = snap.pullRequests.find((item) => item.key === key)
-    if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
-    if (db.queue.repoActive(pr.repo)) {
-      return c.json({ error: 'A merge is in progress for this repo. Queue this pull request instead.' }, 409)
-    }
-    if (db.queue.blocksKey(pr.key)) {
-      return c.json({ error: 'This pull request is already in the merge queue.' }, 409)
-    }
-    if (!canSquashMerge(pr)) {
-      return c.json({ error: 'This pull request is not ready to squash into the default branch.' }, 409)
-    }
-    await squashMergePullRequest(loadGithubToken(), pr.repo, pr.number)
-    markMerged(pr.key)
-    return c.json(
-      db.saveSnapshot({
-        viewer: snap.viewer ?? '',
-        syncedAt: snap.syncedAt ?? new Date().toISOString(),
-        pullRequests: snap.pullRequests.filter((item) => item.key !== pr.key),
-        linearConfigured: snap.linearConfigured,
-        warning: snap.warning,
-      }),
-    )
   } catch (error) {
     return c.json({ error: messageOf(error) }, 502)
   }

@@ -588,12 +588,8 @@ span.author { display: inline-flex; align-items: center; gap: 8px; min-width: 0;
 .merge-ready-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .merge-ready-toggle:has(input:disabled) { opacity: 0.6; cursor: default; }
 .merge-watch-detail { margin: 0; max-width: 280px; color: var(--faint); font-size: 12px; line-height: 1.35; }
-.split-merge { display: inline-flex; }
-.split-merge .primary.merge:not(.caret) { border-radius: 8px 0 0 8px; }
-.split-merge .primary.merge.caret { border-radius: 0 8px 8px 0; border-left: 1px solid #9a6d3b; padding: 4px 8px; }
 .merge-held { display: inline-flex; gap: 8px; align-items: center; }
 .merge-error { margin: 0; max-width: 280px; color: var(--red); font-size: 12px; line-height: 1.35; }
-.popover.merge-menu { width: 160px; padding: 6px; }
 tbody tr.held > td,
 tbody tr.held.child > td,
 tbody tr.held.tone-a > td,

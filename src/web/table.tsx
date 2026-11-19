@@ -1,5 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, selectChecks, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
 import { approvedByLogin } from '../shared/approval.ts'
@@ -64,7 +63,6 @@ export function PrTable({
   onAssign,
   onCreateAssigned,
   onMerge,
-  onQueue,
   onRetry,
   onStackMerge,
   onMarkReady,
@@ -97,7 +95,6 @@ export function PrTable({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
-  onQueue: (key: string) => Promise<void>
   onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
@@ -130,7 +127,6 @@ export function PrTable({
     onAssign,
     onCreateAssigned,
     onMerge,
-    onQueue,
     onRetry,
     onStackMerge,
     onMarkReady,
@@ -256,7 +252,6 @@ type RowShared = {
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
-  onQueue: (key: string) => Promise<void>
   onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
@@ -474,7 +469,6 @@ function BlockRows({
           onAssign={shared.onAssign}
           onCreateAssigned={shared.onCreateAssigned}
           onMerge={shared.onMerge}
-          onQueue={shared.onQueue}
           onRetry={shared.onRetry}
           onStackMerge={shared.onStackMerge}
           onMarkReady={shared.onMarkReady}
@@ -512,7 +506,6 @@ function BlockRows({
       onUpdateIssue={shared.onUpdateIssue}
       onLinkIssue={shared.onLinkIssue}
       onMerge={shared.onMerge}
-      onQueue={shared.onQueue}
       onRetry={shared.onRetry}
       onStackMerge={shared.onStackMerge}
       onMarkReady={shared.onMarkReady}
@@ -540,7 +533,6 @@ function DataRow({
   onAssign,
   onCreateAssigned,
   onMerge,
-  onQueue,
   onRetry,
   onStackMerge,
   onMarkReady,
@@ -568,7 +560,6 @@ function DataRow({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
-  onQueue: (key: string) => Promise<void>
   onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
@@ -642,7 +633,6 @@ function DataRow({
             ordered={orderedStack(block, prByKey)}
             mark={mark}
             onMerge={onMerge}
-            onQueue={onQueue}
             onRetry={onRetry}
             onStackMerge={onStackMerge}
             onMarkReady={onMarkReady}
@@ -691,7 +681,6 @@ function SummaryRow({
   onUpdateIssue,
   onLinkIssue,
   onMerge,
-  onQueue,
   onRetry,
   onStackMerge,
   onMarkReady,
@@ -719,7 +708,6 @@ function SummaryRow({
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
   onLinkIssue: (key: string, identifier: string) => Promise<void>
   onMerge: (key: string) => Promise<void>
-  onQueue: (key: string) => Promise<void>
   onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
@@ -803,7 +791,6 @@ function SummaryRow({
             mark={mark}
             progress
             onMerge={onMerge}
-            onQueue={onQueue}
             onRetry={onRetry}
             onStackMerge={onStackMerge}
             onMarkReady={onMarkReady}
@@ -1552,7 +1539,6 @@ function MergeControls({
   watch,
   progress = false,
   onMerge,
-  onQueue,
   onRetry,
   onStackMerge,
   onMarkReady,
@@ -1564,7 +1550,6 @@ function MergeControls({
   watch: MergeWatch | null
   progress?: boolean
   onMerge: (key: string) => Promise<void>
-  onQueue: (key: string) => Promise<void>
   onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
@@ -1577,7 +1562,7 @@ function MergeControls({
   if (pr.isDraft) return <MarkReady pr={pr} onMarkReady={onMarkReady} />
   const count = canMergeSlice(ordered, pr.key)
   if (count != null) return <StackMergeButton count={count} pr={pr} onStackMerge={onStackMerge} />
-  if (canSquashMerge(pr)) return <SplitMerge pr={pr} onMerge={onMerge} onQueue={onQueue} />
+  if (canSquashMerge(pr)) return <MergeButton pr={pr} onMerge={onMerge} />
   const scope = sliceParts(ordered, pr.key) ? 'downstack' : pr.squashMergeAllowed && pr.baseRef === pr.defaultBranch ? 'pr' : null
   if (scope) return <MergeWhenReady pr={pr} scope={scope} watch={null} onChange={onSetMergeWhenReady} />
   return null
@@ -1741,118 +1726,37 @@ function StackMergeButton({
   )
 }
 
-function SplitMerge({
-  pr,
-  onMerge,
-  onQueue,
-}: {
-  pr: PullRequest
-  onMerge: (key: string) => Promise<void>
-  onQueue: (key: string) => Promise<void>
-}) {
+/** Merging always goes through the queue. The row shows the queue's status once the entry exists. */
+function MergeButton({ pr, onMerge }: { pr: PullRequest; onMerge: (key: string) => Promise<void> }) {
   const pendingRef = useRef(false)
-  const [action, setAction] = useState<'merge' | 'queue' | null>(null)
+  const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
-  const anchor = useRef<HTMLButtonElement>(null)
   const { locked } = useStackLock()
-  const pending = action !== null
   const busy = pending || locked
-  useEffect(() => {
-    if (locked) setOpen(false)
-  }, [locked])
-  const label = action === 'queue' ? 'Queuing' : action === 'merge' ? 'Merging' : 'Merge'
-  const described =
-    action === 'queue' ? `Queuing #${pr.number}` : action === 'merge' ? `Merging #${pr.number}` : `Squash and merge #${pr.number}`
   return (
     <div className="merge-action">
-      <div className="split-merge">
-        <button
-          type="button"
-          className="primary merge"
-          disabled={busy}
-          aria-busy={busy}
-          aria-label={described}
-          onClick={() => {
-            if (pendingRef.current || locked) return
-            pendingRef.current = true
-            setAction('merge')
-            setError(null)
-            void onMerge(pr.key).catch((caught: unknown) => {
-              pendingRef.current = false
-              setAction(null)
-              setError(caught instanceof Error ? caught.message : 'Merge failed')
-            })
-          }}
-        >
-          {label}
-        </button>
-        <button
-          ref={anchor}
-          type="button"
-          className="primary merge caret"
-          aria-expanded={open}
-          aria-label={`More merge actions for #${pr.number}`}
-          disabled={busy}
-          onClick={() => setOpen((current) => !current)}
-        >
-          ▾
-        </button>
-      </div>
-      {open && anchor.current ? (
-        <QueueMenu
-          anchor={anchor.current}
-          onClose={() => setOpen(false)}
-          onQueue={() => {
-            if (pendingRef.current || locked) return
-            pendingRef.current = true
-            setAction('queue')
-            setOpen(false)
-            setError(null)
-            void onQueue(pr.key).catch((caught: unknown) => {
-              pendingRef.current = false
-              setAction(null)
-              setError(caught instanceof Error ? caught.message : 'Could not queue that pull request')
-            })
-          }}
-        />
-      ) : null}
+      <button
+        type="button"
+        className="primary merge"
+        disabled={busy}
+        aria-busy={busy}
+        aria-label={pending ? `Queuing #${pr.number}` : `Squash and merge #${pr.number}`}
+        onClick={() => {
+          if (pendingRef.current || locked) return
+          pendingRef.current = true
+          setPending(true)
+          setError(null)
+          void onMerge(pr.key).catch((caught: unknown) => {
+            pendingRef.current = false
+            setPending(false)
+            setError(caught instanceof Error ? caught.message : 'Could not queue that pull request')
+          })
+        }}
+      >
+        {pending ? 'Queuing' : 'Merge'}
+      </button>
       {error ? <p className="merge-error">{error}</p> : null}
     </div>
-  )
-}
-
-function QueueMenu({ anchor, onQueue, onClose }: { anchor: HTMLElement; onQueue: () => void; onClose: () => void }) {
-  const panel = useRef<HTMLDivElement>(null)
-  const rect = anchor.getBoundingClientRect()
-  const menuHeight = 44
-  const below = rect.bottom + 6
-  const top = below + menuHeight > window.innerHeight - 8 ? Math.max(8, rect.top - menuHeight - 6) : below
-  useEffect(() => {
-    const onDoc = (event: MouseEvent) => {
-      const target = event.target
-      // The menu is portaled onto document.body, so a press on Queue is outside the caret.
-      // Closing on that press unmounts the item before its click can queue the pull request.
-      if (target instanceof Node && (anchor.contains(target) || panel.current?.contains(target))) return
-      onClose()
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('mousedown', onDoc)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('mousedown', onDoc)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [anchor, onClose])
-  return createPortal(
-    <div ref={panel} className="popover merge-menu" style={{ top, left: Math.max(12, rect.right - 168) }} role="menu">
-      <button type="button" className="menu-item" role="menuitem" onClick={onQueue}>
-        Queue
-      </button>
-    </div>,
-    document.body,
   )
 }
 

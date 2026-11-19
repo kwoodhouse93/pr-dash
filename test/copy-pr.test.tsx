@@ -157,7 +157,6 @@ describe('copy pull request ids', () => {
             onAssign={async () => {}}
             onCreateAssigned={async () => {}}
             onMerge={async () => {}}
-            onQueue={async () => {}}
             onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}

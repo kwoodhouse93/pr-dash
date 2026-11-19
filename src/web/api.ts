@@ -93,7 +93,6 @@ export const api = {
   startAgent: (key: string, request: AgentRequest) =>
     post<{ snapshot: Snapshot; agentId: string }>('/api/pulls/agents', { key, ...request }),
   rebase: (key: string) => post<Snapshot>('/api/rebase', { key }),
-  merge: (key: string) => post<Snapshot>('/api/merge', { key }),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),
   enqueue: (key: string, scope: 'pr' | 'downstack') => post<QueueSnapshot>('/api/merge-queue', { key, scope }),
   setMergeWhenReady: (key: string, scope: 'pr' | 'downstack', enabled: boolean) =>

@@ -165,7 +165,6 @@ describe('agents', () => {
             onAssign={async () => {}}
             onCreateAssigned={async () => {}}
             onMerge={async () => {}}
-            onQueue={async () => {}}
             onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}
