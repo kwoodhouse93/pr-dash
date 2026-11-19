@@ -1,7 +1,26 @@
 import { clipboard, ipcMain, Menu, shell, WebContentsView, type BaseWindow, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import type { Snapshot } from '../../src/shared/types.ts'
+import {
+  buildSidebar,
+  GROUPINGS,
+  isGrouping,
+  prRef,
+  pruneAgentState,
+  runsShownAt,
+  unreadRuns,
+  type AgentState,
+  type DashboardPrefs,
+  type Grouping,
+  type SidebarModel,
+  type TabInfo,
+} from './sidebar.ts'
 
 export const STRIP_HEIGHT = 40
+export const SIDEBAR_WIDTH = 264
+const SNAPSHOT_INTERVAL_MS = 30_000
+const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 
 type Tab = {
   id: number
@@ -10,9 +29,20 @@ type Tab = {
   title: string
   favicon: string | null
   loading: boolean
+  url: string
+  /** Where the sidebar files this tab. It follows `url` except while the tab is the one being looked at. */
+  placedUrl: string
+  /** False until the first page has loaded, so a redirect on the way in still decides the tab's place. */
+  settled: boolean
+  parent: number | null
 }
 
-export type SavedTabs = { urls: string[]; active: number }
+/** `parents` holds, for each address, the index of the tab it was opened from. */
+export type SavedTabs = { urls: string[]; active: number; parents?: (number | null)[] }
+
+export type SidebarState = { open: boolean; grouping: Grouping; collapsed: string[]; earlierOpen: boolean }
+
+export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string }
 
 function isWebUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
@@ -27,6 +57,14 @@ export class Tabs {
   private activeId = 0
   private nextId = 0
   private updateReady = false
+  private readonly sidebar: SidebarState
+  private readonly agentFile: string
+  private agentState: AgentState
+  private data: Snapshot | null = null
+  private prefs: DashboardPrefs = { mineByIssue: true, reviewByIssue: true }
+  private overlay = false
+  private fetching = false
+  private refreshTimer: NodeJS.Timeout | null = null
   onChange: () => void = () => {}
   onApplyUpdate: () => void = () => {}
 
@@ -34,16 +72,38 @@ export class Tabs {
     private readonly win: BaseWindow,
     private readonly session: Session,
     private readonly dashboardUrl: string,
+    options: TabsOptions,
   ) {
+    this.sidebar = {
+      open: options.sidebar?.open === true,
+      grouping: isGrouping(options.sidebar?.grouping) ? options.sidebar.grouping : 'match',
+      collapsed: Array.isArray(options.sidebar?.collapsed) ? options.sidebar.collapsed.filter((id) => typeof id === 'string') : [],
+      earlierOpen: options.sidebar?.earlierOpen === true,
+    }
+    this.agentFile = options.agentFile
+    this.agentState = readAgentState(options.agentFile)
     this.chrome = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.cjs') } })
+    // The view fills the window: the sidebar and the strip are its opaque
+    // parts, and the rest shows through to the page when a menu raises it.
+    this.chrome.setBackgroundColor('#00000000')
     win.contentView.addChildView(this.chrome)
     void this.chrome.webContents.loadFile(path.join(__dirname, 'chrome', 'index.html'))
 
-    ipcMain.on('chrome', (event, command: string, id?: number) => {
+    ipcMain.on('chrome', (event, command: string, arg?: number | string | boolean) => {
       if (event.sender !== this.chrome.webContents) return
+      const id = typeof arg === 'number' ? arg : undefined
+      const key = typeof arg === 'string' ? arg : undefined
       if (command === 'ready') this.publish()
       else if (command === 'select' && typeof id === 'number') this.activate(id)
       else if (command === 'close' && typeof id === 'number') this.close(id)
+      else if (command === 'toggle-sidebar') this.toggleSidebar()
+      else if (command === 'grouping-menu') this.groupingMenu()
+      else if (command === 'toggle-group' && key) this.toggleGroup(key)
+      else if (command === 'toggle-earlier') this.setSidebar({ earlierOpen: !this.sidebar.earlierOpen })
+      else if (command === 'agent-open' && key) this.openAgent(key)
+      else if (command === 'agent-dismiss' && key) this.dismissAgent(key)
+      else if (command === 'agents-clear') this.clearUnread()
+      else if (command === 'overlay') this.setOverlay(arg === true)
       else if (command === 'back') this.back()
       else if (command === 'forward') this.forward()
       else if (command === 'reload') this.reload()
@@ -65,7 +125,158 @@ export class Tabs {
     session.webRequest.onBeforeRequest({ urls: [`${apiOrigin}/*`] }, (details, done) => {
       done({ cancel: details.webContentsId !== dashboard.view.webContents.id })
     })
+    // The dashboard reads the snapshot again whenever something changes, and
+    // writes when the user acts. Either is the moment to read it here too.
+    session.webRequest.onCompleted({ urls: [`${apiOrigin}/api/*`] }, (details) => {
+      if (details.method !== 'GET' || details.url.includes('/api/snapshot')) this.refreshSoon()
+    })
+    win.on('focus', () => {
+      this.noteSeen()
+      this.publish()
+    })
+    const poll = setInterval(() => void this.refresh(), SNAPSHOT_INTERVAL_MS)
+    win.on('closed', () => clearInterval(poll))
+    void this.refresh()
     this.activate(dashboard.id)
+  }
+
+  get sidebarState(): SidebarState {
+    return this.sidebar
+  }
+
+  toggleSidebar() {
+    this.setSidebar({ open: !this.sidebar.open })
+    this.layout()
+  }
+
+  private setSidebar(patch: Partial<SidebarState>) {
+    Object.assign(this.sidebar, patch)
+    this.changed()
+  }
+
+  private toggleGroup(id: string) {
+    const collapsed = this.sidebar.collapsed.includes(id) ? this.sidebar.collapsed.filter((item) => item !== id) : [...this.sidebar.collapsed, id]
+    this.setSidebar({ collapsed })
+  }
+
+  private groupingMenu() {
+    Menu.buildFromTemplate(
+      GROUPINGS.map(({ value, label }) => ({
+        label,
+        type: 'radio' as const,
+        checked: this.sidebar.grouping === value,
+        click: () => this.setSidebar({ grouping: value }),
+      })),
+    ).popup({ window: this.win })
+  }
+
+  // A menu drawn by the strip has to sit over the page, so the strip's view
+  // goes on top while one is open.
+  private setOverlay(on: boolean) {
+    this.overlay = on
+    this.layout()
+    if (on) this.chrome.webContents.focus()
+    else this.active.view.webContents.focus()
+  }
+
+  private model(): SidebarModel {
+    return buildSidebar({
+      tabs: this.tabs.map((tab): TabInfo => ({ id: tab.id, pinned: tab.pinned, url: tab.url, placedUrl: tab.placedUrl, title: tab.title, favicon: tab.favicon, loading: tab.loading, parent: tab.parent })),
+      activeId: this.activeId,
+      data: this.data,
+      grouping: this.sidebar.grouping,
+      prefs: this.prefs,
+      collapsed: this.sidebar.collapsed,
+      agentState: this.agentState,
+      now: Date.now(),
+    })
+  }
+
+  /** Tabs in the order the user sees them: the sidebar's when it is open, the strip's otherwise. */
+  private ordered(): Tab[] {
+    if (!this.sidebar.open) return this.tabs
+    const byId = new Map(this.tabs.map((tab) => [tab.id, tab]))
+    return [this.dashboard, ...this.model().order.flatMap((id) => byId.get(id) ?? [])]
+  }
+
+  private refreshSoon() {
+    if (this.refreshTimer) return
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null
+      void this.refresh()
+    }, 250)
+  }
+
+  private async refresh() {
+    if (this.fetching || this.win.isDestroyed()) return
+    this.fetching = true
+    try {
+      const res = await fetch(`${this.dashboardUrl}/api/snapshot`, { signal: AbortSignal.timeout(10_000) })
+      if (res.ok) {
+        this.data = (await res.json()) as Snapshot
+        this.saveAgentState(pruneAgentState(this.agentState, this.data))
+      }
+      await this.readPrefs()
+    } catch {
+      // The server restarts during an update. The last snapshot stays until the next read.
+    } finally {
+      this.fetching = false
+    }
+    if (this.win.isDestroyed()) return
+    this.noteSeen()
+    this.publish()
+  }
+
+  // How the dashboard groups its lists lives in the dashboard page's own storage.
+  private async readPrefs() {
+    const contents = this.dashboard.view.webContents
+    if (contents.isDestroyed() || contents.isLoading()) return
+    const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
+    if (typeof raw !== 'string') return
+    const views = (JSON.parse(raw) as { views?: Record<string, { byIssue?: boolean } | undefined> }).views
+    this.prefs = { mineByIssue: views?.mine?.byIssue !== false, reviewByIssue: views?.review?.byIssue !== false }
+  }
+
+  private saveAgentState(next: AgentState) {
+    if (JSON.stringify(next) === JSON.stringify(this.agentState)) return
+    this.agentState = next
+    try {
+      writeFileSync(this.agentFile, JSON.stringify(next))
+    } catch {
+      // Read state is a convenience; the app works without it being kept.
+    }
+  }
+
+  private markSeen(keys: string[]) {
+    if (keys.length === 0) return
+    const now = new Date().toISOString()
+    this.saveAgentState({ ...this.agentState, seen: { ...this.agentState.seen, ...Object.fromEntries(keys.map((key) => [key, now])) } })
+  }
+
+  // An agent that finishes while its tab is in front has been seen.
+  private noteSeen() {
+    if (this.win.isFocused()) this.markSeen(runsShownAt(this.active.url, this.data, this.agentState))
+  }
+
+  private openAgent(key: string) {
+    const row = [...this.model().agents, ...this.model().earlier].find((item) => item.key === key)
+    if (!row) return
+    this.markSeen([key])
+    if (row.tabId !== null) this.activate(row.tabId)
+    else this.open(row.url)
+  }
+
+  private dismissAgent(key: string) {
+    const row = this.model().agents.find((item) => item.key === key)
+    if (!row) return
+    this.saveAgentState({ ...this.agentState, dismissed: [...this.agentState.dismissed, key] })
+    if (row.tabId !== null) this.close(row.tabId)
+    this.publish()
+  }
+
+  private clearUnread() {
+    this.markSeen(unreadRuns(this.data, this.agentState))
+    this.publish()
   }
 
   get dashboardActive(): boolean {
@@ -80,11 +291,27 @@ export class Tabs {
     return this.tabs[0]!
   }
 
-  open(url: string, options: { background?: boolean; after?: Tab } = {}) {
+  open(url: string, options: { background?: boolean; after?: Tab; reuse?: boolean } = {}) {
     if (!isWebUrl(url)) return
-    const tab = this.create(url, { after: options.after ?? this.active })
+    const from = options.after ?? this.active
+    const existing = options.reuse ? this.showing(url) : null
+    if (existing) {
+      // A link to a place inside the pull request still has to land there.
+      if (existing.url !== url && prRef(url)?.bare === false) void existing.view.webContents.loadURL(url).catch(() => undefined)
+      if (!options.background) this.activate(existing.id)
+      return
+    }
+    const tab = this.create(url, { after: from, parent: from.pinned ? null : from.id })
     if (!options.background) this.activate(tab.id)
     else this.changed()
+  }
+
+  /** The tab already on this pull request or Cursor agent, when there is one. */
+  private showing(url: string): Tab | null {
+    const ref = prRef(url)
+    if (ref) return this.tabs.find((tab) => !tab.pinned && prRef(tab.url)?.key === ref.key) ?? null
+    const agent = /^https:\/\/cursor\.com\/agents\/([\w-]+)$/.exec(url)?.[1]
+    return agent ? (this.tabs.find((tab) => !tab.pinned && tab.url.startsWith('https://cursor.com/') && tab.url.includes(agent)) ?? null) : null
   }
 
   async openFromClipboard() {
@@ -95,15 +322,25 @@ export class Tabs {
 
   restore(saved: SavedTabs | null) {
     if (!saved) return
-    for (const url of saved.urls) if (isWebUrl(url)) this.create(url, {})
+    const made = saved.urls.map((url) => (isWebUrl(url) ? this.create(url, {}) : null))
+    for (const [index, tab] of made.entries()) {
+      const parent = saved.parents?.[index]
+      if (tab && typeof parent === 'number') tab.parent = made[parent]?.id ?? null
+    }
     const target = this.tabs[saved.active]
     if (target) this.activate(target.id)
   }
 
   snapshot(): SavedTabs {
+    const kept = this.tabs.filter((tab) => !tab.pinned && isWebUrl(tab.view.webContents.getURL()))
+    const parents = kept.map((tab) => {
+      const index = kept.findIndex((other) => other.id === tab.parent)
+      return index < 0 ? null : index
+    })
     return {
-      urls: this.tabs.filter((tab) => !tab.pinned).map((tab) => tab.view.webContents.getURL()).filter(isWebUrl),
+      urls: kept.map((tab) => tab.view.webContents.getURL()),
       active: this.tabs.indexOf(this.active),
+      parents,
     }
   }
 
@@ -117,13 +354,15 @@ export class Tabs {
   }
 
   step(by: number) {
-    const index = (this.tabs.indexOf(this.active) + by + this.tabs.length) % this.tabs.length
-    this.activate(this.tabs[index]!.id)
+    const tabs = this.ordered()
+    const index = (tabs.indexOf(this.active) + by + tabs.length) % tabs.length
+    this.activate(tabs[index]!.id)
   }
 
   // Cmd+1 is the dashboard; Cmd+9 is the last tab, as in a browser.
   selectIndex(index: number) {
-    const tab = index === 8 ? this.tabs.at(-1) : this.tabs[index]
+    const tabs = this.ordered()
+    const tab = index === 8 ? tabs.at(-1) : tabs[index]
     if (tab) this.activate(tab.id)
   }
 
@@ -162,11 +401,11 @@ export class Tabs {
     this.publish()
   }
 
-  private create(url: string, options: { pinned?: boolean; after?: Tab; adopt?: WebContents }): Tab {
+  private create(url: string, options: { pinned?: boolean; after?: Tab; adopt?: WebContents; parent?: number | null }): Tab {
     const view = new WebContentsView(options.adopt ? { webContents: options.adopt } : { webPreferences: { session: this.session } })
     view.setBackgroundColor('#10110f')
     view.setVisible(false)
-    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt }
+    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt, url, placedUrl: url, settled: false, parent: options.parent ?? null }
     const at = options.after ? this.tabs.indexOf(options.after) + 1 : this.tabs.length
     this.tabs.splice(at, 0, tab)
     this.win.contentView.addChildView(view)
@@ -190,21 +429,21 @@ export class Tabs {
           action: 'allow',
           createWindow: (options) => {
             const adopt = (options as { webContents: WebContents }).webContents
-            const opened = this.create(url, { after: tab, adopt })
+            const opened = this.create(url, { after: tab, adopt, parent: tab.pinned ? null : tab.id })
             if (disposition === 'background-tab') this.changed()
             else this.activate(opened.id)
             return adopt
           },
         }
       }
-      this.open(url, { background: disposition === 'background-tab', after: tab })
+      this.open(url, { background: disposition === 'background-tab', after: tab, reuse: tab.pinned })
       return { action: 'deny' }
     })
     if (tab.pinned) {
       contents.on('will-navigate', (event) => {
         if (new URL(event.url).origin === new URL(this.dashboardUrl).origin) return
         event.preventDefault()
-        this.open(event.url, { after: tab })
+        this.open(event.url, { after: tab, reuse: true })
       })
     } else {
       contents.on('page-title-updated', (_event, title) => {
@@ -222,18 +461,29 @@ export class Tabs {
     })
     contents.on('did-stop-loading', () => {
       tab.loading = false
+      tab.settled = true
       this.publish()
     })
-    contents.on('did-navigate', () => this.changed())
-    contents.on('did-navigate-in-page', () => this.changed())
-    contents.on('context-menu', (_event, params) => this.contextMenu(contents, params))
+    const navigated = () => {
+      const url = contents.getURL()
+      if (url) tab.url = url
+      // The row of the tab being looked at keeps its place, so nothing moves
+      // under the pointer. It is filed again when another tab takes over.
+      if (tab.id !== this.activeId || !tab.settled) tab.placedUrl = tab.url
+      this.noteSeen()
+      this.changed()
+    }
+    contents.on('did-navigate', navigated)
+    contents.on('did-navigate-in-page', navigated)
+    contents.on('context-menu', (_event, params) => this.contextMenu(tab, params))
   }
 
-  private contextMenu(contents: WebContents, params: Electron.ContextMenuParams) {
+  private contextMenu(tab: Tab, params: Electron.ContextMenuParams) {
+    const contents = tab.view.webContents
     const items: MenuItemConstructorOptions[] = []
     if (isWebUrl(params.linkURL)) {
       items.push(
-        { label: 'Open Link in New Tab', click: () => this.open(params.linkURL, { background: true }) },
+        { label: 'Open Link in New Tab', click: () => this.open(params.linkURL, { background: true, after: tab }) },
         { label: 'Open Link in Browser', click: () => void shell.openExternal(params.linkURL) },
         { label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) },
         { type: 'separator' },
@@ -256,7 +506,10 @@ export class Tabs {
 
   private activate(id: number) {
     if (!this.tabs.some((tab) => tab.id === id)) return
+    const previous = this.active
+    if (previous.id !== id) previous.placedUrl = previous.url
     this.activeId = id
+    this.noteSeen()
     for (const tab of this.tabs) tab.view.setVisible(tab.id === id)
     this.layout()
     this.active.view.webContents.focus()
@@ -270,6 +523,7 @@ export class Tabs {
     const url = tab.view.webContents.getURL()
     if (isWebUrl(url)) this.closed.push(url)
     this.tabs.splice(index, 1)
+    for (const other of this.tabs) if (other.parent === id) other.parent = null
     this.win.contentView.removeChildView(tab.view)
     tab.view.webContents.close()
     if (this.activeId === id) this.activate((this.tabs[index] ?? this.tabs[index - 1])!.id)
@@ -278,8 +532,11 @@ export class Tabs {
 
   private layout() {
     const { width, height } = this.win.getContentBounds()
-    this.chrome.setBounds({ x: 0, y: 0, width, height: STRIP_HEIGHT })
-    this.active.view.setBounds({ x: 0, y: STRIP_HEIGHT, width, height: Math.max(0, height - STRIP_HEIGHT) })
+    const left = this.sidebar.open ? Math.min(SIDEBAR_WIDTH, width) : 0
+    this.chrome.setBounds({ x: 0, y: 0, width, height })
+    this.active.view.setBounds({ x: left, y: STRIP_HEIGHT, width: Math.max(0, width - left), height: Math.max(0, height - STRIP_HEIGHT) })
+    // Adding a view that is already there moves it to the front.
+    this.win.contentView.addChildView(this.overlay ? this.chrome : this.active.view)
   }
 
   private changed() {
@@ -290,8 +547,18 @@ export class Tabs {
   private publish() {
     if (this.chrome.webContents.isDestroyed()) return
     const contents = this.active.view.webContents
+    const model = this.model()
     this.chrome.webContents.send('state', {
-      tabs: this.tabs.map(({ id, pinned, title, favicon, loading }) => ({ id, pinned, title, favicon, loading })),
+      tabs: model.strip,
+      nodes: model.nodes,
+      agents: model.agents,
+      earlier: model.earlier,
+      running: model.running,
+      unread: model.unread,
+      crumb: model.crumb,
+      sidebar: this.sidebar.open,
+      grouping: GROUPINGS.find((item) => item.value === this.sidebar.grouping)!.label,
+      earlierOpen: this.sidebar.earlierOpen,
       activeId: this.activeId,
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
@@ -300,4 +567,23 @@ export class Tabs {
       fullscreen: this.win.isFullScreen(),
     })
   }
+}
+
+function readAgentState(file: string): AgentState {
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<AgentState>
+    if (typeof raw.since === 'string' && raw.seen && typeof raw.seen === 'object' && Array.isArray(raw.dismissed)) {
+      return { since: raw.since, seen: raw.seen, dismissed: raw.dismissed.filter((key) => typeof key === 'string') }
+    }
+  } catch {
+    // First launch, or a file that cannot be read.
+  }
+  // Agents that finished before the app first tracked them are not unread.
+  const fresh: AgentState = { since: new Date().toISOString(), seen: {}, dismissed: [] }
+  try {
+    writeFileSync(file, JSON.stringify(fresh))
+  } catch {
+    // Kept in memory for this run.
+  }
+  return fresh
 }

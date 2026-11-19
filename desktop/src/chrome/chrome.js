@@ -1,69 +1,248 @@
-const strip = document.getElementById('tabs')
-const back = document.getElementById('back')
-const forward = document.getElementById('forward')
-const reload = document.getElementById('reload')
-const external = document.getElementById('external')
-const update = document.getElementById('update')
+const $ = (id) => document.getElementById(id)
+const send = (command, arg) => window.shell.send(command, arg)
+const EARLIER_SHOWN = 5
 
-back.onclick = () => window.shell.send('back')
-forward.onclick = () => window.shell.send('forward')
-reload.onclick = () => window.shell.send('reload')
-external.onclick = () => window.shell.send('open-external')
-update.onclick = () => window.shell.send('apply-update')
+let state = null
+let menuOpen = false
+let earlierAll = false
 
-function tabElement(tab, active) {
-  const el = document.createElement('div')
-  el.className = ['tab', active && 'active', tab.pinned && 'pinned', tab.loading && 'loading'].filter(Boolean).join(' ')
-  el.setAttribute('role', 'tab')
-  el.setAttribute('aria-selected', String(active))
-  el.title = tab.title
-  el.onmousedown = (event) => {
-    if (event.button === 0) window.shell.send('select', tab.id)
+$('back').onclick = () => send('back')
+$('forward').onclick = () => send('forward')
+$('reload').onclick = () => send('reload')
+$('external').onclick = () => send('open-external')
+$('update').onclick = () => send('apply-update')
+$('show-sidebar').onclick = () => send('toggle-sidebar')
+$('hide-sidebar').onclick = () => send('toggle-sidebar')
+$('grouping').onclick = () => send('grouping-menu')
+$('agents-clear').onclick = () => send('agents-clear')
+$('pop-clear').onclick = () => send('agents-clear')
+$('home').onmousedown = (event) => {
+  if (event.button === 0 && state) send('select', state.tabs.find((tab) => tab.pinned).id)
+}
+$('agents-pill').onclick = () => setMenu(!menuOpen)
+$('backdrop').onmousedown = () => setMenu(false)
+document.onkeydown = (event) => {
+  if (event.key === 'Escape' && menuOpen) setMenu(false)
+}
+
+function setMenu(open) {
+  if (menuOpen === open) return
+  menuOpen = open
+  send('overlay', open)
+  render()
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag)
+  if (className) node.className = className
+  if (text !== undefined) node.textContent = text
+  return node
+}
+
+function classes(...names) {
+  return names.filter(Boolean).join(' ')
+}
+
+function favicon(src) {
+  if (!src) return el('span', 'dot')
+  const icon = el('img', 'fav')
+  icon.src = src
+  icon.alt = ''
+  icon.onerror = () => icon.replaceWith(el('span', 'dot'))
+  return icon
+}
+
+function agentMark(mark) {
+  return mark === 'running' ? el('span', 'spin') : el('span', `mark ${mark}`)
+}
+
+function closeButton(label, onClose) {
+  const close = el('button', 'close')
+  close.setAttribute('aria-label', label)
+  close.title = label
+  close.innerHTML = '<svg viewBox="0 0 10 10"><path d="m2 2 6 6M8 2 2 8" /></svg>'
+  close.onmousedown = (event) => event.stopPropagation()
+  close.onclick = onClose
+  return close
+}
+
+function selectable(node, id) {
+  node.setAttribute('role', 'tab')
+  node.setAttribute('aria-selected', String(id === state.activeId))
+  node.onmousedown = (event) => {
+    if (event.button === 0) send('select', id)
   }
-  el.onauxclick = (event) => {
-    if (event.button === 1) window.shell.send('close', tab.id)
+  node.onauxclick = (event) => {
+    if (event.button === 1) send('close', id)
   }
+}
 
-  if (!tab.pinned) {
-    if (tab.favicon) {
-      const icon = document.createElement('img')
-      icon.src = tab.favicon
-      icon.alt = ''
-      icon.onerror = () => icon.replaceWith(dot())
-      el.append(icon)
-    } else {
-      el.append(dot())
+function stripTab(tab) {
+  const node = el('div', classes('tab', tab.id === state.activeId && 'active', tab.pinned && 'pinned', tab.loading && 'loading'))
+  node.title = tab.title
+  selectable(node, tab.id)
+  if (!tab.pinned) node.append(tab.agent ? agentMark(tab.agent) : tab.ci ? el('span', `ci ${tab.ci}`) : favicon(tab.favicon))
+  node.append(el('span', 'title', tab.title))
+  if (!tab.pinned) node.append(closeButton('Close tab', () => send('close', tab.id)))
+  return node
+}
+
+function tabRow({ depth, row }) {
+  const node = el('div', classes('row', `d${depth}`, row.id === state.activeId && 'active', row.loading && 'loading'))
+  node.title = row.number === null ? row.title : `#${row.number} ${row.title}`
+  selectable(node, row.id)
+  node.append(row.ci ? el('span', `ci ${row.ci}`) : favicon(row.favicon), el('span', 'title', row.title))
+  if (row.agent) {
+    const spin = el('span', 'spin')
+    spin.title = 'A Cursor agent is working on this pull request'
+    node.append(spin)
+  }
+  if (row.needs > 0) {
+    const needs = el('span', 'needs', String(row.needs))
+    needs.title = 'Waiting on you'
+    node.append(needs)
+  }
+  if (row.number !== null) node.append(el('span', 'num', `#${row.number}`))
+  node.append(closeButton('Close tab', () => send('close', row.id)))
+  return node
+}
+
+function treeNode(item) {
+  if (item.kind === 'tab') return tabRow(item)
+  if (item.kind === 'issue') return el('div', 'sub', item.title)
+  if (item.kind === 'label') {
+    const label = el('div', 'sec')
+    label.append(el('span', '', item.title))
+    return label
+  }
+  const node = el('div', 'row group')
+  node.setAttribute('aria-expanded', String(item.open))
+  node.onclick = () => send('toggle-group', item.id)
+  node.append(el('span', classes('caret', item.open && 'open')), el('span', 'title', item.title), el('span', 'num', String(item.count)))
+  node.title = item.title
+  return node
+}
+
+function agentRow(agent, earlier) {
+  const fresh = agent.mark === 'unread' || agent.mark === 'failed'
+  const node = el('div', classes('row', earlier && 'd1 dim', fresh && !earlier && 'strong', agent.tabId !== null && agent.tabId === state.activeId && 'active'))
+  node.title = `${agent.label} · #${agent.number}`
+  node.onclick = () => {
+    setMenu(false)
+    send('agent-open', agent.key)
+  }
+  node.append(agentMark(earlier && agent.mark !== 'running' ? 'read' : agent.mark), el('span', 'title', agent.label), el('span', 'num', `#${agent.number}`))
+  if (!earlier) {
+    node.append(
+      closeButton('Dismiss', (event) => {
+        event.stopPropagation()
+        send('agent-dismiss', agent.key)
+      }),
+    )
+  }
+  node.append(el('span', classes('num age', agent.mark === 'failed' && !earlier && 'bad'), agent.mark === 'failed' && !earlier ? 'failed' : agent.age))
+  return node
+}
+
+function agentList() {
+  const nodes = state.agents.map((agent) => agentRow(agent, false))
+  if (state.agents.length === 0) nodes.push(el('div', 'empty', 'Nothing running, nothing unread.'))
+  if (state.earlier.length === 0) return nodes
+  const toggle = el('div', 'row dim')
+  toggle.setAttribute('aria-expanded', String(state.earlierOpen))
+  toggle.onclick = () => send('toggle-earlier')
+  toggle.append(el('span', classes('caret', state.earlierOpen && 'open')), el('span', 'title', 'Earlier'), el('span', 'num', String(state.earlier.length)))
+  nodes.push(toggle)
+  if (!state.earlierOpen) return nodes
+  const shown = earlierAll ? state.earlier : state.earlier.slice(0, EARLIER_SHOWN)
+  nodes.push(...shown.map((agent) => agentRow(agent, true)))
+  if (shown.length < state.earlier.length) {
+    const more = el('div', 'row d1 dim')
+    more.onclick = () => {
+      earlierAll = true
+      render()
     }
+    more.append(el('span', 'title', `Show ${state.earlier.length - shown.length} more`))
+    nodes.push(more)
   }
-
-  const title = document.createElement('span')
-  title.className = 'title'
-  title.textContent = tab.title
-  el.append(title)
-
-  if (!tab.pinned) {
-    const close = document.createElement('button')
-    close.className = 'close'
-    close.setAttribute('aria-label', 'Close tab')
-    close.innerHTML = '<svg viewBox="0 0 10 10"><path d="m2 2 6 6M8 2 2 8" /></svg>'
-    close.onmousedown = (event) => event.stopPropagation()
-    close.onclick = () => window.shell.send('close', tab.id)
-    el.append(close)
-  }
-  return el
+  return nodes
 }
 
-function dot() {
-  const el = document.createElement('span')
-  el.className = 'dot'
-  return el
+function agentNote() {
+  const parts = []
+  if (state.running) parts.push(`${state.running} running`)
+  if (state.unread) parts.push(`${state.unread} unread`)
+  return parts.join(' · ')
 }
 
-window.shell.onState((state) => {
+function crumb() {
+  return state.crumb.flatMap((part, index) => (index === 0 ? [el('span', '', part)] : [el('i', '', '›'), el('span', '', part)]))
+}
+
+function pill() {
+  const parts = []
+  if (state.running) {
+    const running = el('span')
+    running.append(el('span', 'spin'), String(state.running))
+    parts.push(running)
+  }
+  if (state.unread) {
+    const failed = state.agents.some((agent) => agent.mark === 'failed')
+    const unread = el('span')
+    unread.append(el('span', `mark ${failed ? 'failed' : 'unread'}`), String(state.unread))
+    parts.push(unread)
+  }
+  return parts.length ? parts : ['Agents']
+}
+
+function render() {
+  if (!state) return
+  const anyAgents = state.agents.length + state.earlier.length > 0
+  if (state.sidebar || !anyAgents) menuOpen = false
+
   document.body.classList.toggle('fullscreen', state.fullscreen)
-  back.disabled = !state.canGoBack
-  forward.disabled = !state.canGoForward
-  external.disabled = !state.external
-  update.hidden = !state.updateReady
-  strip.replaceChildren(...state.tabs.map((tab) => tabElement(tab, tab.id === state.activeId)))
+  document.body.classList.toggle('sidebar-open', state.sidebar)
+  $('back').disabled = !state.canGoBack
+  $('forward').disabled = !state.canGoForward
+  $('external').disabled = !state.external
+  $('update').hidden = !state.updateReady
+
+  $('sidebar').hidden = !state.sidebar
+  $('tabs').hidden = state.sidebar
+  $('crumb').hidden = !state.sidebar
+  if (state.sidebar) {
+    $('crumb').replaceChildren(...crumb())
+    $('home').className = classes('row home', state.tabs.some((tab) => tab.pinned && tab.id === state.activeId) && 'active')
+    $('agents-section').hidden = !anyAgents
+    $('agents-note').textContent = agentNote()
+    $('agents-clear').hidden = state.unread === 0
+    $('agents').replaceChildren(...agentList())
+    $('grouping').textContent = state.grouping
+    const nodes = state.nodes.map(treeNode)
+    $('nodes').replaceChildren(...(nodes.length ? nodes : [el('div', 'empty', 'No tabs open. A link on the dashboard opens here.')]))
+  } else {
+    $('tabs').replaceChildren(...state.tabs.map(stripTab))
+  }
+
+  const button = $('agents-pill')
+  button.hidden = state.sidebar || !anyAgents
+  button.className = classes('agents-pill', !state.running && !state.unread && 'quiet')
+  button.title = agentNote() || 'Agents'
+  button.setAttribute('aria-expanded', String(menuOpen))
+  button.replaceChildren(...pill())
+  $('backdrop').hidden = !menuOpen
+  $('pop').hidden = !menuOpen
+  if (menuOpen) {
+    $('pop-note').textContent = agentNote()
+    $('pop-clear').hidden = state.unread === 0
+    $('pop-agents').replaceChildren(...agentList())
+  }
+}
+
+window.shell.onState((next) => {
+  const wasOpen = menuOpen
+  state = next
+  render()
+  // The sidebar opening, or the last agent going, closes the menu from here.
+  if (wasOpen && !menuOpen) send('overlay', false)
 })

@@ -5,7 +5,7 @@ import { loadEnv } from '../../src/server/env.ts'
 import { pickPayload, readPayload, type Payload } from './payload.ts'
 import { serverOrigin, startServer, stopServer, type ServerOptions } from './server.ts'
 import { adoptShellPath } from './shell-env.ts'
-import { Tabs, type SavedTabs } from './tabs.ts'
+import { Tabs, type SavedTabs, type SidebarState } from './tabs.ts'
 import { Updater } from './updater.ts'
 
 const UPDATE_INTERVAL_MS = 5 * 60_000
@@ -26,7 +26,7 @@ const serverOptions: ServerOptions = {
 }
 const windowFile = path.join(userData, 'window.json')
 
-type WindowState = { bounds?: Electron.Rectangle; tabs?: SavedTabs }
+type WindowState = { bounds?: Electron.Rectangle; tabs?: SavedTabs; sidebar?: Partial<SidebarState> }
 
 let win: BaseWindow | null = null
 let tabs: Tabs | null = null
@@ -93,7 +93,7 @@ function openWindow() {
     trafficLightPosition: { x: 14, y: 12 },
     backgroundColor: '#10110f',
   })
-  tabs = new Tabs(win, pages, serverOrigin(serverOptions))
+  tabs = new Tabs(win, pages, serverOrigin(serverOptions), { sidebar: saved.sidebar, agentFile: path.join(userData, 'agents.json') })
   tabs.restore(saved.tabs ?? null)
   let saveTimer: NodeJS.Timeout | null = null
   tabs.onChange = () => {
@@ -117,7 +117,7 @@ function readWindow(): WindowState {
 
 function saveWindow() {
   if (!win || win.isDestroyed() || !tabs) return
-  const state: WindowState = { bounds: win.getNormalBounds(), tabs: tabs.snapshot() }
+  const state: WindowState = { bounds: win.getNormalBounds(), tabs: tabs.snapshot(), sidebar: tabs.sidebarState }
   writeFileSync(windowFile, JSON.stringify(state))
 }
 
@@ -130,7 +130,7 @@ async function checkForUpdate(announce = false) {
       await applyWhenUnwatched()
     }
     if (announce && !found && win) {
-      const detail = pending ? 'An update is downloaded and waiting. Use the Update button in the tab strip.' : `Build ${running.sha.slice(0, 7)} is the latest.`
+      const detail = pending ? 'An update is downloaded and waiting. Use the Update button at the top of the window.' : `Build ${running.sha.slice(0, 7)} is the latest.`
       void dialog.showMessageBox(win, { message: pending ? 'Update ready' : 'Up to date', detail })
     }
   } catch (error) {
@@ -207,6 +207,7 @@ function buildMenu() {
         { label: 'Back', accelerator: 'Cmd+[', click: () => t()?.back() },
         { label: 'Forward', accelerator: 'Cmd+]', click: () => t()?.forward() },
         { type: 'separator' },
+        { label: 'Show or Hide Sidebar', accelerator: 'Ctrl+Cmd+S', click: () => t()?.toggleSidebar() },
         { label: 'Open in Browser', accelerator: 'Shift+Cmd+O', click: () => t()?.openExternal() },
         { label: 'Copy Link', accelerator: 'Shift+Cmd+C', click: () => t()?.copyLink() },
         { type: 'separator' },

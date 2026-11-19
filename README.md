@@ -54,6 +54,10 @@ Initiatives are tags stored in this app, not on GitHub. Create, rename, and dele
 
 `desktop/` is an Electron shell around the same server. The dashboard is the first tab. A link it opens, such as a pull request, a Linear issue or a Graphite stack, becomes another tab in the same window, and sign-ins are kept between launches. The button at the right of the tab strip, or ⇧⌘O, opens the current tab in your default browser. Right-click a link to open it there instead. ⌘T opens the link on the clipboard.
 
+**Sidebar.** The button at the left of the tab strip, or ⌃⌘S, swaps the strip's tabs for a sidebar, and the strip then names the page you are on. The sidebar lists open tabs only. A tab on a pull request the dashboard knows shows that pull request's title, check status and the number of comments waiting on you, whether the tab is on GitHub or Graphite. The picker beside Tabs groups them as the dashboard does, by project, issue, initiative or stack, or not at all. A page opened from a pull request sits under it, and pages that belong to no pull request go under Other. A dashboard link to a pull request that already has a tab goes to that tab. When a tab leaves its pull request the row takes the new page's name at once, and moves to its new place when you switch to another tab.
+
+**Agents.** The sidebar lists every Cursor agent started from the dashboard that is running, or that finished or failed since you last looked at it. Click one to open it, which marks it read; the × sets it aside without opening it. Read and set-aside agents are under Earlier. With the sidebar hidden, a count in the strip opens the same list. What you have read is kept in `agents.json` in the app's data folder.
+
 ```bash
 cd desktop
 npm install
