@@ -11,7 +11,7 @@ export type ReviewDecision = 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED
 type RawReview = {
   state: string
   submittedAt: string | null
-  author: { __typename: string; login: string } | null
+  author: { __typename: string; login: string; avatarUrl?: string | null } | null
 }
 
 export function mergeReview(decision: ReviewDecision, isDraft: boolean): { mark: MergeMark; detail: string } {
@@ -61,6 +61,7 @@ export function summarizeReviews(reviews: RawReview[]): {
   const reviewers: Reviewer[] = [...latest.values()]
     .map((review) => ({
       login: review.author!.login,
+      avatarUrl: review.author!.avatarUrl ?? null,
       human: review.author!.__typename === 'User',
       state: review.state as Reviewer['state'],
       submittedAt: review.submittedAt,

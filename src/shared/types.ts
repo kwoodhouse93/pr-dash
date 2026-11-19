@@ -32,6 +32,7 @@ export type Mergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
 
 export type Reviewer = {
   login: string
+  avatarUrl?: string | null
   human: boolean
   state: 'APPROVED' | 'CHANGES_REQUESTED'
   submittedAt: string | null
@@ -73,6 +74,8 @@ export type PullRequest = {
   authorAvatarUrl: string | null
   isDraft: boolean
   createdAt: string
+  /** When review could start: the last time it left draft, or when it was opened. Null on a draft, missing on snapshots saved before this was read. */
+  readyAt?: string | null
   updatedAt: string
   committedAt: string | null
   additions: number
@@ -138,6 +141,8 @@ export type CursorSession = {
   updatedAt: string
 }
 
+export type RepoMark = { icon: string; color: string }
+
 export type Initiative = {
   id: string
   name: string
@@ -152,6 +157,8 @@ export type Snapshot = {
   reviewSyncedAt: string | null
   /** Repositories a refresh is allowed to ask GitHub about. Empty until the user selects some. */
   repos: string[]
+  /** Icon and colour the user picked for a repository. A repository without one gets a default from its name. */
+  repoMarks?: Record<string, RepoMark>
   pullRequests: PullRequest[]
   reviewPullRequests: PullRequest[]
   initiatives: Initiative[]

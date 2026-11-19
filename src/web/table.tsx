@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, selectChecks, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
 import { approvedByLogin } from '../shared/approval.ts'
@@ -6,11 +6,13 @@ import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatu
 import { canMergeSlice, canSquashMerge, sliceParts } from '../shared/merge.ts'
 import { stepLabel, type MergeWatch, type RowMark, type StepStatus } from '../shared/queue.ts'
 import { downstackChain, type StackSummary } from '../shared/stacks.ts'
+import { rollup, SEGMENT_LABEL, segmentState } from '../shared/segments.ts'
+import { RepoIcon } from './repo-mark.tsx'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import type { Bucket, Outline, ProjectGroup, StackBlock } from '../shared/view.ts'
 import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
-import { copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
+import { ageHeat, copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
 import { usePrHref } from './pr-links.tsx'
 import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
@@ -35,7 +37,7 @@ function useStackLock(): StackLock {
   return useContext(StackLockContext)
 }
 
-const COLUMNS = 18
+const COLUMNS = 17
 
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
 const EMPTY_HOLDS: CheckHold[] = []
@@ -54,7 +56,7 @@ export function PrTable({
   sort,
   initiatives,
   prByKey,
-  repoColor,
+  showRepo,
   expanded,
   collapsed,
   onSort,
@@ -86,7 +88,8 @@ export function PrTable({
   sort: Sort
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
-  repoColor: Map<string, string>
+  /** False when every pull request in the list is in one repository, so the column would say the same thing on each row. */
+  showRepo: boolean
   expanded: Set<string>
   collapsed: Set<string>
   onSort: (key: SortKey) => void
@@ -118,7 +121,7 @@ export function PrTable({
     mode,
     namesList: initiatives,
     prByKey,
-    repoColor,
+    showRepo,
     tones,
     expanded,
     collapsed,
@@ -151,13 +154,12 @@ export function PrTable({
           <th className="num">#</th>
           <SortHeader label="Title" sortKey="title" sort={sort} onSort={onSort} />
           {mode === 'review' ? <th className="author">Author</th> : null}
-          <SortHeader className="repo" label="Repo" sortKey="repo" sort={sort} onSort={onSort} />
+          {showRepo ? <SortHeader className="repo" label="Repo" sortKey="repo" sort={sort} onSort={onSort} /> : null}
           <SortHeader className="size" colSpan={3} label="Size" sortKey="size" sort={sort} onSort={onSort} />
-          <SortHeader className="when" label="Created" sortKey="created" sort={sort} onSort={onSort} />
+          <SortHeader className="when" label="Age" title="Time since it was ready for review. A draft shows the time since it was opened." sortKey="created" sort={sort} onSort={onSort} />
           <SortHeader className="when" label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
           <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
-          <th className="uptodate">Up-to-date</th>
-          <th className="conflict">Conflict</th>
+          <th className="branch" title="A red cross is a merge conflict. A white cross is behind the base branch.">Branch</th>
           <th>Review</th>
           <th>Feedback</th>
           <th className="agents">Agents</th>
@@ -212,6 +214,7 @@ function SortHeader({
   onSort,
   className,
   colSpan,
+  title,
 }: {
   label: string
   sortKey: SortKey
@@ -219,11 +222,12 @@ function SortHeader({
   onSort: (key: SortKey) => void
   className?: string
   colSpan?: number
+  title?: string
 }) {
   const active = sort.key === sortKey
   const arrow = active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''
   return (
-    <th className={className} colSpan={colSpan}>
+    <th className={className} colSpan={colSpan} title={title}>
       <button type="button" className="sort" aria-pressed={active} onClick={() => onSort(sortKey)}>
         {label}
         {arrow}
@@ -243,7 +247,7 @@ type RowShared = {
   mode: 'mine' | 'review'
   namesList: Initiative[]
   prByKey: Map<string, PullRequest>
-  repoColor: Map<string, string>
+  showRepo: boolean
   tones: Map<string, 'a' | 'b'>
   expanded: Set<string>
   collapsed: Set<string>
@@ -304,6 +308,7 @@ function ProjectRows({ project, ...shared }: { project: ProjectGroup } & RowShar
           <SectionHead open={open} label={project.title} onToggle={() => shared.onToggleSection(project.id)}>
             <span className="section-title">{project.title}</span>
             <span className="section-meta">{count === 1 ? '1 pull request' : `${count} pull requests`}</span>
+            <SectionRollup buckets={project.issues} prByKey={shared.prByKey} mode={shared.mode} />
           </SectionHead>
         </td>
       </tr>
@@ -332,6 +337,7 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
                 <span className="section-title">{bucket.title}</span>
               )}
               {bucket.meta ? <span className="section-meta">{bucket.meta}</span> : null}
+              <SectionRollup buckets={[bucket]} prByKey={shared.prByKey} mode={shared.mode} />
             </SectionHead>
           </td>
         </tr>
@@ -464,7 +470,7 @@ function BlockRows({
           hideIssue={bucket.issueId ?? undefined}
           initiatives={shared.namesList}
           prByKey={shared.prByKey}
-          repoColor={shared.repoColor}
+          showRepo={shared.showRepo}
           linearConfigured={shared.linearConfigured}
           onAssign={shared.onAssign}
           onCreateAssigned={shared.onCreateAssigned}
@@ -495,7 +501,7 @@ function BlockRows({
       hideIssue={bucket.issueId ?? undefined}
       initiatives={shared.namesList}
       prByKey={shared.prByKey}
-      repoColor={shared.repoColor}
+      showRepo={shared.showRepo}
       linearConfigured={shared.linearConfigured}
       onToggle={shared.onToggle}
       onAssign={shared.onAssign}
@@ -527,7 +533,7 @@ function DataRow({
   toggle,
   initiatives,
   prByKey,
-  repoColor,
+  showRepo,
   hideIssue,
   linearConfigured,
   onAssign,
@@ -554,7 +560,7 @@ function DataRow({
   toggle: { id: string; open: boolean; onToggle: (id: string) => void } | null
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
-  repoColor: Map<string, string>
+  showRepo: boolean
   hideIssue?: string
   linearConfigured: boolean
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
@@ -579,7 +585,8 @@ function DataRow({
   const prHref = usePrHref(pr.url)
   return (
     <tr
-      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
+      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${pr.isDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
+      data-row={pr.key}
       onClick={(event) => {
         if (!toggle) return
         if (pressedControl(event.target)) return
@@ -591,7 +598,7 @@ function DataRow({
       <td className="title-block">
         <div className="title-line">
           {pr.isDraft ? <span className="pill draft">Draft</span> : null}
-          <a href={prHref} target="_blank" rel="noreferrer">
+          <a href={prHref} target="_blank" rel="noreferrer" title={pr.title}>
             {pr.title}
           </a>
         </div>
@@ -607,18 +614,22 @@ function DataRow({
           <Authors people={[{ login: pr.author, avatarUrl: pr.authorAvatarUrl ?? null }]} />
         </td>
       ) : null}
-      <td className="repo" title={pr.repo}>
-        <i className="pip" style={{ background: repoColor.get(pr.repo) }} />
-        {pr.repoName}
-      </td>
+      {showRepo ? (
+        <td className="repo">
+          <RepoIcon repo={pr.repo} label />
+        </td>
+      ) : null}
       <Size additions={pr.additions} deletions={pr.deletions} files={pr.changedFiles} />
-      <When iso={pr.createdAt} />
+      <Age readyAt={pr.isDraft ? null : (pr.readyAt ?? pr.createdAt)} createdAt={pr.createdAt} />
       <When iso={pr.updatedAt} />
       <td>
         <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
       </td>
-      <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} prByKey={prByKey} onRebase={onRebase} />
-      <Conflict id={`conflict:${pr.id}`} prs={[pr]} />
+      {pr.conflict ? (
+        <Conflict id={`conflict:${pr.id}`} prs={[pr]} />
+      ) : (
+        <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} prByKey={prByKey} onRebase={onRebase} />
+      )}
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
       </td>
@@ -669,7 +680,7 @@ function SummaryRow({
   tone,
   initiatives,
   prByKey,
-  repoColor,
+  showRepo,
   hideIssue,
   linearConfigured,
   onToggle,
@@ -696,7 +707,7 @@ function SummaryRow({
   tone: 'a' | 'b' | null
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
-  repoColor: Map<string, string>
+  showRepo: boolean
   hideIssue?: string
   linearConfigured: boolean
   onToggle: (id: string) => void
@@ -724,9 +735,18 @@ function SummaryRow({
   const mark = foremost(block.stackKeys, queueByKey)
   const top = ordered[0] ?? null
   const { locked } = useStackLock()
+  const viewer = useViewer()
+  // Bottom of the stack first, so the strip reads in the order the pull requests merge.
+  const segments = visible
+    .slice()
+    .reverse()
+    .map((pr) => ({ pr, state: segmentState(pr, ordered, mode, viewer) }))
+  const readyCount = segments.filter((segment) => segment.state === 'ready').length
+  const allDraft = summary.draftCount === visible.length
   return (
     <tr
-      className={`stack ${ci === 'red' ? 'fail' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
+      className={`stack ${ci === 'red' ? 'fail' : ''}${allDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
+      data-row={openId}
       onClick={(event) => {
         if (pressedControl(event.target)) return
         onToggle(openId)
@@ -739,10 +759,19 @@ function SummaryRow({
           {summary.draftCount > 0 ? (
             <span className="pill draft">{summary.draftCount === visible.length ? 'Draft' : `${summary.draftCount} draft`}</span>
           ) : null}
-          <a href={summaryHref} target="_blank" rel="noreferrer">
+          <span
+            className="segments"
+            role="img"
+            title={`${readyCount} of ${segments.length} ${mode === 'review' ? 'approved by you' : 'ready to merge'}`}
+            aria-label={`${segments.length} pull requests, bottom of the stack first: ${segments.map((segment) => SEGMENT_LABEL[mode][segment.state]).join(', ')}`}
+          >
+            {segments.map((segment) => (
+              <i key={segment.pr.id} className={`seg ${segment.state}`} title={`#${segment.pr.number} · ${SEGMENT_LABEL[mode][segment.state]}`} />
+            ))}
+          </span>
+          <a href={summaryHref} target="_blank" rel="noreferrer" title={summary.title}>
             {summary.title}
           </a>
-          {summary.extra > 0 ? <span className="pill">+{summary.extra}</span> : null}
           {summary.partial ? <span className="pill">partial</span> : null}
         </div>
         <Subline
@@ -757,24 +786,28 @@ function SummaryRow({
           <Authors people={summary.authors ?? []} />
         </td>
       ) : null}
-      <td className="repo" title={summary.repo}>
-        <i className="pip" style={{ background: repoColor.get(summary.repo) }} />
-        {summary.repoName}
-      </td>
+      {showRepo ? (
+        <td className="repo">
+          <RepoIcon repo={summary.repo} label />
+        </td>
+      ) : null}
       <Size additions={summary.additions} deletions={summary.deletions} files={summary.changedFiles} />
-      <When iso={summary.createdAt} />
+      <Age readyAt={summary.readyAt} createdAt={summary.createdAt} />
       <When iso={summary.updatedAt} />
       <td>
         <CiControl id={`ci:${block.id}`} prs={visible} onRerun={onRerun} />
       </td>
-      <UpToDate
-        id={`uptodate:${block.id}`}
-        targetKey={lowestBehindKey(block.stackKeys, visible)}
-        stackKeys={block.stackKeys}
-        prByKey={prByKey}
-        onRebase={onRebase}
-      />
-      <Conflict id={`conflict:${block.id}`} prs={visible} />
+      {summary.conflict ? (
+        <Conflict id={`conflict:${block.id}`} prs={visible} />
+      ) : (
+        <UpToDate
+          id={`uptodate:${block.id}`}
+          targetKey={lowestBehindKey(block.stackKeys, visible)}
+          stackKeys={block.stackKeys}
+          prByKey={prByKey}
+          onRebase={onRebase}
+        />
+      )}
       <td>
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
       </td>
@@ -1511,6 +1544,41 @@ function Size({ additions, deletions, files }: { additions: number; deletions: n
   )
 }
 
+/** Time since review could start, coloured as it gets old. A draft shows the time since it was opened and is never coloured. */
+function Age({ readyAt, createdAt }: { readyAt: string | null; createdAt: string }) {
+  const heat = ageHeat(readyAt)
+  const title = !readyAt
+    ? `Draft. Opened ${formatExact(createdAt)}`
+    : readyAt === createdAt
+      ? `Opened ${formatExact(createdAt)}`
+      : `Ready for review ${formatExact(readyAt)}. Opened ${formatExact(createdAt)}`
+  return (
+    <td className={`when age ${heat.level}`} style={{ '--heat': `${Math.round(heat.warmth * 100)}%` } as CSSProperties} title={title}>
+      {formatWhen(readyAt ?? createdAt)}
+    </td>
+  )
+}
+
+/** Counts for a heading, so a collapsed section still says whether it needs you. Zero counts are left out. */
+function SectionRollup({ buckets, prByKey, mode }: { buckets: Bucket[]; prByKey: Map<string, PullRequest>; mode: 'mine' | 'review' }) {
+  const viewer = useViewer()
+  const states = buckets.flatMap((bucket) =>
+    [...bucket.stacks, ...bucket.singles].flatMap((block) => {
+      const ordered = orderedStack(block, prByKey)
+      return block.rows.flatMap((row) => (row.type === 'pr' ? [segmentState(row.pr, ordered, mode, viewer)] : []))
+    }),
+  )
+  const counts = rollup(states)
+  if (counts.ready + counts.you + counts.broken === 0) return null
+  return (
+    <span className="section-roll">
+      {counts.broken > 0 ? <span className="broken">{counts.broken} broken</span> : null}
+      {counts.you > 0 ? <span className="you">{counts.you === 1 ? '1 needs you' : `${counts.you} need you`}</span> : null}
+      {counts.ready > 0 ? <span className="ready">{counts.ready} {mode === 'review' ? 'approved by you' : 'ready'}</span> : null}
+    </span>
+  )
+}
+
 function When({ iso }: { iso: string }) {
   return (
     <td className="when" title={formatExact(iso)}>
@@ -2023,26 +2091,30 @@ function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; s
       }
     >
       <div>
-        <h3>Review</h3>
-        <p>{summary?.mergeDetail ?? prs[0]!.mergeDetail}</p>
-        {prs.flatMap((pr) => pr.reviewers).length === 0 ? <p>No approving or changes-requested reviews.</p> : null}
-        {prs.map((pr) =>
-          pr.reviewers.map((reviewer) => (
-            <div key={`${pr.id}:${reviewer.login}`} className="reviewer">
-              <strong>
-                {prs.length > 1 ? `#${pr.number} ` : ''}
+        <h3>Reviews</h3>
+        {prs.map((pr) => (
+          <div key={pr.id} className="review-line">
+            {prs.length > 1 ? <span className="review-num">#{pr.number}</span> : null}
+            {pr.reviewers.length === 0 ? <span className="review-none">No reviews yet</span> : null}
+            {pr.reviewers.map((reviewer) => (
+              <span
+                key={reviewer.login}
+                className={`reviewer ${reviewer.state === 'APPROVED' ? 'approved' : 'changes'}`}
+                title={`${reviewer.login}${reviewer.human ? '' : ' (bot)'}: ${reviewer.state === 'APPROVED' ? 'approved' : 'changes requested'}`}
+              >
+                {reviewer.avatarUrl ? (
+                  <img src={reviewer.avatarUrl} alt="" />
+                ) : (
+                  <span className="avatar fallback" aria-hidden="true">
+                    {reviewer.login.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
                 {reviewer.login}
-                {reviewer.human ? '' : ' (bot)'}
-              </strong>
-              <span>{reviewer.state === 'APPROVED' ? 'Approved' : 'Changes'}</span>
-            </div>
-          )),
-        )}
-        <p>
-          Grey means no review is required. White is still waiting. Green outline is a human approval; a filled green circle means you approved.
-          Red means changes are still requested. The check is any approval, the person is a human approval, and the arrow is GitHub’s merge
-          requirement. On a collapsed stack, the check and person show only when every pull request has that approval.
-        </p>
+                <span className="sr">{reviewer.state === 'APPROVED' ? ' approved' : ' requested changes'}</span>
+              </span>
+            ))}
+          </div>
+        ))}
       </div>
     </HoverCard>
   )

@@ -118,7 +118,8 @@ function pullFields(threadComments: boolean): string {
   baseRefName headRefName reviewDecision mergeStateStatus mergeable
   author { login avatarUrl }
   repository { nameWithOwner name squashMergeAllowed defaultBranchRef { name } }
-  reviews(last: 40) { nodes { state submittedAt body author { __typename login } } }
+  reviews(last: 40) { nodes { state submittedAt body author { __typename login avatarUrl } } }
+  readyEvents: timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
   reviewThreads(first: 60) {
     pageInfo { hasNextPage }
     nodes {

@@ -148,7 +148,7 @@ describe('copy pull request ids', () => {
             sort={{ key: 'updated', dir: 'desc' }}
             initiatives={[]}
             prByKey={new Map(prs.map((pr) => [pr.key, pr]))}
-            repoColor={new Map()}
+            showRepo={false}
             expanded={expanded ? new Set(['unassigned:stack']) : new Set()}
             collapsed={new Set()}
             onSort={() => {}}

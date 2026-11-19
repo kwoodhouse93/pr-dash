@@ -1,10 +1,3 @@
-const REPO_PIPS = ['#e0a15a', '#7eb0d4', '#8fbf73', '#d7a0c4', '#9aa7e8', '#e38b6d', '#7ec8c3', '#e2b34a']
-
-export function repoColors(repos: string[]): Map<string, string> {
-  const unique = [...new Set(repos)].sort()
-  return new Map(unique.map((repo, index) => [repo, REPO_PIPS[index % REPO_PIPS.length]!]))
-}
-
 export function formatCount(value: number): string {
   const abs = Math.abs(value)
   if (abs < 1000) return String(abs)
@@ -88,4 +81,17 @@ export function formatClock(ms: number): string {
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
+}
+
+/**
+ * How long a pull request has been open for review, as a colour: nothing under 3 hours, warming to full yellow at 24, red past 48.
+ * `warmth` runs 0 to 1 across the yellow range.
+ */
+export function ageHeat(iso: string | null | undefined, now = Date.now()): { level: 'none' | 'warm' | 'hot'; warmth: number } {
+  const time = iso ? Date.parse(iso) : Number.NaN
+  if (Number.isNaN(time)) return { level: 'none', warmth: 0 }
+  const hours = (now - time) / 3_600_000
+  if (hours > 48) return { level: 'hot', warmth: 1 }
+  if (hours <= 3) return { level: 'none', warmth: 0 }
+  return { level: 'warm', warmth: Math.min(1, (hours - 3) / 21) }
 }

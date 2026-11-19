@@ -8,13 +8,15 @@ import { cursorLinks } from '../shared/cursor.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
-import { formatExact, repoColors } from './format.ts'
+import { formatExact } from './format.ts'
 import { FilterBar, activeFilterLabels } from './filter-bar.tsx'
 import { MenuProvider } from './menus.tsx'
 import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage } from './prefs.ts'
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
+import { RepoMarksProvider } from './repo-mark.tsx'
+import { Shortcuts } from './shortcuts.tsx'
 import { PrTable } from './table.tsx'
 import { Toasts, clearActionError, dismissToast, toastError, toastSticky, toastSuccess, toastWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
@@ -391,7 +393,10 @@ export function App() {
     if (viewPrefs.filters.repo && !names.includes(viewPrefs.filters.repo)) names.push(viewPrefs.filters.repo)
     return names.sort()
   }, [prs, viewPrefs.filters.repo])
-  const colors = useMemo(() => repoColors(repos), [repos])
+  const showRepo = useMemo(() => new Set(prs.map((pr) => pr.repo)).size > 1, [prs])
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), [])
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), [])
   const visible = !outlineEmpty(outline)
   const reviewBadge = review.filter((pr) => pr.reviewPending || needsAttention(pr, 'reviewer')).length
   const listPage = page === 'mine' || page === 'review'
@@ -455,7 +460,9 @@ export function App() {
   return (
     <PrLinksProvider host={prefs.prLinks}>
     <MenuProvider>
+    <RepoMarksProvider marks={data?.repoMarks}>
       <Toasts />
+      <Shortcuts open={shortcutsOpen} onOpen={openShortcuts} onClose={closeShortcuts} />
       <div className="app">
         <header className="top">
           <nav className="nav" aria-label="Lists">
@@ -479,6 +486,20 @@ export function App() {
               />
             )}
             <QueueButton queue={queue} pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))} />
+            <button
+              type="button"
+              className="tool-btn"
+              aria-pressed={shortcutsOpen}
+              aria-label="Keyboard shortcuts"
+              aria-keyshortcuts="?"
+              title="Keyboard shortcuts (?)"
+              onClick={() => setShortcutsOpen((current) => !current)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2.5" y="6" width="19" height="12" rx="2" />
+                <path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M7 14h10" />
+              </svg>
+            </button>
             <button
               type="button"
               className="tool-btn"
@@ -557,6 +578,9 @@ export function App() {
               onRemoveRepo={async (repo) => {
                 setData(adopt(await api.removeRepo(repo)))
               }}
+              onRepoMark={async (repo, mark) => {
+                setData(adopt(await api.setRepoMark(repo, mark)))
+              }}
             />
           ) : null}
           {page === 'queue' ? (
@@ -613,7 +637,7 @@ export function App() {
               sort={prefs.sort}
               initiatives={initiatives}
               prByKey={prByKey}
-              repoColor={colors}
+              showRepo={showRepo}
               expanded={new Set(prefs.expanded)}
               collapsed={new Set(prefs.collapsed)}
               queueByKey={rowMarks(queue?.entries ?? [])}
@@ -715,6 +739,7 @@ export function App() {
           ) : null}
         </div>
       </div>
+    </RepoMarksProvider>
     </MenuProvider>
     </PrLinksProvider>
   )

@@ -156,7 +156,7 @@ describe('agents', () => {
             sort={{ key: 'updated', dir: 'desc' }}
             initiatives={[]}
             prByKey={new Map([[pr.key, pr]])}
-            repoColor={new Map()}
+            showRepo={false}
             expanded={new Set()}
             collapsed={new Set()}
             onSort={() => {}}

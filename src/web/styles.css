@@ -736,6 +736,7 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .queue-row .queue-dot ~ .queue-row-main .queue-row-title,
 .queue-row.watch .queue-row-title { color: var(--muted); }
 .queue-repo, .queue-took, .queue-why { color: var(--faint); font-size: 14px; white-space: nowrap; }
+.queue-repo { display: inline-flex; align-items: center; gap: 6px; }
 .queue-why { max-width: 50%; overflow: hidden; text-overflow: ellipsis; }
 .queue-when { width: 56px; flex: none; text-align: right; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 .queue-row-detail { padding: 2px 4px 12px 28px; }
@@ -1000,7 +1001,12 @@ tr.held .stack-mark::after { opacity: 0.35; }
 .empty .primary { margin-top: 12px; }
 
 .title-block { white-space: normal; min-width: 280px; }
-.title-line { line-height: 1.4; }
+/* The lines inside claim no width of their own, so the column takes what the others leave and a long title is cut short instead of pushing them out. */
+.title-block { width: 100%; }
+.title-line, .title-block .subline { width: 0; min-width: 100%; }
+.title-line { display: flex; align-items: center; line-height: 1.4; }
+.title-line > * { flex: none; }
+.title-line > a { flex: 0 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .title-line > * + * { margin-left: 8px; }
 .title-line a { font-weight: 400; }
 .title-line .pill { vertical-align: middle; }
@@ -1154,9 +1160,8 @@ td.size.files svg {
   vertical-align: -0.12em;
   margin-right: 3px;
 }
-th.conflict,
+th.branch,
 td.conflict,
-th.uptodate,
 td.uptodate,
 th.agents,
 td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px; }
@@ -1304,7 +1309,9 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
 .ci.yellow { background: var(--yellow-dim); color: var(--yellow); }
 .ci.invalidated { background: #2c2418; color: var(--accent); }
 .ci.pending { background: var(--blue-dim); color: var(--blue); }
-.ci.green { background: var(--green-dim); color: var(--green); }
+/* Passing is the usual state, so it is the one that stays quiet. */
+.ci.green { background: transparent; color: var(--faint); }
+.ci.green:hover { color: var(--green); }
 .ci.none { color: var(--faint); }
 .marks { display: inline-flex; gap: 4px; }
 .mark {
@@ -1467,8 +1474,13 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
 }
 .empty .primary { margin-top: 4px; }
 .empty h2 { font-family: "Source Serif 4", Georgia, serif; color: var(--text); font-weight: 500; font-size: 22px; }
-.reviewer { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 13px; }
-.reviewer span { color: var(--faint); }
+.review-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; font-size: 14px; }
+.review-num { min-width: 46px; color: var(--muted); font-family: "Source Code Pro", ui-monospace, monospace; font-weight: 300; font-size: 13px; }
+.review-none { color: var(--faint); }
+.reviewer { display: inline-flex; align-items: center; gap: 7px; }
+.reviewer img, .reviewer .avatar.fallback { width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px var(--green); }
+.reviewer.changes img, .reviewer.changes .avatar.fallback { box-shadow: 0 0 0 2px var(--red); }
+.reviewer.changes { color: var(--red); }
 
 .drawer-back {
   position: fixed;
@@ -1693,3 +1705,62 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
   font-size: 14px;
 }
 .reply-toggle { margin-top: 8px; padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+
+/* Repository icon: its colour is the repository's own, kept muted. */
+.repo-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none; vertical-align: middle; }
+.repo-icon svg { width: 16px; height: 16px; display: block; }
+td.repo, th.repo { text-align: center; }
+.repo-mark-btn { display: inline-grid; place-items: center; flex: none; padding: 3px; border: 0; border-radius: 6px; background: transparent; }
+.repo-mark-btn:hover, .repo-mark-btn[aria-expanded="true"] { background: var(--chip); }
+.mark-swatches { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 2px; }
+.mark-swatch { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; }
+.mark-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--text); }
+.mark-icons { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.mark-icon { display: grid; place-items: center; padding: 7px 0; border: 0; border-radius: 6px; background: transparent; }
+.mark-icon:hover { background: var(--chip); }
+.mark-icon[aria-pressed="true"] { background: var(--chip); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.mark-icon svg { width: 18px; height: 18px; display: block; }
+
+/* A draft is not waiting on anyone, so its row sits back. The actions on it stay at full strength. */
+tbody tr.draft > td:not(.merge, .open, .row-actions, .grip) { opacity: 0.55; }
+tbody tr.draft:hover > td:not(.merge, .open, .row-actions, .grip) { opacity: 0.8; }
+
+/* Age since review could start: --heat runs from 0% at 3 hours to 100% at a day, and past two days it is red. */
+td.when.age.warm { color: color-mix(in srgb, var(--yellow) var(--heat, 0%), var(--muted)); }
+td.when.age.hot { color: var(--red); }
+tr.held > td.when.age { color: var(--faint); }
+
+/* One segment per pull request in a collapsed stack, bottom of the stack first. */
+.segments { display: inline-flex; gap: 2px; }
+.seg { width: 10px; height: 6px; border-radius: 2px; background: var(--line-strong); }
+.seg.ready { background: var(--green); }
+.seg.you { background: var(--accent); }
+.seg.broken { background: var(--red); }
+.seg.draft { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
+tr.held .seg { background: var(--line-strong); box-shadow: none; }
+
+.section-roll { display: inline-flex; gap: 12px; margin-left: 6px; font-family: "Source Sans 3", sans-serif; font-size: 14px; font-weight: 400; white-space: nowrap; }
+.section-roll .ready { color: var(--green); }
+.section-roll .you { color: var(--accent); }
+.section-roll .broken { color: var(--red); }
+
+/* The row the keyboard is on. */
+tbody tr[data-cursor] > td { background: var(--bg-hover); --row-bg: var(--bg-hover); }
+tbody tr[data-cursor] > td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+
+.modal.shortcuts dl { margin: 4px 0 18px; }
+.modal.shortcuts dl > div { display: flex; align-items: baseline; gap: 12px; padding: 5px 0; }
+.modal.shortcuts dt { width: 120px; flex: none; color: var(--muted); font-size: 14px; }
+.modal.shortcuts dd { margin: 0; }
+kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--chip);
+  color: var(--text);
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 13px;
+  text-align: center;
+}

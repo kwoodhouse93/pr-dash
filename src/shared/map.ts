@@ -39,9 +39,11 @@ export type GitHubPull = {
       state: string
       submittedAt: string | null
       body?: string | null
-      author: { __typename: string; login: string } | null
+      author: { __typename: string; login: string; avatarUrl?: string | null } | null
     } | null> | null
   }
+  /** The last time the pull request left draft. Empty when it was opened ready. */
+  readyEvents?: { nodes: Array<{ createdAt?: string | null } | null> | null } | null
   reviewThreads: {
     pageInfo?: { hasNextPage: boolean }
     nodes: Array<{
@@ -276,6 +278,7 @@ export function mapPullRequest(
     authorAvatarUrl: node.author?.avatarUrl ?? null,
     isDraft: node.isDraft,
     createdAt: node.createdAt,
+    readyAt: node.isDraft ? null : (node.readyEvents?.nodes?.find(present)?.createdAt ?? node.createdAt),
     updatedAt: node.updatedAt,
     committedAt: extras.committedAt,
     additions: node.additions,

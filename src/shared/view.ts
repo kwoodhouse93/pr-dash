@@ -150,7 +150,7 @@ function blockStamp(block: StackBlock, sort: Sort): number | string {
     case 'updated':
       return Date.parse(summary.updatedAt)
     case 'created':
-      return Date.parse(summary.createdAt)
+      return Date.parse(summary.readyAt ?? summary.createdAt)
     case 'size':
       return summary.additions + summary.deletions
     case 'title':

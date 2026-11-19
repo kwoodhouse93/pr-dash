@@ -19,6 +19,8 @@ export type StackSummary = {
   deletions: number
   changedFiles: number
   createdAt: string
+  /** Earliest time a pull request that is out of draft became ready for review. Null when every one is a draft. */
+  readyAt: string | null
   updatedAt: string
   ci: CiLevel
   anyApproval: boolean
@@ -182,6 +184,7 @@ export function summarize(prs: PullRequest[], partial: boolean): StackSummary {
     deletions: sum(prs, (pr) => pr.deletions),
     changedFiles: sum(prs, (pr) => pr.changedFiles),
     createdAt,
+    readyAt: prs.filter((pr) => !pr.isDraft).map((pr) => pr.readyAt ?? pr.createdAt).sort()[0] ?? null,
     updatedAt,
     ci: worstCi(prs.map((pr) => pr.ci)),
     anyApproval: prs.every((pr) => pr.anyApproval),

@@ -5,7 +5,7 @@ import type { FeedbackCounts } from '../shared/feedback.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
-import type { CursorSession, Initiative, LinearIssue, PullRequest, Snapshot } from '../shared/types.ts'
+import type { CursorSession, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
 export type CachedRules = {
@@ -33,6 +33,7 @@ export type DashboardDb = {
   watchedRepos(): string[]
   watchRepo(repo: string): void
   storedRepos(): string[]
+  setRepoMark(repo: string, mark: RepoMark): void
   forgetRepo(repo: string): void
   createInitiative(name: string): Initiative
   renameInitiative(id: string, name: string): Initiative
@@ -95,6 +96,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     CREATE TABLE IF NOT EXISTS watched_repos (
       repo TEXT PRIMARY KEY,
       created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS repo_marks (
+      repo TEXT PRIMARY KEY,
+      icon TEXT NOT NULL,
+      color TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS agent_sessions (
       agent_id TEXT PRIMARY KEY,
@@ -268,6 +274,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       mineSyncedAt: row?.mine_synced_at ?? null,
       reviewSyncedAt: row?.review_synced_at ?? null,
       repos: watchedRepos(),
+      repoMarks: repoMarks(),
       pullRequests: row ? visible(decorate(parseList(row.pull_requests), tags, sessions, links)) : [],
       reviewPullRequests: row ? visible(decorate(parseList(row.review_pull_requests), tags, sessions, links)) : [],
       initiatives: initiatives(),
@@ -278,6 +285,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
 
   function watchedRepos(): string[] {
     return (db.prepare('SELECT repo FROM watched_repos ORDER BY repo').all() as { repo: string }[]).map((row) => row.repo)
+  }
+
+  function repoMarks(): Record<string, RepoMark> {
+    const rows = db.prepare('SELECT repo, icon, color FROM repo_marks').all() as { repo: string; icon: string; color: string }[]
+    return Object.fromEntries(rows.map((row) => [row.repo, { icon: row.icon, color: row.color }]))
   }
 
   function storedRepos(): string[] {
@@ -376,6 +388,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       )
     },
     storedRepos,
+    setRepoMark(repo, mark) {
+      db.prepare(
+        'INSERT INTO repo_marks (repo, icon, color) VALUES (?, ?, ?) ON CONFLICT(repo) DO UPDATE SET icon = excluded.icon, color = excluded.color',
+      ).run(repo, mark.icon, mark.color)
+    },
     forgetRepo(repo) {
       if (queue.repoActive(repo)) {
         const error = new Error(`A merge is in progress for ${repo}. Cancel it before removing the repository.`)
@@ -392,6 +409,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.prepare(`DELETE FROM initiative_pull_requests WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM linear_links WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare('DELETE FROM watched_repos WHERE repo = ?').run(repo)
+        db.prepare('DELETE FROM repo_marks WHERE repo = ?').run(repo)
         if (row) {
           const mine = stripStored(parseList(row.pull_requests).filter((pr) => pr.repo !== repo))
           const review = stripStored(parseList(row.review_pull_requests).filter((pr) => pr.repo !== repo))

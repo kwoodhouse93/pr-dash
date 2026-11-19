@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { stepLabel, type MergeEntry, type MergeLog, type MergeStep, type MergeWatch, type QueueSnapshot } from '../shared/queue.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
+import { RepoIcon } from './repo-mark.tsx'
 import { formatClock, formatDuration, formatExact, formatWhen } from './format.ts'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 
@@ -46,6 +47,7 @@ export function MergeQueuePage({
         <section key={group.repo} className="queue-repo-section">
           <h2 className="queue-repo-head">
             <span className={`queue-dot ${group.held.length > 0 ? 'failed' : group.active.length > 0 ? 'live' : ''}`} aria-hidden="true" />
+            <RepoIcon repo={group.repo} />
             {group.repo}
             <span className="queue-repo-sum">{repoSummary(group)}</span>
           </h2>
@@ -89,7 +91,10 @@ export function MergeQueuePage({
                 lead={<span className={`queue-dot ${entry.error ? 'failed' : entry.status}`} role="img" aria-label={outcome(entry)} title={outcome(entry)} />}
                 trail={
                   <>
-                    <span className="queue-repo">{entry.repo}</span>
+                    <span className="queue-repo">
+                      <RepoIcon repo={entry.repo} />
+                      {entry.repo}
+                    </span>
                     {entry.startedAt && entry.finishedAt ? (
                       <span className="queue-took">took {formatDuration(Date.parse(entry.finishedAt) - Date.parse(entry.startedAt))}</span>
                     ) : null}

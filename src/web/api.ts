@@ -2,7 +2,7 @@ import type { AgentRequest } from '../shared/agents.ts'
 import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import type { RepoCatalog } from '../shared/repos.ts'
-import type { LinearAssignee, LinearStatus, Snapshot } from '../shared/types.ts'
+import type { LinearAssignee, LinearStatus, RepoMark, Snapshot } from '../shared/types.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -71,6 +71,7 @@ export const api = {
   repos: () => request<RepoCatalog>('/api/repos'),
   addRepo: (repo: string) => post<Snapshot>('/api/repos', { repo }),
   removeRepo: (repo: string) => post<Snapshot>('/api/repos/remove', { repo }),
+  setRepoMark: (repo: string, mark: RepoMark) => post<Snapshot>('/api/repos/mark', { repo, ...mark }),
   refresh: (focus: 'mine' | 'review' = 'mine', full = false, interactive = false) =>
     post<Snapshot>('/api/refresh', { focus, full, interactive }),
   enqueueSync: (kind: 'full' | 'rules', focus: 'mine' | 'review') => post<SyncStatus>('/api/sync', { kind, focus }),

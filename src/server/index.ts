@@ -18,6 +18,7 @@ import {
 } from './github.ts'
 import { removeMirror } from './git.ts'
 import { parseRepoName } from '../shared/repos.ts'
+import { validRepoMark } from '../shared/repo-marks.ts'
 import { repoCatalog } from './repos.ts'
 import {
   cancelEntry,
@@ -69,6 +70,18 @@ app.post('/api/repos', async (c) => {
       if (!visible) return c.json({ error: `GitHub did not return ${repo}. Check the name and that this token can see it.` }, 404)
       db.watchRepo(repo)
     }
+    return c.json(db.snapshot())
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 400)
+  }
+})
+
+app.post('/api/repos/mark', async (c) => {
+  try {
+    const body = await c.req.json<{ repo?: string; icon?: string; color?: string }>()
+    const repo = parseRepoName(body.repo ?? '')
+    if (!validRepoMark(body)) return c.json({ error: 'Pick an icon and a colour from the list.' }, 400)
+    db.setRepoMark(repo, { icon: body.icon, color: body.color })
     return c.json(db.snapshot())
   } catch (error) {
     return c.json({ error: messageOf(error) }, 400)

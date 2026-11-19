@@ -3,6 +3,8 @@ import { parseRepoName, removalWarning, type RepoCatalog, type RepoChoice } from
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatAgo, formatExact, formatTime } from './format.ts'
 import type { PrLinkHost } from './pr-links.tsx'
+import { RepoIcon, RepoMarkPicker } from './repo-mark.tsx'
+import type { RepoMark } from '../shared/types.ts'
 
 /** How many search matches the add box lists before asking for a narrower search. */
 const MATCH_LIMIT = 8
@@ -18,6 +20,7 @@ export function SettingsPage({
   onCancelSync,
   onAddRepo,
   onRemoveRepo,
+  onRepoMark,
   initiatives,
   prLinks = 'github',
   onPrLinks = () => {},
@@ -30,6 +33,8 @@ export function SettingsPage({
   onCancelSync: (id: string) => void
   onAddRepo: (repo: string) => Promise<void>
   onRemoveRepo: (repo: string) => Promise<void>
+  /** Saves the icon and colour shown for a repository. Left out, the icon is shown and cannot be changed. */
+  onRepoMark?: (repo: string, mark: RepoMark) => Promise<void>
   /** The initiatives editor. Left out, the section is not shown. */
   initiatives?: ReactNode
   prLinks?: PrLinkHost
@@ -202,6 +207,7 @@ export function SettingsPage({
               const fetchedAt = ruleTimes.get(row.name)
               return (
                 <li key={row.name} className="panel-row">
+                  {onRepoMark ? <RepoMarkPicker repo={row.name} onPick={onRepoMark} /> : <RepoIcon repo={row.name} />}
                   <span className="repo-name">{row.name}</span>
                   <span className="repo-meta" title={fetchedAt ? formatExact(fetchedAt) : undefined}>
                     {fetchedAt ? `rules read ${formatAgo(fetchedAt)}` : 'rules not read yet'}
