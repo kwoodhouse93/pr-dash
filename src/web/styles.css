@@ -93,11 +93,10 @@ a:hover { text-decoration: underline; }
 .tool-btn:hover { background: var(--bg-hover); color: var(--text); }
 .tool-btn[aria-pressed="true"] { background: var(--bg-raised); color: var(--text); }
 .tool-btn svg { width: 18px; height: 18px; flex: none; }
-.tool-btn .tool-pause { width: 12px; height: 12px; }
 .tool-count { font-size: 14px; font-variant-numeric: tabular-nums; }
 .tool-btn[data-state="active"] .tool-count { color: var(--accent); }
 .tool-btn[data-state="failed"] .tool-count { color: var(--red); }
-.tool-btn[data-state="paused"] { color: var(--yellow); }
+.tool-btn[data-state="paused"] .tool-count { color: var(--red); }
 .refresh-tool:disabled { opacity: 1; cursor: progress; }
 .refresh-tool:disabled:hover { background: transparent; color: var(--muted); }
 .meta { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
@@ -110,7 +109,7 @@ a:hover { text-decoration: underline; }
   min-width: 0;
   flex: none;
 }
-.refresh-tool .pip {
+.tool-btn .pip {
   position: absolute;
   top: 5px;
   right: 5px;
@@ -120,7 +119,9 @@ a:hover { text-decoration: underline; }
   border-radius: 50%;
   box-shadow: 0 0 0 2px var(--bg);
 }
-.refresh-tool:hover .pip { box-shadow: 0 0 0 2px var(--bg-hover); }
+.tool-btn:hover .pip { box-shadow: 0 0 0 2px var(--bg-hover); }
+.tool-btn[aria-pressed="true"] .pip { box-shadow: 0 0 0 2px var(--bg-raised); }
+.tool-btn .pip.paused { background: var(--red); }
 .refresh-tool .pip.fresh { background: var(--green); }
 .refresh-tool .pip.aging { background: var(--yellow); }
 .refresh-tool .pip.stale { background: var(--red); }
@@ -643,8 +644,10 @@ tr.held .stack-mark::after { opacity: 0.35; }
   color: var(--accent);
 }
 
-.queue-page { padding: 18px 22px 40px; max-width: 920px; display: flex; flex-direction: column; gap: 22px; }
-.queue-page .empty { padding: 30px 0 0; }
+.queue-page { padding: 20px 22px 40px; max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.queue-page .empty { padding: 0; }
+.queue-page .empty h2 { margin: 0 0 8px; }
+.queue-page .empty p { margin: 0; }
 .queue-label {
   display: flex;
   gap: 8px;
@@ -839,6 +842,7 @@ tr.held .stack-mark::after { opacity: 0.35; }
   gap: 20px;
   align-items: start;
   max-width: 1120px;
+  margin: 0 auto;
   padding: 20px 22px 40px;
 }
 .settings-main { display: grid; gap: 16px; min-width: 0; }

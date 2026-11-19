@@ -22,8 +22,10 @@ export function MergeQueuePage({
 }) {
   if (!queue) {
     return (
-      <div className="empty">
-        <h2>Loading the queue</h2>
+      <div className="queue-page">
+        <div className="empty">
+          <h2>Loading the queue</h2>
+        </div>
       </div>
     )
   }

@@ -819,11 +819,7 @@ function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot | null;
         <path d="M6 21V9a9 9 0 0 0 9 9" />
       </svg>
       {count > 0 ? <span className="tool-count">{count}</span> : null}
-      {paused ? (
-        <svg className="tool-pause" viewBox="0 0 12 12" aria-hidden="true">
-          <path d="M4 2.5v7M8 2.5v7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      ) : null}
+      {paused ? <span className="pip paused" /> : null}
     </button>
   )
 }
