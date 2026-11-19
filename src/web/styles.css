@@ -615,7 +615,10 @@ tr.held td.grip::before,
 tr.held td.grip::after,
 tr.held .stack-mark,
 tr.held .stack-mark::after { opacity: 0.35; }
-.pill.queue { font-size: 13px; }
+.pill.queue { font-size: 13px; white-space: nowrap; }
+button.pill.queue { cursor: help; }
+.merge-held { white-space: nowrap; }
+.popover p.merge-why { color: var(--text); overflow-wrap: anywhere; }
 .pill.queue.queued, .pill.queue.waiting { color: var(--blue); }
 .pill.queue.rebasing, .pill.queue.merging, .pill.queue.active { color: var(--accent); }
 .pill.queue.merged, .pill.queue.restacked, .pill.queue.done { color: var(--green); }

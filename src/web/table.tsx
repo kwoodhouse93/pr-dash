@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, useContext, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, selectChecks, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
 import { approvedByLogin } from '../shared/approval.ts'
@@ -1715,10 +1715,19 @@ function QueueStatus({ mark, progress, onRetry }: { mark: RowMark; progress: boo
   const text = progress && mark.total > 1 ? `${stepLabel(mark.status)} · ${mark.done} of ${mark.total}` : stepLabel(mark.status)
   // A held entry is retried from the row that failed, or from the row that stands for the whole stack.
   const retry = mark.entryStatus === 'failed' && (mark.status === 'failed' || progress)
+  const why = (mark.status === 'failed' || retry) && mark.detail ? mark.detail : null
+  const cardId = useId()
   return (
     <div className="merge-action">
       <div className="merge-held">
-        <span className={`pill queue ${mark.status}`}>{text}</span>
+        {why ? (
+          <HoverCard id={`queue-why:${cardId}`} className={`pill queue ${mark.status}`} label={text}>
+            <h3>Why it stopped</h3>
+            <p className="merge-why">{why}</p>
+          </HoverCard>
+        ) : (
+          <span className={`pill queue ${mark.status}`}>{text}</span>
+        )}
         {retry ? (
           <button
             type="button"
@@ -1739,7 +1748,6 @@ function QueueStatus({ mark, progress, onRetry }: { mark: RowMark; progress: boo
           </button>
         ) : null}
       </div>
-      {(mark.status === 'failed' || retry) && mark.detail ? <p className="merge-error">{mark.detail}</p> : null}
       {error ? <p className="merge-error">{error}</p> : null}
     </div>
   )
