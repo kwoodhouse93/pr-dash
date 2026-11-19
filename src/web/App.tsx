@@ -377,6 +377,13 @@ export function App() {
   )
   const prs = page === 'review' ? review : mine
   const initiatives = data?.initiatives ?? []
+  const initiativeCounts = useMemo(() => {
+    const keys = new Map<string, Set<string>>()
+    for (const pr of [...mine, ...review]) {
+      for (const id of pr.initiativeIds) keys.set(id, (keys.get(id) ?? new Set()).add(pr.key))
+    }
+    return new Map([...keys].map(([id, set]) => [id, set.size]))
+  }, [mine, review])
   const prByKey = useMemo(() => new Map(prs.map((pr) => [pr.key, pr])), [prs])
   const viewer = data?.viewer ?? null
   const outline = useMemo(
@@ -537,6 +544,7 @@ export function App() {
               initiatives={
                 <ManageInitiatives
                   initiatives={initiatives}
+                  counts={initiativeCounts}
                   onCreate={(name) => mutate(() => api.createInitiative(name))}
                   onRename={(id, name) => mutate(() => api.renameInitiative(id, name))}
                   onDelete={(id) => mutate(() => api.deleteInitiative(id))}

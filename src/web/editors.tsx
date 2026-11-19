@@ -111,11 +111,14 @@ function InitiativeCheck({
 
 export function ManageInitiatives({
   initiatives,
+  counts,
   onCreate,
   onRename,
   onDelete,
 }: {
   initiatives: Initiative[]
+  /** Open pull requests in each initiative, by initiative id. Left out, no counts are shown. */
+  counts?: Map<string, number>
   onCreate: (name: string) => Promise<void>
   onRename: (id: string, name: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
@@ -126,12 +129,14 @@ export function ManageInitiatives({
 
   return (
     <>
-      <h2>Initiatives</h2>
-      <p>Buckets for work that is not a Linear project. Cleanup, refactors, background threads.</p>
+      <header className="panel-head">
+        <h2>Initiatives</h2>
+        <span className="panel-note">Buckets for work that is not a Linear project</span>
+      </header>
       {initiatives.map((initiative) => (
         <form
           key={initiative.id}
-          className="initiative-row"
+          className="panel-row initiative-row"
           onSubmit={async (event) => {
             event.preventDefault()
             const next = new FormData(event.currentTarget).get('name')
@@ -144,7 +149,8 @@ export function ManageInitiatives({
             }
           }}
         >
-          <input name="name" defaultValue={initiative.name} aria-label={`Rename ${initiative.name}`} />
+          <input name="name" defaultValue={initiative.name} aria-label={`Rename ${initiative.name}`} title="Edit the name and press Enter" />
+          {counts ? <span className="repo-meta">{prCount(counts.get(initiative.id) ?? 0)}</span> : null}
           <button
             type="button"
             className="text-btn"
@@ -166,7 +172,7 @@ export function ManageInitiatives({
         </form>
       ))}
       <form
-        className="new-initiative"
+        className="panel-row new-initiative"
         onSubmit={async (event) => {
           event.preventDefault()
           setError(null)
@@ -188,7 +194,11 @@ export function ManageInitiatives({
           Add
         </button>
       </form>
-      {error ? <p className="repo-error">{error}</p> : null}
+      {error ? <p className="panel-row repo-error">{error}</p> : null}
     </>
   )
+}
+
+function prCount(count: number): string {
+  return count === 1 ? '1 PR' : `${count} PRs`
 }

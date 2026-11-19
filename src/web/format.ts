@@ -29,6 +29,19 @@ export function formatWhen(iso: string, now = Date.now()): string {
   return date.toLocaleDateString('en-GB', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+/** `formatWhen` as a phrase: "2h ago", "just now", or the date once it is over a week old. */
+export function formatAgo(iso: string, now = Date.now()): string {
+  const when = formatWhen(iso, now)
+  return /^\d+[mhd]$/.test(when) ? `${when} ago` : when
+}
+
+/** Clock time only, for something due later today. */
+export function formatTime(iso: string): string {
+  const time = Date.parse(iso)
+  if (Number.isNaN(time)) return iso
+  return new Date(time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+}
+
 export function formatExact(iso: string): string {
   const time = Date.parse(iso)
   if (Number.isNaN(time)) return iso

@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ownersFromRepos, parseRepoName, removalWarning, repoLeaf, repoOwner, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
+import { parseRepoName, removalWarning, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
-import { formatExact } from './format.ts'
+import { formatAgo, formatExact, formatTime } from './format.ts'
 import type { PrLinkHost } from './pr-links.tsx'
+
+/** How many search matches the add box lists before asking for a narrower search. */
+const MATCH_LIMIT = 8
+/** List refreshes pause below this many points, so the meter turns red there. */
+const BUDGET_FLOOR = 200
 
 export function SettingsPage({
   status,
@@ -31,16 +36,14 @@ export function SettingsPage({
   onPrLinks?: (host: PrLinkHost) => void
 }) {
   const [catalog, setCatalog] = useState<RepoCatalog | null>(null)
-  const [owner, setOwner] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
   const [draft, setDraft] = useState('')
+  const [open, setOpen] = useState(false)
+  const [showStored, setShowStored] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyName, setBusyName] = useState<string | null>(null)
   const [pending, setPending] = useState<RepoChoice | null>(null)
   const [removing, setRemoving] = useState(false)
   const windows = status?.graphql.windows ?? []
-  const selected = new Set(repos)
-  const rules = (status?.rules ?? []).filter((rule) => selected.has(rule.repo))
   const selectionKey = repos.join('|')
 
   useEffect(() => {
@@ -64,15 +67,23 @@ export function SettingsPage({
     return () => window.removeEventListener('keydown', onKey)
   }, [pending, removing])
 
-  const rows = useMemo(() => {
-    const list = catalog ? catalog.repos : repos.map((name) => ({ name, selected: true, stored: false, busy: false }))
-    const rank = (row: RepoChoice) => (row.selected ? 0 : row.stored ? 1 : 2)
-    return [...list].sort((a, b) => rank(a) - rank(b) || repoLeaf(a.name).localeCompare(repoLeaf(b.name)))
+  const known = useMemo(() => new Map((catalog?.repos ?? []).map((row) => [row.name, row])), [catalog])
+  const selected = useMemo(
+    () => [...repos].sort((a, b) => a.localeCompare(b)).map((name) => known.get(name) ?? { name, selected: true, stored: false, busy: false }),
+    [repos, known],
+  )
+  const stored = useMemo(() => {
+    const chosen = new Set(repos)
+    return (catalog?.repos ?? []).filter((row) => row.stored && !chosen.has(row.name)).sort((a, b) => a.name.localeCompare(b.name))
   }, [catalog, repos])
-  const owners = useMemo(() => ownersFromRepos(rows, catalog?.viewer ?? null), [rows, catalog?.viewer])
-  const query = filter.trim().toLowerCase()
-  const visibleOwners = query ? owners.filter((item) => item.name.toLowerCase().includes(query)) : owners
-  const visibleRepos = rows.filter((row) => repoOwner(row.name) === owner && (!query || repoLeaf(row.name).toLowerCase().includes(query)))
+  const query = draft.trim().toLowerCase()
+  const matches = useMemo(() => {
+    const chosen = new Set(repos)
+    return (catalog?.repos ?? [])
+      .filter((row) => !chosen.has(row.name) && row.name.toLowerCase().includes(query))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [catalog, repos, query])
+  const ruleTimes = new Map((status?.rules ?? []).map((rule) => [rule.repo, rule.fetchedAt]))
   const warning = pending ? removalWarning(pending.name, pending.stored, pending.busy) : null
   const activity = status?.activity ?? null
   const upcoming = status?.queue ?? []
@@ -81,17 +92,12 @@ export function SettingsPage({
   const rulesQueued = upcoming.some((job) => job.kind === 'rules')
   const busy = activity != null || upcoming.length > 0
 
-  function chooseOwner(name: string) {
-    setOwner(name)
-    setFilter('')
-    setError(null)
-  }
-
-  function addNamed(name: string) {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    if (trimmed.includes('/') || !owner) void add(trimmed)
-    else void add(`${owner}/${trimmed}`)
+  function submitDraft() {
+    const name = draft.trim()
+    if (!name) return
+    if (name.includes('/')) void add(name)
+    else if (matches.length === 1) void add(matches[0]!.name)
+    else setError('Pick a repository from the list, or enter one as owner/name.')
   }
 
   async function add(name: string) {
@@ -132,217 +138,263 @@ export function SettingsPage({
 
   return (
     <div className="settings">
-      <section>
-        <h2>Pull request links</h2>
-        <p>
-          Titles, the merge queue, and feedback open in the host you pick. The Open column still has both.
-          A review thread, inline comment, conversation comment, or review summary opens that same item on Graphite when Graphite is selected.
-        </p>
-        <div className="segmented" role="group" aria-label="Default pull request links">
-          <button type="button" aria-pressed={prLinks === 'github'} onClick={() => onPrLinks('github')}>
-            GitHub
-          </button>
-          <button type="button" aria-pressed={prLinks === 'graphite'} onClick={() => onPrLinks('graphite')}>
-            Graphite
-          </button>
-        </div>
-      </section>
-      {initiatives ? <section className="initiatives">{initiatives}</section> : null}
-      <section>
-        <h2>Repositories</h2>
-        <p>
-          Choose an owner, then the repositories to sync.
-          {repos.length === 0 ? ' None are selected yet.' : ` ${repos.length} selected.`}
-        </p>
-        <p>Removing a repository deletes the pull requests and other data this dashboard has stored for it. GitHub is not changed.</p>
-        {catalog?.warning ? <p>{catalog.warning}</p> : null}
-        {catalog?.truncated ? <p>GitHub returned the first 1000 repositories. Add any other as owner/name.</p> : null}
-        {error && !pending ? <p className="repo-error">{error}</p> : null}
-        {owner ? (
-          <div className="repo-back">
-            <button
-              type="button"
-              className="text-btn"
-              onClick={() => {
-                setOwner(null)
-                setFilter('')
+      <div className="settings-main">
+        <section className="panel">
+          <header className="panel-head">
+            <h2>Repositories</h2>
+            <span className="panel-note">{repos.length === 0 ? 'None selected yet' : `${repos.length} syncing`}</span>
+          </header>
+          <form
+            className="panel-row repo-add"
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitDraft()
+            }}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setOpen(false)
+            }}
+          >
+            <input
+              className="search"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value)
+                setOpen(true)
+                setError(null)
               }}
-            >
-              All owners
-            </button>
-            <strong>{owner}</strong>
-          </div>
-        ) : null}
-        <input
-          className="search repo-filter"
-          value={filter}
-          onChange={(event) => setFilter(event.target.value)}
-          placeholder={owner ? 'Find a repository' : 'Find an owner'}
-          aria-label={owner ? 'Find a repository' : 'Find an owner'}
-        />
-        {owner ? (
-          <ul className="repo-pick" aria-label={`Repositories for ${owner}`}>
-            {catalog && visibleRepos.length === 0 ? <li className="repo-note">No repositories match.</li> : null}
-            {visibleRepos.map((row) => (
-              <li key={row.name}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={row.selected}
-                    disabled={busyName === row.name || removing}
-                    onChange={(event) => {
-                      if (event.target.checked) void add(row.name)
-                      else setPending(row)
-                    }}
-                  />
-                  <span>{repoLeaf(row.name)}</span>
-                </label>
-                {row.stored && !row.selected ? <span className="repo-meta">Saved from an earlier sync</span> : null}
-                {row.stored && !row.selected ? (
+              onFocus={() => setOpen(true)}
+              placeholder="Add a repository: search, or type owner/name"
+              aria-label="Add a repository"
+              disabled={busyName != null}
+            />
+            {open && catalog ? (
+              // Keeps focus in the search box so a click lands before the list closes.
+              <ul className="repo-matches" aria-label="Repositories to add" onMouseDown={(event) => event.preventDefault()}>
+                {matches.slice(0, MATCH_LIMIT).map((row) => (
+                  <li key={row.name}>
+                    <button type="button" onClick={() => void add(row.name)}>
+                      <span className="repo-name">{row.name}</span>
+                      {row.stored ? <span className="repo-meta">Saved data</span> : null}
+                    </button>
+                  </li>
+                ))}
+                {matches.length > MATCH_LIMIT ? (
+                  <li className="repo-note">{matches.length - MATCH_LIMIT} more. Keep typing to narrow the list.</li>
+                ) : null}
+                {matches.length === 0 ? (
+                  <li className="repo-note">
+                    {query.includes('/') ? 'Not in the list GitHub returned. Press Enter to add it anyway.' : 'No repositories match.'}
+                  </li>
+                ) : null}
+              </ul>
+            ) : null}
+          </form>
+          {error && !pending ? <p className="panel-row repo-error">{error}</p> : null}
+          {catalog?.warning ? <p className="panel-row panel-note">{catalog.warning}</p> : null}
+          {catalog?.truncated ? (
+            <p className="panel-row panel-note">GitHub returned the first 1000 repositories. Add any other as owner/name.</p>
+          ) : null}
+          <ul aria-label="Repositories syncing">
+            {selected.map((row) => {
+              const fetchedAt = ruleTimes.get(row.name)
+              return (
+                <li key={row.name} className="panel-row">
+                  <span className="repo-name">{row.name}</span>
+                  <span className="repo-meta" title={fetchedAt ? formatExact(fetchedAt) : undefined}>
+                    {fetchedAt ? `rules read ${formatAgo(fetchedAt)}` : 'rules not read yet'}
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label={`Remove ${row.name}`}
+                    title="Remove"
+                    disabled={removing || busyName === row.name}
+                    onClick={() => setPending(row)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+          {stored.length > 0 ? (
+            <div className="panel-row panel-note">
+              <span className="repo-name">
+                {stored.length === 1 ? '1 unselected repository still has saved data' : `${stored.length} unselected repositories still have saved data`}
+              </span>
+              <button type="button" className="text-btn" aria-expanded={showStored} onClick={() => setShowStored((current) => !current)}>
+                {showStored ? 'Hide' : 'Review'}
+              </button>
+            </div>
+          ) : null}
+          {showStored && stored.length > 0 ? (
+            <ul aria-label="Unselected repositories with saved data">
+              {stored.map((row) => (
+                <li key={row.name} className="panel-row">
+                  <span className="repo-name">{row.name}</span>
+                  <button type="button" className="text-btn" disabled={busyName != null} onClick={() => void add(row.name)}>
+                    Sync again
+                  </button>
                   <button type="button" className="text-btn" onClick={() => setPending(row)}>
                     Delete data
                   </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <ul className="repo-pick" aria-label="Owners">
-            {catalog == null && rows.length === 0 ? <li className="repo-note">Loading repositories…</li> : null}
-            {catalog && visibleOwners.length === 0 ? <li className="repo-note">No owners match.</li> : null}
-            {visibleOwners.map((item) => (
-              <li key={item.name}>
-                <button type="button" className="owner" onClick={() => chooseOwner(item.name)}>
-                  <span className="owner-name">{item.name}</span>
-                  {item.selected > 0 ? <span className="repo-meta">{item.selected} selected</span> : null}
-                  {item.stored > 0 ? <span className="repo-meta">Saved data</span> : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <form
-          className="repo-add"
-          onSubmit={(event) => {
-            event.preventDefault()
-            addNamed(draft)
-          }}
-        >
-          <input
-            className="search"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={owner ? 'repository name' : 'owner/name'}
-            aria-label={owner ? `Repository to add under ${owner}` : 'Repository to add'}
-          />
-          <button type="submit" className="ghost" disabled={busyName != null}>
-            Add
-          </button>
-        </form>
-      </section>
-      <section>
-        <h2>GitHub</h2>
-        <p>
-          The list you are looking at refreshes about every minute, including while this tab is in the background. Finished checks stay
-          put when that pull request and its check rollup have not changed. Running checks are read again, and each refresh also rereads
-          the checks that were fetched least recently. Thread replies load after that, and again only when that pull request changes.
-          Those refreshes pause while the lowest window has fewer than 200 points left. Refresh on a row reloads just that pull request.
-        </p>
-        {windows.length === 0 ? (
-          <p>
-            <strong>Waiting for the next GitHub response</strong>
-          </p>
-        ) : (
-          <ul>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+        {initiatives ? <section className="panel initiatives">{initiatives}</section> : null}
+        <section className="panel">
+          <div className="panel-row setting">
+            <div>
+              <h3>Open pull requests in</h3>
+              <p className="panel-note">Titles, the merge queue and feedback open here. The Open column keeps both.</p>
+            </div>
+            <div className="segmented" role="group" aria-label="Default pull request links">
+              <button type="button" aria-pressed={prLinks === 'github'} onClick={() => onPrLinks('github')}>
+                GitHub
+              </button>
+              <button type="button" aria-pressed={prLinks === 'graphite'} onClick={() => onPrLinks('graphite')}>
+                Graphite
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+      <aside className="settings-side">
+        <section className="panel">
+          <header className="panel-head">
+            <h2>Status</h2>
+          </header>
+          <div className="stat">
+            <h3>GitHub budget</h3>
+            {windows.length === 0 ? <p>Waiting for the next GitHub response</p> : null}
             {windows.map((window) => (
-              <li key={window.resetAt}>
-                <strong>
-                  {window.remaining} of {window.limit}
-                </strong>
-                {` · resets ${formatExact(window.resetAt)}`}
-              </li>
+              <div key={window.resetAt} className="budget">
+                <div className="stat-line">
+                  <span>
+                    {window.remaining.toLocaleString('en-GB')} of {window.limit.toLocaleString('en-GB')}
+                  </span>
+                  <span className="repo-meta" title={formatExact(window.resetAt)}>
+                    resets {formatTime(window.resetAt)}
+                  </span>
+                </div>
+                <div className="meter" data-tone={budgetTone(window.remaining, window.limit)}>
+                  <i style={{ width: `${percent(window.remaining, window.limit)}%` }} />
+                </div>
+              </div>
             ))}
-          </ul>
-        )}
-        {status?.graphql.paused && status.graphql.message ? <p>{status.graphql.message}</p> : null}
-      </section>
-      <section>
-        <h2>Lists</h2>
-        <ul>
-          <li>My PRs · {stamp(mineSyncedAt)}</li>
-          <li>Review · {stamp(reviewSyncedAt)}</li>
-        </ul>
-      </section>
-      <section>
-        <h2>Rulesets</h2>
-        <p>Required checks are read from each selected repository at most once a day.</p>
-        {rules.length > 0 ? (
-          <ul>
-            {rules.map((rule) => (
-              <li key={rule.repo}>
-                {rule.repo} · {formatExact(rule.fetchedAt)}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No rulesets cached yet.</p>
-        )}
-      </section>
-      <section>
-        <h2>Sync</h2>
-        <p>
-          Full sync reloads both lists and reads rulesets again for the repositories you selected. Sync rulesets reloads those rules only.
-          If a sync is already running, the next one waits until it finishes.
-        </p>
-        <div className="sync-actions">
-          <button type="button" className="primary" disabled={fullQueued || repos.length === 0} onClick={() => onEnqueue('full')}>
-            {fullQueued ? 'Full sync queued' : busy ? 'Queue full sync' : 'Full sync'}
-          </button>
-          <button type="button" className="ghost" disabled={rulesQueued || repos.length === 0} onClick={() => onEnqueue('rules')}>
-            {rulesQueued ? 'Rulesets queued' : busy ? 'Queue ruleset sync' : 'Sync rulesets'}
-          </button>
-        </div>
-        <h3 className="sync-sub">Queue</h3>
-        {activity == null && upcoming.length === 0 ? (
-          <p>Nothing running.</p>
-        ) : (
-          <ul className="sync-list">
-            {activity ? (
-              <li className="sync-row">
-                <span>
-                  <strong>Running</strong>
-                  {` · ${syncKindLabel(activity.kind)}`}
-                  {status && status.message !== 'Idle' ? ` · ${status.message}` : ''}
-                  {status && status.total > 0 ? ` · ${status.completed} of ${status.total}` : ''}
-                </span>
-                <button type="button" className="text-btn" aria-label={`Cancel ${syncKindLabel(activity.kind)}`} onClick={() => onCancelSync(activity.id)}>
-                  Cancel
-                </button>
-              </li>
-            ) : null}
-            {upcoming.map((job) => (
-              <li key={job.id} className="sync-row">
-                <span>Up next · {syncKindLabel(job.kind)}</span>
-                <button type="button" className="text-btn" aria-label={`Cancel ${syncKindLabel(job.kind)}`} onClick={() => onCancelSync(job.id)}>
-                  Cancel
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <h3 className="sync-sub">Recent syncs</h3>
-        {history.length === 0 ? (
-          <p>No full or ruleset syncs yet.</p>
-        ) : (
-          <ul className="sync-list">
-            {history.map((entry) => (
-              <li key={entry.id}>
-                {syncKindLabel(entry.kind)} · {historyLabel(entry)} · {formatExact(entry.finishedAt)}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+            {status?.graphql.paused && status.graphql.message ? <p className="stat-warn">{status.graphql.message}</p> : null}
+            <details className="how">
+              <summary>
+                Lists refresh about every minute. <span>How it works</span>
+              </summary>
+              <p>
+                Refreshes carry on while this tab is in the background. Finished checks stay put when that pull request and its check
+                rollup have not changed. Running checks are read again, and each refresh also rereads the checks that were fetched least
+                recently. Thread replies load after that, and again only when that pull request changes.
+              </p>
+              <p>
+                Refreshes pause while the lowest window has fewer than {BUDGET_FLOOR} points left. Refresh on a row reloads just that pull
+                request.
+              </p>
+            </details>
+          </div>
+          <div className="stat">
+            <h3>Lists</h3>
+            <div className="stat-line">
+              <span>My PRs</span>
+              <Stamp iso={mineSyncedAt} />
+            </div>
+            <div className="stat-line">
+              <span>Review</span>
+              <Stamp iso={reviewSyncedAt} />
+            </div>
+          </div>
+          <div className="stat">
+            <h3>Sync</h3>
+            <div className="sync-actions">
+              <button
+                type="button"
+                className="primary"
+                title="Reload both lists and read rulesets again"
+                disabled={fullQueued || repos.length === 0}
+                onClick={() => onEnqueue('full')}
+              >
+                {fullQueued ? 'Full sync queued' : busy ? 'Queue full sync' : 'Full sync'}
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                title="Read required checks again. They are otherwise read at most once a day."
+                disabled={rulesQueued || repos.length === 0}
+                onClick={() => onEnqueue('rules')}
+              >
+                {rulesQueued ? 'Rulesets queued' : busy ? 'Queue ruleset sync' : 'Sync rulesets'}
+              </button>
+            </div>
+            {activity == null && upcoming.length === 0 ? (
+              <p>Nothing running.</p>
+            ) : (
+              <ul className="sync-list">
+                {activity ? (
+                  <li>
+                    <div className="stat-line">
+                      <span className="dotted" data-tone="running">
+                        <span>
+                          {syncKindLabel(activity.kind)}
+                          {status && status.message !== 'Idle' ? ` · ${status.message}` : ''}
+                          {status && status.total > 0 ? ` · ${status.completed} of ${status.total}` : ''}
+                        </span>
+                      </span>
+                      <button type="button" className="text-btn" aria-label={`Cancel ${syncKindLabel(activity.kind)}`} onClick={() => onCancelSync(activity.id)}>
+                        Cancel
+                      </button>
+                    </div>
+                    {status && status.total > 0 ? (
+                      <div className="meter" data-tone="running">
+                        <i style={{ width: `${percent(status.completed, status.total)}%` }} />
+                      </div>
+                    ) : null}
+                  </li>
+                ) : null}
+                {upcoming.map((job) => (
+                  <li key={job.id} className="stat-line">
+                    <span className="dotted" data-tone="waiting">
+                      <span>Up next · {syncKindLabel(job.kind)}</span>
+                    </span>
+                    <button type="button" className="text-btn" aria-label={`Cancel ${syncKindLabel(job.kind)}`} onClick={() => onCancelSync(job.id)}>
+                      Cancel
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="stat">
+            <h3>Recent</h3>
+            {history.length === 0 ? (
+              <p>No full or ruleset syncs yet.</p>
+            ) : (
+              <ul className="sync-list">
+                {history.map((entry) => (
+                  <li key={entry.id} className="stat-line">
+                    <span className="dotted" data-tone={entry.outcome}>
+                      <span>
+                        {syncKindLabel(entry.kind)} · {historyLabel(entry)}
+                      </span>
+                    </span>
+                    <Stamp iso={entry.finishedAt} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      </aside>
       {pending && warning ? (
         <div
           className="modal-back"
@@ -378,8 +430,23 @@ export function SettingsPage({
   )
 }
 
-function stamp(iso: string | null): string {
-  return iso ? formatExact(iso) : 'Not yet'
+function Stamp({ iso }: { iso: string | null }) {
+  if (!iso) return <span className="repo-meta">Not yet</span>
+  return (
+    <span className="repo-meta" title={formatExact(iso)}>
+      {formatAgo(iso)}
+    </span>
+  )
+}
+
+function percent(part: number, whole: number): number {
+  if (whole <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((part / whole) * 100)))
+}
+
+function budgetTone(remaining: number, limit: number): 'ok' | 'low' | 'out' {
+  if (remaining < BUDGET_FLOOR) return 'out'
+  return remaining / limit < 0.4 ? 'low' : 'ok'
 }
 
 function syncKindLabel(kind: SyncKind): string {

@@ -56,6 +56,7 @@ describe('settings sync queue', () => {
     root = createRoot(container)
     const queued: string[] = []
     const cancelled: string[] = []
+    const added: string[] = []
     await act(async () => {
       root?.render(
         <SettingsPage
@@ -65,12 +66,22 @@ describe('settings sync queue', () => {
           reviewSyncedAt={null}
           onEnqueue={(kind) => queued.push(kind)}
           onCancelSync={(id) => cancelled.push(id)}
-          onAddRepo={async () => undefined}
+          onAddRepo={async (repo) => {
+            added.push(repo)
+          }}
           onRemoveRepo={async () => undefined}
         />,
       )
     })
-    return { queued, cancelled }
+    return { queued, cancelled, added }
+  }
+
+  async function type(value: string) {
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Add a repository"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
   }
 
   function button(name: string) {
@@ -126,6 +137,63 @@ describe('settings sync queue', () => {
     expect(button('Sync rulesets')?.disabled).toBe(true)
     expect(document.body.textContent).toContain('Nothing running.')
     expect(document.body.textContent).toContain('No full or ruleset syncs yet.')
+  })
+
+  it('lists the repositories that sync with the age of their rules, and asks before removing one', async () => {
+    await render(status({ rules: [{ repo: 'acme/app', fetchedAt: new Date(Date.now() - 2 * 3_600_000).toISOString() }] }), ['acme/app', 'acme/web'])
+
+    const rows = [...document.querySelectorAll('[aria-label="Repositories syncing"] li')].map((row) => row.textContent)
+    expect(rows[0]).toContain('acme/app')
+    expect(rows[0]).toContain('rules read 2h ago')
+    expect(rows[1]).toContain('rules not read yet')
+    expect(document.body.textContent).toContain('2 syncing')
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('button[aria-label="Remove acme/web"]')?.click()
+    })
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Remove acme/web?')
+  })
+
+  it('finds a repository under any owner and adds it, and offers saved data for review', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          viewer: null,
+          truncated: false,
+          warning: null,
+          repos: [
+            { name: 'acme/app', selected: true, stored: true, busy: false },
+            { name: 'acme/old', selected: false, stored: true, busy: false },
+            { name: 'octo/design-system', selected: false, stored: false, busy: false },
+          ],
+        }),
+      ),
+    )
+    const view = await render(status())
+
+    await type('design')
+    const matches = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="Repositories to add"] button')]
+    expect(matches.map((item) => item.textContent)).toEqual(['octo/design-system'])
+    await act(async () => {
+      matches[0]?.click()
+    })
+    expect(view.added).toEqual(['octo/design-system'])
+
+    expect(document.body.textContent).toContain('1 unselected repository still has saved data')
+    await act(async () => {
+      button('Review')?.click()
+    })
+    expect(document.querySelector('[aria-label="Unselected repositories with saved data"]')?.textContent).toContain('acme/old')
+  })
+
+  it('adds a repository typed as owner/name that GitHub did not list', async () => {
+    const view = await render(status())
+    await type('other/thing')
+    await act(async () => {
+      document.querySelector<HTMLFormElement>('form.repo-add')?.requestSubmit()
+    })
+    expect(view.added).toEqual(['other/thing'])
   })
 
   it('stores the default pull request host', async () => {
