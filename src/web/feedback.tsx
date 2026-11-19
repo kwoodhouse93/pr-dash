@@ -20,7 +20,7 @@ import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { linkHostName, noteAnchor, prHref, threadAnchor, usePrHref, usePrLinkHost } from './pr-links.tsx'
 
-export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'threads' | 'comments' | 'review-comments'
+export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'threads' | 'comments'
 
 export type FeedbackTarget = {
   key: string
@@ -45,7 +45,6 @@ const FOCUS_TITLE: Record<FeedbackFocus, string> = {
   resolved: 'Resolved unread',
   threads: 'Threads',
   comments: 'Comments',
-  'review-comments': 'Review comments',
 }
 
 const FOCUS_HINT: Record<FeedbackFocus, string> = {
@@ -54,8 +53,7 @@ const FOCUS_HINT: Record<FeedbackFocus, string> = {
   unresolved: 'Show unresolved threads',
   resolved: 'Show resolved threads you have not caught up on',
   threads: 'Show review threads',
-  comments: 'Show conversation comments',
-  'review-comments': 'Show review comments',
+  comments: 'Show comments',
 }
 
 type FeedbackApi = {
@@ -91,7 +89,7 @@ export function feedbackTarget(pr: PullRequest): FeedbackTarget {
   }
 }
 
-function targetMatches(target: FeedbackTarget, focus: FeedbackFocus, mode: 'mine' | 'review'): boolean {
+function targetMatches(target: FeedbackTarget, focus: FeedbackFocus): boolean {
   switch (focus) {
     case 'awaiting':
       return target.awaiting > 0
@@ -103,10 +101,8 @@ function targetMatches(target: FeedbackTarget, focus: FeedbackFocus, mode: 'mine
       return target.resolvedUnread > 0
     case 'threads':
       return target.threads > 0 || target.truncated
-    case 'review-comments':
-      return target.reviewComments > 0
     case 'comments':
-      return mode === 'mine' ? target.comments > 0 : target.comments > target.reviewComments
+      return target.comments > 0
   }
 }
 
@@ -120,44 +116,87 @@ export function Feedback({ mode, targets }: { mode: 'mine' | 'review'; targets: 
   const comments = sum(targets, (target) => target.comments)
   const reviewComments = sum(targets, (target) => target.reviewComments)
   const truncated = targets.length === 1 && Boolean(targets[0]?.truncated)
-  const parts: { key: string; text: string; hot: boolean; focus: FeedbackFocus }[] = []
-  const commentText = (count: number) => `${count} comment${count === 1 ? '' : 's'}`
-  if (mode === 'review') {
-    if (unread > 0) parts.push({ key: 'unread', text: `${unread} unread`, hot: true, focus: 'unread' })
-    if (reviewComments > 0) parts.push({ key: 'review-comments', text: commentText(reviewComments), hot: true, focus: 'review-comments' })
-    const otherComments = comments - reviewComments
-    if (reviewComments === 0 && comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: false, focus: 'comments' })
-    else if (otherComments > 0) parts.push({ key: 'comments', text: `${otherComments} other`, hot: false, focus: 'comments' })
-    if (resolvedUnread > 0) parts.push({ key: 'resolved', text: `${resolvedUnread} resolved unread`, hot: false, focus: 'resolved' })
-  } else {
-    if (awaiting > 0) parts.push({ key: 'awaiting', text: `${awaiting} awaiting`, hot: true, focus: 'awaiting' })
-    if (comments > 0) parts.push({ key: 'comments', text: commentText(comments), hot: true, focus: 'comments' })
+  const parts: { count: string; text: string; hot: boolean; focus: FeedbackFocus }[] = []
+  const add = (focus: FeedbackFocus, count: number, label: string, hot: boolean) => {
+    if (count > 0) parts.push({ count: String(count), text: `${count} ${label}`, hot, focus })
   }
-  if (unresolved > 0) parts.push({ key: 'unresolved', text: `${unresolved} unresolved`, hot: true, focus: 'unresolved' })
-  if (threads > 0 || parts.length === 0) {
-    parts.push({ key: 'threads', text: `${threads}${truncated ? '+' : ''} thread${threads === 1 ? '' : 's'}`, hot: false, focus: 'threads' })
+  const commentLabel = comments === 1 ? 'comment' : 'comments'
+  if (mode === 'review') {
+    add('unread', unread, 'unread', true)
+    add('comments', comments, commentLabel, reviewComments > 0)
+    add('resolved', resolvedUnread, 'resolved unread', false)
+  } else {
+    add('awaiting', awaiting, 'awaiting', true)
+    add('comments', comments, commentLabel, true)
+  }
+  add('unresolved', unresolved, 'unresolved', true)
+  if (parts.length === 0) {
+    const count = `${threads}${truncated ? '+' : ''}`
+    parts.push({ count, text: `${count} thread${threads === 1 ? '' : 's'}`, hot: false, focus: 'threads' })
   }
   const pending = targets.some((target) => target.detailsPending)
   const title = `${mode === 'review'
-    ? 'Unread is an open thread you joined that has a newer reply. A highlighted comment is a review message, or a conversation you joined, that you have not answered. Other comments are conversation notes you have not joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
+    ? 'Unread is an open thread you joined that has a newer reply. Comments are review messages and conversation notes you have not answered, highlighted when one is a review message or a conversation you joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
     : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'} Unresolved threads block merge.${pending ? ' Reply details are still loading.' : ''}`
   function choose(focus: FeedbackFocus) {
-    const matching = targets.filter((target) => targetMatches(target, focus, mode))
+    const matching = targets.filter((target) => targetMatches(target, focus))
     const picked = matching.length > 0 ? matching : focus === 'threads' ? targets : matching
     setOpen({ focus, targets: picked })
   }
   return (
     <span className="feedback" title={title}>
-      {parts.map((part, index) => (
-        <span key={part.key}>
-          {index > 0 ? <span className="dot">·</span> : null}
-          <button type="button" className="feedback-hit" title={FOCUS_HINT[part.focus]} onClick={() => choose(part.focus)}>
-            {part.hot ? <em className="await">{part.text}</em> : part.text}
-          </button>
-        </span>
+      {parts.map((part) => (
+        <button
+          key={part.focus}
+          type="button"
+          className={part.hot ? 'feedback-hit await' : 'feedback-hit'}
+          title={FOCUS_HINT[part.focus]}
+          aria-label={part.text}
+          onClick={() => choose(part.focus)}
+        >
+          <FocusIcon focus={part.focus} />
+          {part.count}
+        </button>
       ))}
       {open ? <FeedbackDrawer focus={open.focus} targets={open.targets} onClose={() => setOpen(null)} /> : null}
     </span>
+  )
+}
+
+const FOCUS_ICON: Record<FeedbackFocus, ReactNode> = {
+  awaiting: (
+    <>
+      <path d="M6.5 4 3 7.5 6.5 11" />
+      <path d="M3 7.5h6a4 4 0 0 1 4 4v1" />
+    </>
+  ),
+  unread: (
+    <>
+      <path d="M9 3.5H2.5V11H5v2.5L8 11h5.5V7.5" />
+      <circle cx="12.6" cy="3.6" r="2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  comments: <path d="M2.5 3.5h11V11H8l-3 2.5V11H2.5z" />,
+  unresolved: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <circle cx="8" cy="8" r="1.7" fill="currentColor" stroke="none" />
+    </>
+  ),
+  resolved: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M5.6 8.2 7.3 9.9l3.1-3.5" />
+    </>
+  ),
+  threads: <path d="M3 4.5h10M3 8h10M3 11.5h6" />,
+}
+
+function FocusIcon({ focus }: { focus: FeedbackFocus }) {
+  return (
+    <svg className="feedback-icon" viewBox="0 0 16 16" aria-hidden="true">
+      {FOCUS_ICON[focus]}
+    </svg>
   )
 }
 
@@ -177,7 +216,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
   const [error, setError] = useState<string | null>(null)
   const [openNotes, setOpenNotes] = useState<Set<string>>(new Set())
   const scrimPress = useRef(false)
-  const notes = focus === 'comments' || focus === 'review-comments'
+  const notes = focus === 'comments'
   const key = targets.map((target) => target.key).join('\n')
 
   useEffect(() => {
@@ -305,7 +344,7 @@ function FeedbackDrawer({ focus, targets, onClose }: { focus: FeedbackFocus; tar
 }
 
 function threadIdsFor(detail: FeedbackDetail, focus: FeedbackFocus, viewer: string | null): string[] {
-  if (focus === 'comments' || focus === 'review-comments') return []
+  if (focus === 'comments') return []
   if (focus === 'threads' || !viewer) return detail.threads.map((thread) => thread.id)
   const kind = focus === 'resolved' ? 'resolvedUnread' : focus
   return detail.threads.filter((thread) => threadKinds(asThread(thread), viewer).includes(kind)).map((thread) => thread.id)

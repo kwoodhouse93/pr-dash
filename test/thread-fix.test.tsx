@@ -141,7 +141,7 @@ describe('fix a review thread with Cursor', () => {
     await render(async () => ({ url: 'https://cursor.com/agents/unused' }), [
       { ...target, threads: 2, unresolved: 2, awaiting: 1 },
     ])
-    expect([...document.querySelectorAll('em.await')].map((node) => node.textContent)).toEqual(['1 awaiting', '2 unresolved'])
+    expect([...document.querySelectorAll('.feedback-hit.await')].map((node) => node.getAttribute('aria-label'))).toEqual(['1 awaiting', '2 unresolved'])
     expect(document.querySelector('.feedback')?.getAttribute('title')).toContain('Unresolved threads block merge.')
   })
 
