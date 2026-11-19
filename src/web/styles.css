@@ -150,7 +150,7 @@ a:hover { text-decoration: underline; }
   width: 16px;
   height: 16px;
   flex: none;
-  animation: refresh-spin 0.9s linear infinite;
+  animation: refresh-spin 1.8s linear infinite;
 }
 .refresh-text {
   white-space: nowrap;
@@ -363,7 +363,8 @@ thead th {
   text-transform: uppercase;
   color: var(--faint);
   background: #141512;
-  border-bottom: 1px solid var(--line);
+  /* A collapsed border stays with the table when the heading sticks, so the line is drawn inside the cell. */
+  box-shadow: inset 0 -1px 0 var(--line);
   padding: 8px 10px;
   white-space: nowrap;
 }
@@ -483,6 +484,7 @@ td.grip {
   padding-left: 0;
   padding-right: 0;
 }
+thead th.grip { position: sticky; }
 td.grip::before {
   content: "";
   display: none;
