@@ -19,7 +19,7 @@ function entry(logs: MergeEntry['logs']): MergeEntry {
     repo: 'acme/app',
     trunk: 'main',
     title: 'Ship the queue',
-    status: 'done',
+    status: 'active',
     error: 'Rebase failed',
     createdAt: '2026-10-22T09:00:00.000Z',
     updatedAt: '2026-10-22T09:05:00.000Z',
@@ -102,9 +102,89 @@ describe('merge queue logs', () => {
     expect(document.querySelector('.queue-log')).toBeNull()
   })
 
+  it('shows the newest log line on the entry in flight', async () => {
+    await render(
+      snapshot([
+        { id: 1, at: '2026-10-22T09:01:02.000Z', level: 'info', message: 'Waiting for checks' },
+        { id: 2, at: '2026-10-22T09:04:08.000Z', level: 'info', message: 'Squash merging #7.' },
+      ]),
+    )
+    expect(document.querySelector('.queue-log-last')?.textContent).toBe('09:04:08  Squash merging #7.')
+  })
+
   it('omits the log toggle when an entry has no logs', async () => {
     await render(snapshot([]))
     expect(document.querySelector('.queue-log-toggle')).toBeNull()
     expect(document.querySelector('.queue-log')).toBeNull()
+  })
+
+  it('keeps finished entries to one line until they are opened', async () => {
+    const done = { ...entry([]), status: 'done' as const, error: null }
+    await render({ paused: false, pauseReason: null, entries: [], history: [done], watches: [] })
+
+    expect(document.body.textContent).toContain('took 4m')
+    expect(document.querySelector('.queue-rail')).toBeNull()
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('.queue-row-main')!.click()
+    })
+    expect(document.querySelector('.queue-rail')?.textContent).toContain('#7 Ship the queue')
+  })
+
+  it('names a failed entry as the reason the queue stopped, and removes it', async () => {
+    const failed = { ...entry([]), status: 'failed' as const, error: '#7 has a merge conflict.' }
+    const removed: string[] = []
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <MergeQueuePage
+          queue={{ paused: true, pauseReason: failed.error, entries: [failed], history: [], watches: [] }}
+          onCancel={async (id) => {
+            removed.push(id)
+          }}
+          onMove={async () => {}}
+        />,
+      )
+    })
+
+    expect(document.querySelector('.queue-label.stopped')?.textContent).toBe('Queue stopped')
+    expect(document.body.textContent).toContain('#7 has a merge conflict.')
+    expect(document.querySelector('.queue-clock')).toBeNull()
+
+    const remove = document.querySelector<HTMLButtonElement>('.queue-now .ghost')
+    expect(remove?.textContent).toBe('Remove')
+    await act(async () => {
+      remove!.click()
+    })
+    expect(removed).toEqual(['entry-1'])
+  })
+
+  it('lists pull requests set to merge when ready, with what holds them', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <MergeQueuePage
+          queue={{
+            paused: false,
+            pauseReason: null,
+            entries: [],
+            history: [],
+            watches: [{ key: 'acme/app#9', scope: 'pr', keys: ['acme/app#9'], detail: 'Needs a review.', createdAt: '2026-10-22T09:00:00.000Z' }],
+          }}
+          pulls={new Map([['acme/app#9', { number: 9, title: 'Add audit log export', url: 'https://github.com/acme/app/pull/9' }]])}
+          onCancel={async () => {}}
+          onMove={async () => {}}
+        />,
+      )
+    })
+
+    const row = document.querySelector('.queue-row.watch')
+    expect(row?.textContent).toContain('Add audit log export')
+    expect(row?.textContent).toContain('#9')
+    expect(row?.textContent).toContain('Needs a review.')
   })
 })

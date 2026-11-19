@@ -59,3 +59,20 @@ export function prCopyList(prs: { repoName: string; number: number }[]): string 
 export function copyPrIdsLabel(count: number): string {
   return `Copy ${count} PR ID${count === 1 ? '' : 's'}`
 }
+
+/** A finished span, to the nearest useful unit: `40s`, `4m`, `1h 12m`. */
+export function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+/** A running span that ticks: `6:12`, then `1h 04m`. */
+export function formatClock(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
+}

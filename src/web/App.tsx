@@ -558,6 +558,7 @@ export function App() {
           {page === 'queue' ? (
             <MergeQueuePage
               queue={queue}
+              pulls={new Map((data?.pullRequests ?? []).map((pr) => [pr.key, pr]))}
               onCancel={(id) => changeQueue(() => api.cancelMerge(id), true)}
               onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
             />
