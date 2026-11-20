@@ -1205,6 +1205,7 @@ td.conflict,
 td.uptodate,
 th.agents,
 td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px; }
+.robot-icon { display: block; width: 15px; height: 15px; margin: 0 auto; }
 .conflict-cell { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; }
 .conflict-x {
   border: 0;
