@@ -8,7 +8,6 @@ let earlierAll = false
 let resizing = false
 let pendingWidth = null
 let copiedTimer = null
-let queueDrawn = ''
 
 $('back').onclick = () => send('back')
 $('forward').onclick = () => send('forward')
@@ -93,8 +92,21 @@ function favicon(src) {
   return icon
 }
 
+// The length of one turn, as set for .spin in chrome.css.
+const SPIN_MS = 1100
+
+// Every update from the shell draws the page again, and a new element starts its
+// animation from the beginning. Each spinner is started part-way through its turn,
+// at the place the clock puts it, so a redrawn one carries on where the last was.
+function spinner(title) {
+  const spin = el('span', 'spin')
+  spin.style.animationDelay = `-${Date.now() % SPIN_MS}ms`
+  if (title) spin.title = title
+  return spin
+}
+
 function agentMark(mark) {
-  return mark === 'running' ? el('span', 'spin') : el('span', `mark ${mark}`)
+  return mark === 'running' ? spinner() : el('span', `mark ${mark}`)
 }
 
 function closeButton(label, onClose) {
@@ -159,9 +171,7 @@ function tabRow({ depth, row, rail }) {
   else node.append(railBox(rail, dot))
   node.append(el('span', 'title', row.title))
   if (row.agent) {
-    const spin = el('span', 'spin')
-    spin.title = 'An agent is working on this pull request'
-    node.append(spin)
+    node.append(spinner('An agent is working on this pull request'))
   }
   if (row.needs > 0) {
     const needs = el('span', 'needs', String(row.needs))
@@ -249,7 +259,7 @@ function pill() {
   const parts = []
   if (state.running) {
     const running = el('span')
-    running.append(el('span', 'spin'), String(state.running))
+    running.append(spinner(), String(state.running))
     parts.push(running)
   }
   if (state.unread) {
@@ -265,7 +275,7 @@ function pill() {
 // runs, a red mark for any held, and how many are in the queue.
 function queueStatus(queue) {
   const parts = []
-  if (queue.state === 'active') parts.push(el('span', 'spin'))
+  if (queue.state === 'active') parts.push(spinner())
   if (queue.held > 0) parts.push(el('span', 'mark failed'))
   parts.push(el('span', classes('num', queue.state), String(queue.count)))
   return parts
@@ -296,12 +306,7 @@ function render() {
     const queued = state.queue !== null && state.queue.count > 0
     $('queue-link').title = state.queue ? state.queue.label : ''
     $('queue-status').hidden = !queued
-    // A new spinner starts its turn again, so the status is only redrawn when it reads differently.
-    const drawn = queued ? `${state.queue.state} ${state.queue.held} ${state.queue.count}` : ''
-    if (drawn !== queueDrawn) {
-      queueDrawn = drawn
-      $('queue-status').replaceChildren(...(queued ? queueStatus(state.queue) : []))
-    }
+    $('queue-status').replaceChildren(...(queued ? queueStatus(state.queue) : []))
     $('settings-link').className = classes('row', onDashboard && state.dashboard === 'settings' && 'active')
     $('agents-section').hidden = !anyAgents
     $('agents-note').textContent = agentNote()
