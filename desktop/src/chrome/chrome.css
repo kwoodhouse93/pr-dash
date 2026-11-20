@@ -144,7 +144,7 @@ img.fav, .dot { flex: none; width: 14px; height: 14px; border-radius: 3px; }
 .side-head { flex: none; height: 40px; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; -webkit-app-region: drag; }
 .side-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 10px; }
 .side-foot { flex: none; padding: 6px 0 8px; border-top: 1px solid var(--line); }
-.side-foot svg { flex: none; width: 14px; height: 14px; }
+.side-foot svg, .row.home svg { flex: none; width: 14px; height: 14px; }
 .resize { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; cursor: col-resize; -webkit-app-region: no-drag; }
 .resize:hover, .resizing .resize { background: linear-gradient(to right, transparent 3px, var(--line-strong) 3px, var(--line-strong) 5px, transparent 5px); }
 .resizing, .resizing * { cursor: col-resize !important; }
