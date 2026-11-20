@@ -25,6 +25,7 @@ import {
   graphqlStatus,
   loadGithubToken,
   viewerFor,
+  type PullOutcome,
   type RepoRules,
 } from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
@@ -374,8 +375,9 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
   }), { previous: knownPulls(db), forceChecks: forceRules })
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   await confirmLandedMerges(db, token, fetched.pullRequests)
-  const current = db.snapshot()
   const next = db.queue.overlay(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr)))
+  const outcomes = await outcomesOfGone(token, db.snapshot().pullRequests, next, watched)
+  const current = db.snapshot()
   db.saveSnapshot({
     viewer: fetched.viewer || current.viewer || '',
     syncedAt: new Date().toISOString(),
@@ -385,6 +387,7 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
     linearConfigured: Boolean(process.env.LINEAR_API_KEY),
     warning,
   })
+  recordOutcomes(db, outcomes)
   await processMergeWatches(db)
   return warning
 }
@@ -398,6 +401,7 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
     note(message)
   }), { previous: knownPulls(db), forceChecks: forceRules })
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
+  const outcomes = await outcomesOfGone(token, db.snapshot().reviewPullRequests, fetched.pullRequests, watched)
   const current = db.snapshot()
   db.saveSnapshot({
     viewer: fetched.viewer || current.viewer || '',
@@ -412,6 +416,7 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
     linearConfigured: Boolean(process.env.LINEAR_API_KEY),
     warning,
   })
+  recordOutcomes(db, outcomes)
   return warning
 }
 
@@ -436,12 +441,32 @@ async function resolveDepartures(db: DashboardDb, token: string): Promise<void> 
   const pending = db.pendingDepartures()
   if (pending.length === 0) return
   try {
-    const outcomes = await fetchPullOutcomes(token, pending)
-    for (const [key, outcome] of outcomes) {
-      db.resolveDeparture(key, outcome.state === 'MERGED' ? 'merged' : outcome.state === 'CLOSED' ? 'closed' : 'open', outcome.at)
-    }
+    recordOutcomes(db, await fetchPullOutcomes(token, pending))
   } catch {
     // Still pending.
+  }
+}
+
+/**
+ * What became of the pull requests a refresh is about to drop, asked before the list is saved. The list and
+ * the outcomes are then written together, so the dashboard never sees one gone without knowing it merged.
+ */
+async function outcomesOfGone(token: string, listed: PullRequest[], fetched: PullRequest[], watched: string[]): Promise<Map<string, PullOutcome>> {
+  const still = new Set(fetched.map((pr) => pr.key))
+  const selected = new Set(watched)
+  const gone = listed.filter((pr) => selected.has(pr.repo) && !still.has(pr.key))
+  if (gone.length === 0) return new Map()
+  try {
+    return await fetchPullOutcomes(token, gone)
+  } catch {
+    // They wait as pending, and are asked about again at the end of the refresh.
+    return new Map()
+  }
+}
+
+function recordOutcomes(db: DashboardDb, outcomes: Map<string, PullOutcome>): void {
+  for (const [key, outcome] of outcomes) {
+    db.resolveDeparture(key, outcome.state === 'MERGED' ? 'merged' : outcome.state === 'CLOSED' ? 'closed' : 'open', outcome.at)
   }
 }
 
