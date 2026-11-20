@@ -7,6 +7,8 @@ const commands = new Set([
   'forward',
   'reload',
   'open-external',
+  'copy-link',
+  'tab-menu',
   'apply-update',
   'toggle-sidebar',
   'grouping-menu',

@@ -55,6 +55,11 @@ function isWebUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
 }
 
+/** Where a tab is now, or where it is headed while its first page loads. */
+function linkOf(tab: Tab): string {
+  return tab.view.webContents.getURL() || tab.url
+}
+
 // One window: the tab strip on top, the active tab's page below. The first
 // tab is the dashboard and cannot be closed.
 export class Tabs {
@@ -124,6 +129,8 @@ export class Tabs {
       else if (command === 'forward') this.forward()
       else if (command === 'reload') this.reload()
       else if (command === 'open-external') this.openExternal()
+      else if (command === 'copy-link') this.copyLink()
+      else if (command === 'tab-menu' && typeof id === 'number') this.tabMenu(id)
       else if (command === 'apply-update') this.onApplyUpdate()
     })
 
@@ -434,7 +441,19 @@ export class Tabs {
   }
 
   copyLink() {
-    clipboard.writeText(this.active.view.webContents.getURL())
+    if (!this.active.pinned) clipboard.writeText(linkOf(this.active))
+  }
+
+  // A right click on a tab in the strip or the sidebar. The tab need not be the one showing.
+  private tabMenu(id: number) {
+    const tab = this.tabs.find((item) => item.id === id)
+    if (!tab || tab.pinned) return
+    Menu.buildFromTemplate([
+      { label: 'Copy Link', click: () => clipboard.writeText(linkOf(tab)) },
+      { label: 'Open in Browser', click: () => void shell.openExternal(linkOf(tab)) },
+      { type: 'separator' },
+      { label: 'Close Tab', click: () => this.close(id) },
+    ]).popup({ window: this.win })
   }
 
   toggleDevTools() {

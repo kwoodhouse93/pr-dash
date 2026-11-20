@@ -7,11 +7,20 @@ let menuOpen = false
 let earlierAll = false
 let resizing = false
 let pendingWidth = null
+let copiedTimer = null
 
 $('back').onclick = () => send('back')
 $('forward').onclick = () => send('forward')
 $('reload').onclick = () => send('reload')
 $('external').onclick = () => send('open-external')
+$('copy-link').onclick = () => {
+  send('copy-link')
+  // A tick for a moment, as nothing else on screen says the link was copied.
+  const button = $('copy-link')
+  button.classList.add('copied')
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => button.classList.remove('copied'), 1200)
+}
 $('update').onclick = () => send('apply-update')
 $('show-sidebar').onclick = () => send('toggle-sidebar')
 $('hide-sidebar').onclick = () => send('toggle-sidebar')
@@ -106,6 +115,7 @@ function selectable(node, id) {
   node.onauxclick = (event) => {
     if (event.button === 1) send('close', id)
   }
+  node.oncontextmenu = () => send('tab-menu', id)
 }
 
 function stripTab(tab) {
@@ -236,6 +246,7 @@ function render() {
   $('back').disabled = !state.canGoBack
   $('forward').disabled = !state.canGoForward
   $('external').disabled = !state.external
+  $('copy-link').disabled = !state.external
   $('update').hidden = !state.updateReady
 
   document.documentElement.style.setProperty('--sidebar', `${state.width}px`)
