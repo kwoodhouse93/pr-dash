@@ -6,6 +6,7 @@ import type { CursorSession, PullRequest } from '../shared/types.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
+import { toastError, toastSuccess } from './toasts.tsx'
 
 export type AgentItem = { pr: PullRequest; session: CursorSession }
 
@@ -80,9 +81,11 @@ export function AgentList({ items, showPr, onOpen }: { items: AgentItem[]; showP
           <Summary item={item} showPr={showPr} />
         </button>
       ))}
-      <button type="button" className="agent-all" onClick={() => onOpen(null)}>
-        Open all
-      </button>
+      {items.length > 1 ? (
+        <button type="button" className="agent-all" onClick={() => onOpen(null)}>
+          Open all
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -183,6 +186,15 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
   )
 }
 
+async function copyReply(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toastSuccess('Copied the reply')
+  } catch {
+    toastError('Could not copy to the clipboard')
+  }
+}
+
 function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: boolean; open: boolean; onToggle: () => void }) {
   const { session } = item
   const bodyId = useId()
@@ -212,6 +224,11 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
             <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
               Open on the web
             </a>
+            {session.result ? (
+              <button type="button" onClick={() => void copyReply(session.result ?? '')}>
+                Copy reply
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}

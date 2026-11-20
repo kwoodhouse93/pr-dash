@@ -1247,25 +1247,9 @@ function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
   }
   return (
     <td className="agents">
-      {only ? (
-        <button
-          type="button"
-          className={`cursor-chip ${lead}`}
-          disabled={locked}
-          aria-haspopup="dialog"
-          aria-expanded={drawer !== null}
-          onClick={(event) => {
-            event.stopPropagation()
-            open(only.agentId)
-          }}
-        >
-          {label}
-        </button>
-      ) : (
-        <ClickCard id={id} disabled={locked} className={`cursor-chip ${lead}`} panelClassName="agent-panel" closable={false} label={label}>
-          <AgentList items={sessions} showPr={prs.length > 1} onOpen={open} />
-        </ClickCard>
-      )}
+      <ClickCard id={id} disabled={locked} className={`cursor-chip ${lead}`} panelClassName="agent-panel" closable={false} label={label}>
+        <AgentList items={sessions} showPr={prs.length > 1} onOpen={open} />
+      </ClickCard>
       {drawer ? <AgentDrawer prs={prs} items={sessions} focus={drawer.focus} onClose={() => setDrawer(null)} /> : null}
     </td>
   )

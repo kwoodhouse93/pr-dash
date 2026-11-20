@@ -199,7 +199,7 @@ describe('agents', () => {
     return [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes(text))
   }
 
-  it('shows a single session as a count colored by its status, and opens the sidebar on it', async () => {
+  it('shows a single session as a count colored by its status, with the same list as several', async () => {
     await render(pull({ conflict: true, cursorSessions: [session({ result: 'Merged main in.' })] }))
     const chip = document.querySelector('td.agents .cursor-chip')
     expect(chip?.querySelector('[aria-hidden]')?.textContent).toBe('1')
@@ -207,6 +207,9 @@ describe('agents', () => {
     expect(chip?.className).toContain('running')
     expect(document.querySelector('td.conflict .cursor-chip')).toBeNull()
     await click(chip)
+    expect(document.querySelector('.agent-drawer')).toBeNull()
+    expect(button('Open all')).toBeUndefined()
+    await click(document.querySelector('.popover .agent-row'))
     expect(document.querySelector('.popover')).toBeNull()
     const drawer = document.querySelector('.agent-drawer')
     expect(drawer?.querySelector('.drawer-pr')?.textContent).toBe('#7 Ship the queue')
@@ -262,6 +265,11 @@ describe('agents', () => {
     expect(sections[1]?.querySelector('.agent-reply h2')?.textContent).toBe('Fixed lint')
     expect(sections[1]?.querySelector('.agent-meta')?.textContent).toContain('Pushed to cursor/fix-lint.')
     expect(sections[1]?.querySelector('.agent-links a')?.getAttribute('href')).toContain('bc-2')
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    expect(sections[0]?.querySelector('.agent-links button')).toBeNull()
+    await click(button('Copy reply'))
+    expect(writeText).toHaveBeenCalledWith('## Fixed **lint**\n\n- Removed an import in `sidebar.ts`')
     await click(sections[0]?.querySelector('.agent-row'))
     expect(drawer?.querySelector('.agent-prompt')?.textContent).toBe('Rename the helper\nand its callers')
     await act(async () => {
