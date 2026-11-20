@@ -5,6 +5,11 @@ import { api } from './api.ts'
 
 type Row = AgentSettings['repos'][number]
 
+/** Whether this page is in the desktop app, which says so itself. It pairs with T3 Code without showing a page for it. */
+function inDesktopApp(): boolean {
+  return (window as { prDashDesktop?: unknown }).prDashDesktop === true
+}
+
 function healthLabel(health: AgentHealth): string {
   if (health.state === 'ready') return 'Ready'
   return health.state === 'unconfigured' ? 'Not set up' : 'Not answering'
@@ -146,11 +151,14 @@ function T3Pairing({ running, paired, onPaired }: { running: string | null; pair
   async function pair() {
     setBusy(true)
     setError(null)
-    // Opened during the click, so the browser allows it. The pairing link goes there once it is made.
-    const tab = window.open('', '_blank')
+    // The desktop app takes the pairing link and pairs out of sight, so it needs no tab.
+    // A browser has to visit the link, and only allows a tab opened during the click.
+    const desktop = inDesktopApp()
+    const tab = desktop ? null : window.open('', '_blank')
     try {
       const made = await api.pairT3()
       if (tab) tab.location.replace(made.pairUrl)
+      else if (desktop) window.open(made.pairUrl, '_blank')
       else window.location.assign(made.pairUrl)
       onPaired(made.origin)
     } catch (caught) {

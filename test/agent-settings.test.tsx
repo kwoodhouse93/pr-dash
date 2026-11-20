@@ -103,6 +103,23 @@ describe('agent settings and launch', () => {
     expect(paired).toEqual(['http://127.0.0.1:3773'])
   })
 
+  it('hands the pairing link to the desktop app without opening a tab first', async () => {
+    vi.mocked(api.agentSettings).mockResolvedValue(settings())
+    vi.mocked(api.pairT3).mockResolvedValue({ pairUrl: 'http://127.0.0.1:3773/pair#token=ABC', origin: 'http://127.0.0.1:3773' })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    ;(window as { prDashDesktop?: boolean }).prDashDesktop = true
+    const paired: (string | null)[] = []
+    try {
+      await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} onT3Origin={(origin) => paired.push(origin)} />)
+      await act(async () => ([...document.querySelectorAll('button')].find((button) => button.textContent === 'Pair') as HTMLElement).click())
+    } finally {
+      delete (window as { prDashDesktop?: boolean }).prDashDesktop
+    }
+    // One call, with the link itself: the app pairs out of sight and opens nothing.
+    expect(open.mock.calls).toEqual([['http://127.0.0.1:3773/pair#token=ABC', '_blank']])
+    expect(paired).toEqual(['http://127.0.0.1:3773'])
+  })
+
   it('takes a pairing code by hand when pairing by itself fails', async () => {
     vi.mocked(api.agentSettings).mockResolvedValue(settings())
     vi.mocked(api.pairT3).mockRejectedValue(new Error('Pairing with T3 Code is only offered when the dashboard runs on this machine.'))

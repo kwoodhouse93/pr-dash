@@ -20,7 +20,7 @@ import {
   type SidebarModel,
   type TabInfo,
 } from './sidebar.ts'
-import { isT3Handoff, T3_PROMPT_CSS, T3_PROMPT_SCRIPT, t3PromptAction, t3PromptUpdate, type T3PromptAction } from './t3-prompt.ts'
+import { isT3Handoff, isT3PairLink, T3_PROMPT_CSS, T3_PROMPT_SCRIPT, t3PromptAction, t3PromptUpdate, type T3PromptAction } from './t3-prompt.ts'
 import { t3ThreadUrl } from '../../src/shared/agents.ts'
 
 export const STRIP_HEIGHT = 40
@@ -59,25 +59,25 @@ type DashboardPage = 'list' | 'queue' | 'settings'
 export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string }
 
 /**
- * Resolves once T3 Code has taken the pairing link and moved on from its pairing page.
- * It gives up waiting after a while, since a refused link stays on that page.
+ * Resolves true once T3 Code has taken the pairing link and moved on from its pairing page.
+ * A refused link stays on that page, so it resolves false after waiting a while.
  */
-function leftPairing(contents: WebContents): Promise<void> {
+function leftPairing(contents: WebContents): Promise<boolean> {
   return new Promise((resolve) => {
-    const done = () => {
+    const done = (left: boolean) => {
       clearTimeout(timer)
       contents.off('did-navigate', check)
       contents.off('did-navigate-in-page', check)
-      resolve()
+      resolve(left)
     }
     const check = () => {
       try {
-        if (new URL(contents.getURL()).pathname !== '/pair') done()
+        if (new URL(contents.getURL()).pathname !== '/pair') done(true)
       } catch {
-        done()
+        done(false)
       }
     }
-    const timer = setTimeout(done, 15_000)
+    const timer = setTimeout(() => done(false), 15_000)
     contents.on('did-navigate', check)
     contents.on('did-navigate-in-page', check)
     check()
@@ -371,10 +371,28 @@ export class Tabs {
   }
 
   /** Tells the dashboard page, which keeps these settings, about a change made from a tab. */
-  private tellDashboard(detail: { origin?: string; prompt?: false }) {
+  private tellDashboard(detail: { origin?: string; prompt?: false; failed?: true }) {
     void this.dashboard.view.webContents
       .executeJavaScript(`window.dispatchEvent(new CustomEvent('pr-dash:t3', { detail: ${JSON.stringify(detail)} }))`)
       .catch(() => undefined)
+  }
+
+  /**
+   * Pairs this app with T3 Code out of sight: the pairing link is opened in a page that
+   * is never shown, which shares the tabs' sign-ins, and that page is dropped once T3 Code
+   * has taken the link. The dashboard is told if T3 Code did not take it.
+   */
+  private async pairUnseen(pairUrl: string) {
+    const view = new WebContentsView({ webPreferences: { session: this.session, backgroundThrottling: false } })
+    try {
+      await view.webContents.loadURL(pairUrl)
+      if (!(await leftPairing(view.webContents))) throw new Error('T3 Code did not take the pairing link.')
+    } catch {
+      this.prefs = { ...this.prefs, t3Origin: null }
+      this.tellDashboard({ failed: true })
+    } finally {
+      view.webContents.close()
+    }
   }
 
   /** Lays the note about pairing over T3 Code's hand-off page, unless this app is paired or the user said not to ask. */
@@ -408,7 +426,7 @@ export class Tabs {
         throw new Error(typeof made.body.error === 'string' ? made.body.error : 'Could not pair with T3 Code.')
       }
       await contents.loadURL(pairUrl)
-      await leftPairing(contents)
+      if (!(await leftPairing(contents))) throw new Error('T3 Code did not take the pairing link.')
       this.prefs = { ...this.prefs, t3Origin: origin }
       this.tellDashboard({ origin })
       const thread = t3ThreadUrl(origin, handoff)
@@ -617,6 +635,11 @@ export class Tabs {
   private wire(tab: Tab) {
     const contents = tab.view.webContents
     contents.setWindowOpenHandler(({ url, disposition }) => {
+      // The dashboard pairing with T3 Code. There is nothing to look at, so no tab is opened for it.
+      if (tab.pinned && isT3PairLink(url)) {
+        void this.pairUnseen(url)
+        return { action: 'deny' }
+      }
       // A script-opened popup (a sign-in window, say) needs to stay a real
       // window so it can talk to the page that opened it.
       if (disposition === 'new-window') return { action: 'allow' }
@@ -640,6 +663,8 @@ export class Tabs {
       return { action: 'deny' }
     })
     if (tab.pinned) {
+      // The dashboard does a few things differently in this app, such as pairing with T3 Code out of sight.
+      contents.on('dom-ready', () => void contents.executeJavaScript('window.prDashDesktop = true').catch(() => undefined))
       contents.on('will-navigate', (event) => {
         if (new URL(event.url).origin === new URL(this.dashboardUrl).origin) return
         event.preventDefault()

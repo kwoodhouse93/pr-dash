@@ -397,9 +397,13 @@ export function App() {
   // The desktop app pairs with T3 Code from a tab, and says so here, where the setting is kept.
   useEffect(() => {
     function onT3(event: Event) {
-      const detail = (event as CustomEvent).detail as { origin?: unknown; prompt?: unknown } | null
+      const detail = (event as CustomEvent).detail as { origin?: unknown; prompt?: unknown; failed?: unknown } | null
       const origin = detail?.origin
       if (typeof origin === 'string') setPrefs((current) => ({ ...current, t3Origin: origin }))
+      if (detail?.failed === true) {
+        setPrefs((current) => ({ ...current, t3Origin: null }))
+        toastError('T3 Code did not take the pairing link. Try again, or enter a pairing code under Agents in Settings.', { heading: 'Could not pair with T3 Code' })
+      }
       if (detail?.prompt === false) setPrefs((current) => ({ ...current, t3PairPrompt: false }))
     }
     window.addEventListener('pr-dash:t3', onT3)

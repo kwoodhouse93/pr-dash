@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildSidebar, drawStacks, isAppLink, linearRef, linearStayUrl, prRef, pruneAgentState, runsShownAt, shareUrl, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
-import { isT3Handoff, t3PromptAction, t3PromptUpdate } from '../desktop/src/t3-prompt.ts'
+import { isT3Handoff, isT3PairLink, t3PromptAction, t3PromptUpdate } from '../desktop/src/t3-prompt.ts'
 import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
 
 const NOW = Date.parse('2026-11-19T12:00:00Z')
@@ -102,6 +102,14 @@ describe('the pairing note on T3 Code’s hand-off page', () => {
     expect(isT3Handoff('http://127.0.0.1:3773/threads/env-1/thread-1')).toBe(false)
     expect(isT3Handoff('https://app.t3.codes/pair')).toBe(false)
     expect(isT3Handoff('https://evil.example/?https://app.t3.codes/threads/x')).toBe(false)
+  })
+
+  it('knows a pairing link for the T3 Code on this machine', () => {
+    expect(isT3PairLink('http://127.0.0.1:3773/pair#token=ABC')).toBe(true)
+    expect(isT3PairLink('http://127.0.0.1:3773/pair')).toBe(false)
+    expect(isT3PairLink('http://127.0.0.1:3773/threads/a/b#token=ABC')).toBe(false)
+    expect(isT3PairLink('https://evil.example/pair#token=ABC')).toBe(false)
+    expect(isT3PairLink('not a url')).toBe(false)
   })
 
   it('reads a button press from the address the button links to', () => {

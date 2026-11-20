@@ -19,6 +19,16 @@ export function t3PromptAction(url: string): T3PromptAction | null {
   return action === 'pair' || action === 'settings' || action === 'never' ? action : null
 }
 
+/** A link that pairs whichever browser opens it with the T3 Code on this machine. */
+export function isT3PairLink(url: string): boolean {
+  try {
+    const { hostname, pathname, hash } = new URL(url)
+    return (hostname === '127.0.0.1' || hostname === 'localhost') && pathname === '/pair' && hash.startsWith('#token=')
+  } catch {
+    return false
+  }
+}
+
 export const T3_PROMPT_CSS = `
 #pr-dash-t3-prompt {
   position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 2147483647;
