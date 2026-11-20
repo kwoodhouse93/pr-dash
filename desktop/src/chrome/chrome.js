@@ -260,6 +260,16 @@ function pill() {
   return parts.length ? parts : ['Agents']
 }
 
+// The same reading as the dashboard's own queue button: a spinner while a merge
+// runs, a red mark for any held, and how many are in the queue.
+function queueStatus(queue) {
+  const parts = []
+  if (queue.state === 'active') parts.push(el('span', 'spin'))
+  if (queue.held > 0) parts.push(el('span', 'mark failed'))
+  parts.push(el('span', classes('num', queue.state), String(queue.count)))
+  return parts
+}
+
 function render() {
   if (!state) return
   const anyAgents = state.agents.length + state.earlier.length > 0
@@ -282,6 +292,10 @@ function render() {
     const onDashboard = state.tabs.some((tab) => tab.pinned && tab.id === state.activeId)
     $('home').className = classes('row home', onDashboard && state.dashboard === 'list' && 'active')
     $('queue-link').className = classes('row', onDashboard && state.dashboard === 'queue' && 'active')
+    const queued = state.queue !== null && state.queue.count > 0
+    $('queue-link').title = state.queue ? state.queue.label : ''
+    $('queue-status').hidden = !queued
+    $('queue-status').replaceChildren(...(queued ? queueStatus(state.queue) : []))
     $('settings-link').className = classes('row', onDashboard && state.dashboard === 'settings' && 'active')
     $('agents-section').hidden = !anyAgents
     $('agents-note').textContent = agentNote()

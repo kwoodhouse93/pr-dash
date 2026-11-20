@@ -123,6 +123,29 @@ export type RebaseInstruction = {
   finishRestack: boolean
 }
 
+export type QueueSummary = {
+  /** Merges in the queue, whatever their state. */
+  count: number
+  /** Merges that failed and wait for a retry. */
+  held: number
+  state: 'active' | 'failed' | 'queued' | 'empty'
+  label: string
+}
+
+/** What the queue is doing, in the few words a button has room for. */
+export function queueSummary(entries: Pick<MergeEntry, 'status'>[]): QueueSummary {
+  const count = entries.length
+  const held = entries.filter((entry) => entry.status === 'failed').length
+  const state = entries.some((entry) => entry.status === 'active') ? 'active' : held > 0 ? 'failed' : count > 0 ? 'queued' : 'empty'
+  const detail = {
+    failed: `${held} held`,
+    active: held > 0 ? `merging, ${held} held` : 'merging',
+    queued: 'waiting',
+    empty: 'empty',
+  }[state]
+  return { count, held, state, label: count > 0 ? `Merge queue: ${count} queued, ${detail}` : `Merge queue: ${detail}` }
+}
+
 const DONE: ReadonlySet<StepStatus> = new Set(['merged', 'restacked', 'cancelled'])
 
 export function stepLabel(status: StepStatus): string {

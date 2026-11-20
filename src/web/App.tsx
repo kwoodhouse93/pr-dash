@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { collectHolds, mergeHolds, reconcileHolds, withoutHolds, type CheckHold } from '../shared/ci.ts'
 import type { FeedbackCounts } from '../shared/feedback.ts'
-import { rowMarks } from '../shared/queue.ts'
+import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
 import { cursorLinks } from '../shared/cursor.ts'
@@ -850,23 +850,7 @@ function RefreshControl({
 }
 
 function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot | null; pressed: boolean; onClick: () => void }) {
-  const entries = queue?.entries ?? []
-  const count = entries.length
-  const held = entries.filter((entry) => entry.status === 'failed').length
-  const state = entries.some((entry) => entry.status === 'active')
-    ? 'active'
-    : held > 0
-      ? 'failed'
-      : count > 0
-        ? 'queued'
-        : 'empty'
-  const detail = {
-    failed: `${held} held`,
-    active: held > 0 ? `merging, ${held} held` : 'merging',
-    queued: 'waiting',
-    empty: 'empty',
-  }[state]
-  const label = count > 0 ? `Merge queue: ${count} queued, ${detail}` : `Merge queue: ${detail}`
+  const { count, held, state, label } = queueSummary(queue?.entries ?? [])
   return (
     <button type="button" className="tool-btn" data-state={state} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

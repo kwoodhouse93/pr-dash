@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { canMergeSlice, upstackBlock } from '../src/shared/merge.ts'
-import { bootAction, cancelGrace, interpretWait, landedMergeVisible, rebasesAfter, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
+import { bootAction, cancelGrace, interpretWait, landedMergeVisible, queueSummary, rebasesAfter, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
 import { reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
@@ -645,3 +645,23 @@ function git(args: string[], cwd?: string): string {
 function write(dir: string, name: string, contents: string) {
   writeFileSync(path.join(dir, name), contents)
 }
+
+describe('queueSummary', () => {
+  it('says the queue is empty when nothing is in it', () => {
+    expect(queueSummary([])).toEqual({ count: 0, held: 0, state: 'empty', label: 'Merge queue: empty' })
+  })
+
+  it('counts held merges beside the one running', () => {
+    expect(queueSummary([{ status: 'active' }, { status: 'failed' }, { status: 'queued' }])).toEqual({
+      count: 3,
+      held: 1,
+      state: 'active',
+      label: 'Merge queue: 3 queued, merging, 1 held',
+    })
+  })
+
+  it('reads as failed when a held merge is all that is left to act on', () => {
+    expect(queueSummary([{ status: 'failed' }, { status: 'queued' }]).state).toBe('failed')
+    expect(queueSummary([{ status: 'queued' }]).label).toBe('Merge queue: 1 queued, waiting')
+  })
+})

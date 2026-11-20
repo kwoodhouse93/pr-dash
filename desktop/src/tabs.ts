@@ -1,6 +1,7 @@
 import { clipboard, ipcMain, Menu, shell, WebContentsView, type BaseWindow, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { queueSummary, type QueueSnapshot, type QueueSummary } from '../../src/shared/queue.ts'
 import type { Snapshot, Sort } from '../../src/shared/types.ts'
 import {
   buildSidebar,
@@ -26,6 +27,7 @@ const SIDEBAR_MAX = 560
 const PAGE_MIN = 320
 const ZOOM_LIMIT = 4
 const SNAPSHOT_INTERVAL_MS = 30_000
+const QUEUE_INTERVAL_MS = 2_000
 const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 
 type Tab = {
@@ -82,6 +84,8 @@ export class Tabs {
   /** Tabs in the order they were last looked at, newest last. */
   private readonly visited: number[] = []
   private fetching = false
+  private queue: QueueSummary | null = null
+  private fetchingQueue = false
   private refreshTimer: NodeJS.Timeout | null = null
   onChange: () => void = () => {}
   onApplyUpdate: () => void = () => {}
@@ -167,8 +171,14 @@ export class Tabs {
       this.publish()
     })
     const poll = setInterval(() => void this.refresh(), SNAPSHOT_INTERVAL_MS)
-    win.on('closed', () => clearInterval(poll))
+    // The queue moves on its own while a merge runs, so it is read more often than the snapshot.
+    const queuePoll = setInterval(() => void this.refreshQueue(), QUEUE_INTERVAL_MS)
+    win.on('closed', () => {
+      clearInterval(poll)
+      clearInterval(queuePoll)
+    })
     void this.refresh()
+    void this.refreshQueue()
     this.activate(dashboard.id)
   }
 
@@ -179,6 +189,7 @@ export class Tabs {
   toggleSidebar() {
     this.setSidebar({ open: !this.sidebar.open })
     this.layout()
+    void this.refreshQueue()
   }
 
   private setWidth(width: number) {
@@ -288,6 +299,24 @@ export class Tabs {
     }
     if (this.win.isDestroyed()) return
     this.noteSeen()
+    this.publish()
+  }
+
+  // Only the sidebar shows the queue, so it is not read while the sidebar is hidden.
+  private async refreshQueue() {
+    if (this.fetchingQueue || !this.sidebar.open || this.win.isDestroyed()) return
+    this.fetchingQueue = true
+    let next = this.queue
+    try {
+      const res = await fetch(`${this.dashboardUrl}/api/merge-queue`, { signal: AbortSignal.timeout(5_000) })
+      if (res.ok) next = queueSummary(((await res.json()) as QueueSnapshot).entries)
+    } catch {
+      // The server restarts during an update. The last reading stays until the next one.
+    } finally {
+      this.fetchingQueue = false
+    }
+    if (this.win.isDestroyed() || JSON.stringify(next) === JSON.stringify(this.queue)) return
+    this.queue = next
     this.publish()
   }
 
@@ -654,6 +683,7 @@ export class Tabs {
       sidebar: this.sidebar.open,
       width: this.sidebar.width,
       dashboard: dashboardPage(this.dashboard.url),
+      queue: this.queue,
       grouping: GROUPINGS.find((item) => item.value === this.sidebar.grouping)!.label,
       earlierOpen: this.sidebar.earlierOpen,
       activeId: this.activeId,
