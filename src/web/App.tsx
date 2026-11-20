@@ -394,6 +394,17 @@ export function App() {
     window.addEventListener('pr-dash:page', onPage)
     return () => window.removeEventListener('pr-dash:page', onPage)
   }, [])
+  // The desktop app pairs with T3 Code from a tab, and says so here, where the setting is kept.
+  useEffect(() => {
+    function onT3(event: Event) {
+      const detail = (event as CustomEvent).detail as { origin?: unknown; prompt?: unknown } | null
+      const origin = detail?.origin
+      if (typeof origin === 'string') setPrefs((current) => ({ ...current, t3Origin: origin }))
+      if (detail?.prompt === false) setPrefs((current) => ({ ...current, t3PairPrompt: false }))
+    }
+    window.addEventListener('pr-dash:t3', onT3)
+    return () => window.removeEventListener('pr-dash:t3', onT3)
+  }, [])
   const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']
   const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])
   const mine = useMemo(

@@ -21,6 +21,8 @@ export type Preferences = {
   prLinks: PrLinkHost
   /** The T3 Code this browser is paired with, so its threads open in a tab. Null hands them off to the T3 Code app. */
   t3Origin: string | null
+  /** False once the user has said not to be offered pairing with T3 Code again. */
+  t3PairPrompt: boolean
 }
 
 export function loadPreferences(): Preferences {
@@ -46,6 +48,7 @@ export function loadPreferences(): Preferences {
       collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
       page,
       prLinks: raw.prLinks === 'graphite' ? 'graphite' : 'github',
+      t3PairPrompt: raw.t3PairPrompt !== false,
       t3Origin: typeof raw.t3Origin === 'string' && /^https?:\/\//.test(raw.t3Origin) ? raw.t3Origin : null,
     }
   } catch {
@@ -69,6 +72,7 @@ function fresh(): Preferences {
     page: 'mine',
     prLinks: 'github',
     t3Origin: null,
+    t3PairPrompt: true,
   }
 }
 

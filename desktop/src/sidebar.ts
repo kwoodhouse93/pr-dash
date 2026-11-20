@@ -42,6 +42,8 @@ export type DashboardPrefs = {
   sort?: Sort
   /** The T3 Code the dashboard is paired with, so a T3 Code thread opens in a tab. */
   t3Origin?: string | null
+  /** False once the user has said not to offer pairing with T3 Code again. */
+  t3PairPrompt?: boolean
 }
 
 export type AgentState = {

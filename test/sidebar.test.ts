@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildSidebar, drawStacks, isAppLink, linearRef, linearStayUrl, prRef, pruneAgentState, runsShownAt, shareUrl, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
+import { isT3Handoff, t3PromptAction, t3PromptUpdate } from '../desktop/src/t3-prompt.ts'
 import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
 
 const NOW = Date.parse('2026-11-19T12:00:00Z')
@@ -94,6 +95,28 @@ function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; act
 function outline(nodes: SidebarNode[]): string[] {
   return nodes.map((node) => (node.kind === 'tab' ? `${'  '.repeat(node.depth)}${node.row.number === null ? node.row.title : `#${node.row.number}`}` : `${node.kind}:${node.title}`))
 }
+
+describe('the pairing note on T3 Code’s hand-off page', () => {
+  it('knows the hand-off page from the T3 Code on this machine and from other sites', () => {
+    expect(isT3Handoff('https://app.t3.codes/threads/env-1/thread-1')).toBe(true)
+    expect(isT3Handoff('http://127.0.0.1:3773/threads/env-1/thread-1')).toBe(false)
+    expect(isT3Handoff('https://app.t3.codes/pair')).toBe(false)
+    expect(isT3Handoff('https://evil.example/?https://app.t3.codes/threads/x')).toBe(false)
+  })
+
+  it('reads a button press from the address the button links to', () => {
+    expect(t3PromptAction('pr-dash-t3:pair')).toBe('pair')
+    expect(t3PromptAction('pr-dash-t3:settings')).toBe('settings')
+    expect(t3PromptAction('pr-dash-t3:never')).toBe('never')
+    expect(t3PromptAction('pr-dash-t3:anything-else')).toBeNull()
+    expect(t3PromptAction('https://app.t3.codes/threads/x')).toBeNull()
+  })
+
+  it('carries a failure onto the note as text, not as markup or script', () => {
+    const script = t3PromptUpdate({ busy: false, error: '"); alert(1); ("' })
+    expect(script).toContain(JSON.stringify('"); alert(1); ("'))
+  })
+})
 
 describe('app links', () => {
   it('hands T3 Code and Cursor links to the system, and nothing else', () => {

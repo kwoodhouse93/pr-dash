@@ -20,6 +20,8 @@ import {
   type SidebarModel,
   type TabInfo,
 } from './sidebar.ts'
+import { isT3Handoff, T3_PROMPT_CSS, T3_PROMPT_SCRIPT, t3PromptAction, t3PromptUpdate, type T3PromptAction } from './t3-prompt.ts'
+import { t3ThreadUrl } from '../../src/shared/agents.ts'
 
 export const STRIP_HEIGHT = 40
 const SIDEBAR_WIDTH = 264
@@ -55,6 +57,32 @@ export type SidebarState = { open: boolean; width: number; grouping: Grouping; c
 type DashboardPage = 'list' | 'queue' | 'settings'
 
 export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string }
+
+/**
+ * Resolves once T3 Code has taken the pairing link and moved on from its pairing page.
+ * It gives up waiting after a while, since a refused link stays on that page.
+ */
+function leftPairing(contents: WebContents): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      contents.off('did-navigate', check)
+      contents.off('did-navigate-in-page', check)
+      resolve()
+    }
+    const check = () => {
+      try {
+        if (new URL(contents.getURL()).pathname !== '/pair') done()
+      } catch {
+        done()
+      }
+    }
+    const timer = setTimeout(done, 15_000)
+    contents.on('did-navigate', check)
+    contents.on('did-navigate-in-page', check)
+    check()
+  })
+}
 
 function isWebUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
@@ -327,12 +355,66 @@ export class Tabs {
     if (contents.isDestroyed() || contents.isLoading()) return
     const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
     if (typeof raw !== 'string') return
-    const { views, sort, t3Origin } = JSON.parse(raw) as { views?: Record<string, { byIssue?: boolean } | undefined>; sort?: Partial<Sort>; t3Origin?: unknown }
+    const { views, sort, t3Origin, t3PairPrompt } = JSON.parse(raw) as {
+      views?: Record<string, { byIssue?: boolean } | undefined>
+      sort?: Partial<Sort>
+      t3Origin?: unknown
+      t3PairPrompt?: unknown
+    }
     this.prefs = {
       mineByIssue: views?.mine?.byIssue !== false,
       reviewByIssue: views?.review?.byIssue !== false,
       sort: typeof sort?.key === 'string' && (sort.dir === 'asc' || sort.dir === 'desc') ? { key: sort.key, dir: sort.dir } : undefined,
       t3Origin: typeof t3Origin === 'string' ? t3Origin : null,
+      t3PairPrompt: t3PairPrompt !== false,
+    }
+  }
+
+  /** Tells the dashboard page, which keeps these settings, about a change made from a tab. */
+  private tellDashboard(detail: { origin?: string; prompt?: false }) {
+    void this.dashboard.view.webContents
+      .executeJavaScript(`window.dispatchEvent(new CustomEvent('pr-dash:t3', { detail: ${JSON.stringify(detail)} }))`)
+      .catch(() => undefined)
+  }
+
+  /** Lays the note about pairing over T3 Code's hand-off page, unless this app is paired or the user said not to ask. */
+  private offerPairing(tab: Tab) {
+    const contents = tab.view.webContents
+    if (!isT3Handoff(contents.getURL()) || this.prefs.t3Origin || this.prefs.t3PairPrompt === false) return
+    void contents
+      .insertCSS(T3_PROMPT_CSS)
+      .then(() => contents.executeJavaScript(T3_PROMPT_SCRIPT))
+      .catch(() => undefined)
+  }
+
+  private async pairingAction(tab: Tab, action: T3PromptAction) {
+    const contents = tab.view.webContents
+    const update = (change: Parameters<typeof t3PromptUpdate>[0]) => contents.executeJavaScript(t3PromptUpdate(change)).catch(() => undefined)
+    if (action === 'settings') return this.showDashboard('settings')
+    if (action === 'never') {
+      this.prefs = { ...this.prefs, t3PairPrompt: false }
+      this.tellDashboard({ prompt: false })
+      return void update('remove')
+    }
+    const handoff = contents.getURL()
+    await update({ busy: true })
+    try {
+      // The dashboard page asks its own server, which only makes a pairing link for a page of its own.
+      const made = (await this.dashboard.view.webContents.executeJavaScript(
+        `fetch('/api/agents/t3/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) }))`,
+      )) as { ok: boolean; body: { pairUrl?: unknown; origin?: unknown; error?: unknown } }
+      const { pairUrl, origin } = made.body
+      if (!made.ok || typeof pairUrl !== 'string' || typeof origin !== 'string' || !isWebUrl(origin) || !pairUrl.startsWith(`${origin}/`)) {
+        throw new Error(typeof made.body.error === 'string' ? made.body.error : 'Could not pair with T3 Code.')
+      }
+      await contents.loadURL(pairUrl)
+      await leftPairing(contents)
+      this.prefs = { ...this.prefs, t3Origin: origin }
+      this.tellDashboard({ origin })
+      const thread = t3ThreadUrl(origin, handoff)
+      if (thread) await contents.loadURL(thread)
+    } catch (error) {
+      await update({ busy: false, error: error instanceof Error ? error.message : 'Could not pair with T3 Code.' })
     }
   }
 
@@ -566,10 +648,18 @@ export class Tabs {
     } else {
       // A page handing off to T3 Code or Cursor. A tab cannot load such a link, so the system opens it.
       contents.on('will-navigate', (event) => {
+        // A button on the pairing note. Only T3 Code's hand-off page carries one.
+        const action = t3PromptAction(event.url)
+        if (action) {
+          event.preventDefault()
+          if (isT3Handoff(contents.getURL())) void this.pairingAction(tab, action)
+          return
+        }
         if (!isAppLink(event.url)) return
         event.preventDefault()
         void shell.openExternal(event.url)
       })
+      contents.on('did-finish-load', () => this.offerPairing(tab))
       contents.on('page-title-updated', (_event, title) => {
         tab.title = title
         this.publish()
