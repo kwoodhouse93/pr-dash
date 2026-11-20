@@ -84,7 +84,7 @@ const PAUSED = /^GitHub GraphQL refreshes are paused until /
  * `heading` names what failed and `message` is the detail under it; with no heading the message is the whole notice.
  * A refresh paused for GitHub's budget is not a failure, so it says when it resumes instead.
  */
-export function toastError(message: string, options: { heading?: string; onRetry?: () => void } = {}) {
+export function toastError(message: string, options: { heading?: string; onRetry?: () => void; retryLabel?: string } = {}) {
   clearActionError()
   if (PAUSED.test(message)) {
     actionErrorId = notice('info', 'Refreshes paused', { lines: [message.replace(PAUSED, 'Resumes ')], duration: READABLE })
@@ -92,7 +92,7 @@ export function toastError(message: string, options: { heading?: string; onRetry
   }
   actionErrorId = notice('error', options.heading ?? message, {
     lines: options.heading ? [message] : [],
-    actions: options.onRetry ? [{ label: 'Retry', onClick: options.onRetry, primary: true }] : [],
+    actions: options.onRetry ? [{ label: options.retryLabel ?? 'Retry', onClick: options.onRetry, primary: true }] : [],
     duration: options.onRetry ? READABLE * 2 : READABLE,
   })
 }

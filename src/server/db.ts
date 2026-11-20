@@ -1,11 +1,12 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { DEFAULT_ROUTING, isAgentProvider } from '../shared/agents.ts'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
-import type { CursorSession, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
+import type { AgentProviderId, AgentRouting, AgentSession, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
 export type CachedRules = {
@@ -43,9 +44,23 @@ export type DashboardDb = {
   linearLinks(): Map<string, string[]>
   attachLinearIssue(prKey: string, issue: LinearIssue): Snapshot
   patchFeedback(key: string, counts: FeedbackCounts & { feedbackAt?: string | null }): void
-  saveCursorSession(prKey: string, session: CursorSession): void
-  cursorSessions(): { prKey: string; session: CursorSession }[]
+  saveAgentSession(prKey: string, session: AgentSession): void
+  agentSessions(): { prKey: string; session: AgentSession }[]
+  agentRouting(): AgentRouting
+  setDefaultProvider(provider: AgentProviderId): void
+  /** What each repository has set for agents. A repository with nothing set is left out. */
+  repoAgents(): Map<string, RepoAgent>
+  setRepoAgent(repo: string, agent: RepoAgent): void
   queue: QueueStore
+}
+
+export type RepoAgent = {
+  /** Null follows the default. */
+  provider: AgentProviderId | null
+  /** The T3 Code environment to run in. Null is this machine. */
+  environmentId: string | null
+  /** The repository's folder in that environment. */
+  checkout: string | null
 }
 
 type SnapshotRow = {
@@ -115,6 +130,16 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS agent_sessions_pr ON agent_sessions (pr_key, created_at);
+    CREATE TABLE IF NOT EXISTS agent_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      default_provider TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS repo_agents (
+      repo TEXT PRIMARY KEY,
+      provider TEXT,
+      environment_id TEXT,
+      checkout TEXT
+    );
     CREATE TABLE IF NOT EXISTS linear_links (
       pr_key TEXT NOT NULL,
       identifier TEXT NOT NULL,
@@ -138,6 +163,16 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     }
   }
 
+  const sessionColumns = db.prepare('PRAGMA table_info(agent_sessions)').all() as { name: string }[]
+  if (!sessionColumns.some((column) => column.name === 'provider')) {
+    db.exec(`
+      ALTER TABLE agent_sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'cursor';
+      ALTER TABLE agent_sessions ADD COLUMN environment_id TEXT;
+      ALTER TABLE agent_sessions ADD COLUMN url TEXT;
+      ALTER TABLE agent_sessions ADD COLUMN unreachable_since TEXT;
+    `)
+  }
+
   const columns = db.prepare('PRAGMA table_info(snapshot)').all() as { name: string }[]
   if (!columns.some((column) => column.name === 'review_pull_requests')) {
     db.exec(`ALTER TABLE snapshot ADD COLUMN review_pull_requests TEXT NOT NULL DEFAULT '[]'`)
@@ -155,18 +190,20 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   )
   const readInitiatives = db.prepare('SELECT id, name, created_at, updated_at FROM initiatives ORDER BY created_at ASC')
   const readAssignments = db.prepare('SELECT initiative_id, pr_key FROM initiative_pull_requests')
-  const readCursorSessions = db.prepare(
-    `SELECT agent_id, pr_key, kind, prompt, run_id, status, result, branch, created_at, updated_at
+  const readAgentSessions = db.prepare(
+    `SELECT agent_id, pr_key, provider, kind, prompt, run_id, status, result, branch, environment_id, url, unreachable_since, created_at, updated_at
      FROM agent_sessions ORDER BY created_at DESC, rowid DESC`,
   )
-  const writeCursorSession = db.prepare(
-    `INSERT INTO agent_sessions (agent_id, pr_key, kind, prompt, run_id, status, result, branch, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  const writeAgentSession = db.prepare(
+    `INSERT INTO agent_sessions (agent_id, pr_key, provider, kind, prompt, run_id, status, result, branch, environment_id, url, unreachable_since, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(agent_id) DO UPDATE SET
        run_id = excluded.run_id,
        status = excluded.status,
        result = excluded.result,
        branch = excluded.branch,
+       url = excluded.url,
+       unreachable_since = excluded.unreachable_since,
        updated_at = excluded.updated_at`,
   )
 
@@ -189,21 +226,26 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     return map
   }
 
-  function cursorSessions(): { prKey: string; session: CursorSession }[] {
-    return (readCursorSessions.all() as {
+  function agentSessions(): { prKey: string; session: AgentSession }[] {
+    return (readAgentSessions.all() as {
       agent_id: string
       pr_key: string
-      kind: CursorSession['kind']
+      provider: AgentProviderId
+      kind: AgentSession['kind']
       prompt: string | null
       run_id: string
-      status: CursorSession['status']
+      status: AgentSession['status']
       result: string | null
       branch: string | null
+      environment_id: string | null
+      url: string | null
+      unreachable_since: string | null
       created_at: string
       updated_at: string
     }[]).map((row) => ({
       prKey: row.pr_key,
       session: {
+        provider: row.provider,
         agentId: row.agent_id,
         runId: row.run_id,
         kind: row.kind,
@@ -211,15 +253,37 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         status: row.status,
         result: row.result,
         branch: row.branch,
+        environmentId: row.environment_id,
+        url: row.url,
+        unreachableSince: row.unreachable_since,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },
     }))
   }
 
-  function sessionsByPull(): Map<string, CursorSession[]> {
-    const map = new Map<string, CursorSession[]>()
-    for (const { prKey, session } of cursorSessions()) {
+  function repoAgents(): Map<string, RepoAgent> {
+    const rows = db.prepare('SELECT repo, provider, environment_id, checkout FROM repo_agents').all() as {
+      repo: string
+      provider: string | null
+      environment_id: string | null
+      checkout: string | null
+    }[]
+    return new Map(
+      rows.map((row) => [row.repo, { provider: isAgentProvider(row.provider) ? row.provider : null, environmentId: row.environment_id, checkout: row.checkout }]),
+    )
+  }
+
+  function agentRouting(): AgentRouting {
+    const row = db.prepare('SELECT default_provider FROM agent_settings WHERE id = 1').get() as { default_provider: string } | undefined
+    const repos: AgentRouting['repos'] = {}
+    for (const [repo, agent] of repoAgents()) if (agent.provider) repos[repo] = agent.provider
+    return { defaultProvider: isAgentProvider(row?.default_provider) ? row.default_provider : DEFAULT_ROUTING.defaultProvider, repos }
+  }
+
+  function sessionsByPull(): Map<string, AgentSession[]> {
+    const map = new Map<string, AgentSession[]>()
+    for (const { prKey, session } of agentSessions()) {
       const list = map.get(prKey) ?? []
       list.push(session)
       map.set(prKey, list)
@@ -240,7 +304,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   function decorate(
     list: PullRequest[],
     tags: Map<string, string[]>,
-    sessions: Map<string, CursorSession[]>,
+    sessions: Map<string, AgentSession[]>,
     links: Map<string, string[]>,
   ): PullRequest[] {
     return list.map((pr) => {
@@ -251,7 +315,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         checks,
         ci: Array.isArray(checks) ? ciLevel(checks) : pr.ci,
         initiativeIds: tags.get(pr.key) ?? [],
-        cursorSessions: sessions.get(pr.key) ?? [],
+        agentSessions: sessions.get(pr.key) ?? [],
       }
     })
   }
@@ -275,6 +339,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       reviewSyncedAt: row?.review_synced_at ?? null,
       repos: watchedRepos(),
       repoMarks: repoMarks(),
+      agents: agentRouting(),
       pullRequests: row ? visible(decorate(parseList(row.pull_requests), tags, sessions, links)) : [],
       reviewPullRequests: row ? visible(decorate(parseList(row.review_pull_requests), tags, sessions, links)) : [],
       initiatives: initiatives(),
@@ -306,7 +371,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   }
 
   function stripStored(list: PullRequest[]): PullRequest[] {
-    return list.map(({ cursorSessions: _sessions, ...pr }) => ({ ...pr, initiativeIds: [] }))
+    return list.map(({ agentSessions: _sessions, ...pr }) => ({ ...pr, initiativeIds: [] }))
   }
 
   function assertUniqueName(name: string, ignoreId?: string) {
@@ -410,6 +475,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.prepare(`DELETE FROM linear_links WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare('DELETE FROM watched_repos WHERE repo = ?').run(repo)
         db.prepare('DELETE FROM repo_marks WHERE repo = ?').run(repo)
+        db.prepare('DELETE FROM repo_agents WHERE repo = ?').run(repo)
         if (row) {
           const mine = stripStored(parseList(row.pull_requests).filter((pr) => pr.repo !== repo))
           const review = stripStored(parseList(row.review_pull_requests).filter((pr) => pr.repo !== repo))
@@ -470,20 +536,41 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         throw error
       }
     },
-    cursorSessions,
-    saveCursorSession(prKey, session) {
-      writeCursorSession.run(
+    agentSessions,
+    saveAgentSession(prKey, session) {
+      writeAgentSession.run(
         session.agentId,
         prKey,
+        session.provider,
         session.kind,
         session.prompt,
         session.runId,
         session.status,
         session.result,
         session.branch,
+        session.environmentId,
+        session.url,
+        session.unreachableSince,
         session.createdAt,
         session.updatedAt,
       )
+    },
+    agentRouting,
+    setDefaultProvider(provider) {
+      db.prepare('INSERT INTO agent_settings (id, default_provider) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET default_provider = excluded.default_provider').run(
+        provider,
+      )
+    },
+    repoAgents,
+    setRepoAgent(repo, agent) {
+      if (!agent.provider && !agent.environmentId && !agent.checkout) {
+        db.prepare('DELETE FROM repo_agents WHERE repo = ?').run(repo)
+        return
+      }
+      db.prepare(
+        `INSERT INTO repo_agents (repo, provider, environment_id, checkout) VALUES (?, ?, ?, ?)
+         ON CONFLICT(repo) DO UPDATE SET provider = excluded.provider, environment_id = excluded.environment_id, checkout = excluded.checkout`,
+      ).run(repo, agent.provider, agent.environmentId, agent.checkout)
     },
     queue,
     patchFeedback(key, counts) {

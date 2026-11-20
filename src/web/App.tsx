@@ -4,7 +4,6 @@ import type { FeedbackCounts } from '../shared/feedback.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
-import { cursorLinks } from '../shared/cursor.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
@@ -35,6 +34,7 @@ function snapshotKey(snap: Snapshot): string {
     snap.reviewSyncedAt,
     snap.warning,
     snap.repos,
+    snap.agents,
     snap.initiatives,
     snap.pullRequests,
     snap.reviewPullRequests,
@@ -621,6 +621,7 @@ export function App() {
               onRepoMark={async (repo, mark) => {
                 setData(adopt(await api.setRepoMark(repo, mark)))
               }}
+              onAgents={(snap) => setData(adopt(snap))}
             />
           ) : null}
           {page === 'queue' ? (
@@ -768,11 +769,12 @@ export function App() {
                 ++applyId.current
                 setData(adopt(snap))
               }}
-              onStartAgent={async (key, request) => {
-                const result = await api.startAgent(key, request)
+              agentRouting={data?.agents}
+              onStartAgent={async (key, request, provider) => {
+                const result = await api.startAgent(key, request, provider)
                 ++applyId.current
                 setData(adopt(result.snapshot))
-                return { url: cursorLinks(result.agentId).webUrl }
+                return { url: result.url }
               }}
             />
           ) : null}

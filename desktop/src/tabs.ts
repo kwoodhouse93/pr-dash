@@ -363,7 +363,7 @@ export class Tabs {
     const row = [...this.model().agents, ...this.model().earlier].find((item) => item.key === key)
     if (!row) return
     if (row.tabId !== null) this.activate(row.tabId)
-    else this.open(row.url)
+    else if (row.url) this.open(row.url)
     if (row.mark !== 'read') this.held.push(key)
     this.markSeen([key])
     this.publish()

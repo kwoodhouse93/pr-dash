@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRequest } from '../src/shared/agents.ts'
 import { summarize } from '../src/shared/stacks.ts'
-import type { Check, CursorSession, PullRequest } from '../src/shared/types.ts'
+import type { Check, AgentSession, PullRequest } from '../src/shared/types.ts'
 import type { Outline } from '../src/shared/view.ts'
 import { MenuProvider } from '../src/web/menus.tsx'
 import { PrTable } from '../src/web/table.tsx'
@@ -29,9 +29,13 @@ function check(conclusion: string): Check {
   }
 }
 
-function session(patch: Partial<CursorSession>): CursorSession {
+function session(patch: Partial<AgentSession>): AgentSession {
   return {
     agentId: 'bc-1',
+    provider: 'cursor',
+    environmentId: null,
+    url: null,
+    unreachableSince: null,
     runId: 'run-1',
     kind: 'conflict',
     prompt: null,
@@ -93,7 +97,7 @@ function pull(patch: Partial<PullRequest> = {}): PullRequest {
     threadsTruncated: false,
     linearIssues: [],
     initiativeIds: [],
-    cursorSessions: [],
+    agentSessions: [],
     ...patch,
   }
 }
@@ -200,7 +204,7 @@ describe('agents', () => {
   }
 
   it('shows a single session as a count colored by its status, with the same list as several', async () => {
-    await render(pull({ conflict: true, cursorSessions: [session({ result: 'Merged main in.' })] }))
+    await render(pull({ conflict: true, agentSessions: [session({ result: 'Merged main in.' })] }))
     const chip = document.querySelector('td.agents .cursor-chip')
     expect(chip?.querySelector('[aria-hidden]')?.textContent).toBe('1')
     expect(chip?.querySelector('.sr')?.textContent).toBe('Cursor agent, Merge conflict, Running')
@@ -222,10 +226,14 @@ describe('agents', () => {
 
   const several = () =>
     pull({
-      cursorSessions: [
+      agentSessions: [
         session({ agentId: 'bc-3', kind: 'prompt', prompt: 'Rename the helper\nand its callers', createdAt: '2026-10-20T14:00:00Z' }),
         session({
           agentId: 'bc-2',
+          provider: 'cursor',
+          environmentId: null,
+          url: null,
+          unreachableSince: null,
           kind: 'ci',
           status: 'finished',
           result: '## Fixed **lint**\n\n- Removed an import in `sidebar.ts`',
@@ -357,7 +365,7 @@ describe('agents', () => {
   })
 
   it('holds the CI shortcut while one is already running', async () => {
-    await render(pull({ checks: [check('FAILURE')], ci: 'red', cursorSessions: [session({ kind: 'ci' })] }))
+    await render(pull({ checks: [check('FAILURE')], ci: 'red', agentSessions: [session({ kind: 'ci' })] }))
     await click(document.querySelector('button.row-menu'))
     expect(button('Cursor is investigating CI on #7')?.disabled).toBe(true)
   })

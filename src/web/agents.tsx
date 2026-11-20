@@ -1,29 +1,31 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { agentKindLabel, agentWork } from '../shared/agents.ts'
-import { cursorLinks, cursorSessionActive, cursorStatusLabel } from '../shared/cursor.ts'
-import type { CursorSession, PullRequest } from '../shared/types.ts'
+import { agentKindLabel, agentWork, providerLabel, sessionActive, sessionLinks, sessionStatusLabel } from '../shared/agents.ts'
+import type { AgentSession, PullRequest } from '../shared/types.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 import { toastError, toastSuccess } from './toasts.tsx'
 
-export type AgentItem = { pr: PullRequest; session: CursorSession }
+export type AgentItem = { pr: PullRequest; session: AgentSession }
 
-function cursorStatusDetail(session: CursorSession): string {
+function statusDetail(session: AgentSession): string {
+  const name = providerLabel(session.provider)
   switch (session.status) {
     case 'creating':
-      return 'Cursor is starting a cloud agent.'
+      return session.provider === 'cursor' ? 'Cursor is starting a cloud agent.' : `${name} is starting a thread.`
     case 'running':
-      return agentWork(session.kind)
+      return agentWork(session.kind, session.provider)
+    case 'waiting':
+      return `${name} is waiting for an answer. Open the session to reply.`
     case 'finished':
-      return 'Cursor finished this run.'
+      return `${name} finished this run.`
     case 'failed':
-      return 'Cursor reported a failed run.'
+      return `${name} reported a failed run.`
     case 'cancelled':
-      return 'This Cursor run was cancelled.'
+      return `This ${name} run was cancelled.`
     case 'expired':
-      return 'This Cursor run expired.'
+      return session.provider === 'cursor' ? 'This Cursor run expired.' : `This thread is no longer in ${name}.`
   }
 }
 
@@ -42,8 +44,8 @@ function firstLine(text: string): string {
 }
 
 /** One line that says what a session is about: its reply once it has one, then its prompt, then its status. */
-export function agentGist(session: CursorSession): string {
-  return (session.result && firstLine(session.result)) || (session.prompt && firstLine(session.prompt)) || cursorStatusDetail(session)
+export function agentGist(session: AgentSession): string {
+  return (session.result && firstLine(session.result)) || (session.prompt && firstLine(session.prompt)) || statusDetail(session)
 }
 
 function startedWhen(iso: string): string {
@@ -59,7 +61,7 @@ function Summary({ item, showPr }: { item: AgentItem; showPr: boolean }) {
       <span className="agent-sum">
         <span className="agent-title">
           {showPr ? `#${pr.number} · ` : ''}
-          {agentKindLabel(session.kind)} · <span className={`agent-status ${session.status}`}>{cursorStatusLabel(session.status)}</span>
+          {agentKindLabel(session.kind)} · <span className={`agent-status ${session.status}`}>{sessionStatusLabel(session.status)}</span>
         </span>
         <span className="agent-gist">{agentGist(session)}</span>
       </span>
@@ -75,7 +77,7 @@ function Summary({ item, showPr }: { item: AgentItem; showPr: boolean }) {
 export function AgentList({ items, showPr, onOpen }: { items: AgentItem[]; showPr: boolean; onOpen: (agentId: string | null) => void }) {
   return (
     <div className="agent-list">
-      <h3>Cursor agents</h3>
+      <h3>Agents</h3>
       {items.map((item) => (
         <button key={item.session.agentId} type="button" className="agent-row" onClick={() => onOpen(item.session.agentId)}>
           <Summary item={item} showPr={showPr} />
@@ -90,7 +92,8 @@ export function AgentList({ items, showPr, onOpen }: { items: AgentItem[]; showP
   )
 }
 
-const TALLY: { label: string; tone: CursorSession['status']; statuses: CursorSession['status'][] }[] = [
+const TALLY: { label: string; tone: AgentSession['status']; statuses: AgentSession['status'][] }[] = [
+  { label: 'waiting', tone: 'waiting', statuses: ['waiting'] },
   { label: 'running', tone: 'running', statuses: ['creating', 'running'] },
   { label: 'finished', tone: 'finished', statuses: ['finished'] },
   { label: 'failed', tone: 'failed', statuses: ['failed'] },
@@ -99,7 +102,7 @@ const TALLY: { label: string; tone: CursorSession['status']; statuses: CursorSes
 
 function startOpen(items: AgentItem[], focus: string | null): Set<string> {
   if (focus) return new Set([focus])
-  const active = items.filter((item) => cursorSessionActive(item.session.status)).map((item) => item.session.agentId)
+  const active = items.filter((item) => sessionActive(item.session.status)).map((item) => item.session.agentId)
   if (active.length > 0) return new Set(active)
   return new Set(items.slice(0, 1).map((item) => item.session.agentId))
 }
@@ -151,7 +154,7 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
       <aside className="drawer agent-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="drawer-head">
           <div>
-            <p className="eyebrow" id={titleId}>Cursor agents</p>
+            <p className="eyebrow" id={titleId}>Agents</p>
             {single ? (
               <a className="drawer-pr external" href={prHref(single.url, host)} target="_blank" rel="noreferrer">
                 #{single.number} {single.title}
@@ -198,7 +201,8 @@ async function copyReply(text: string) {
 function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: boolean; open: boolean; onToggle: () => void }) {
   const { session } = item
   const bodyId = useId()
-  const links = cursorLinks(session.agentId)
+  const links = sessionLinks(session)
+  const name = providerLabel(session.provider)
   return (
     <section className="agent-section" data-open={open || undefined}>
       <button type="button" className="agent-row" aria-expanded={open} aria-controls={bodyId} onClick={onToggle}>
@@ -208,7 +212,7 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
         <div className="agent-detail" id={bodyId}>
           {session.prompt ? <p className="agent-prompt">{session.prompt}</p> : null}
           <p className="agent-meta">
-            {cursorStatusDetail(session)} <span title={formatExact(session.createdAt)}>Started {startedWhen(session.createdAt)}.</span>
+            {statusDetail(session)} <span title={formatExact(session.createdAt)}>Started {startedWhen(session.createdAt)}.</span>
             {session.branch ? (
               <>
                 {' '}
@@ -216,14 +220,23 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
               </>
             ) : null}
           </p>
+          {session.unreachableSince ? (
+            <p className="agent-meta agent-unreachable" title={formatExact(session.unreachableSince)}>
+              {name} has not answered since {formatWhen(session.unreachableSince)}, so this status may be out of date.
+            </p>
+          ) : null}
           {session.result ? <Markdown className="cursor-result agent-reply" text={session.result} /> : null}
           <div className="agent-links">
-            <a className="external" href={links.desktopUrl}>
-              Open in Cursor
-            </a>
-            <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
-              Open on the web
-            </a>
+            {links.appUrl ? (
+              <a className="external" href={links.appUrl}>
+                Open in {name}
+              </a>
+            ) : null}
+            {links.webUrl ? (
+              <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
+                {links.appUrl ? 'Open on the web' : `Open in ${name}`}
+              </a>
+            ) : null}
             {session.result ? (
               <button type="button" onClick={() => void copyReply(session.result ?? '')}>
                 Copy reply

@@ -7,7 +7,8 @@ import { landedMergeVisible, type RemotePullState } from '../shared/queue.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
 import { rulesFresh } from '../shared/rules.ts'
-import { refreshCursorSessions } from './cursor.ts'
+import { refreshSessions } from './agent-provider.ts'
+import { agentProviders } from './agents.ts'
 import type { DashboardDb } from './db.ts'
 import { processMergeWatches } from './merge-worker.ts'
 import {
@@ -319,13 +320,13 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean, sign
     }
     if (failed) throw new Error(failed)
     if (signal.aborted) throw new SyncCancelled()
-    note('Checking Cursor')
+    note('Checking agents')
     const selected = new Set(db.watchedRepos())
-    const sessions = db.cursorSessions().filter(({ prKey }) => {
+    const sessions = db.agentSessions().filter(({ prKey }) => {
       const repo = pullKeyRepo(prKey)
       return repo != null && selected.has(repo)
     })
-    await refreshCursorSessions(sessions, (prKey, session) => db.saveCursorSession(prKey, session))
+    await refreshSessions(agentProviders, sessions, (prKey, session) => db.saveAgentSession(prKey, session))
     return db.snapshot()
   } catch (error) {
     if (cancelled(error, signal)) throw new SyncCancelled()

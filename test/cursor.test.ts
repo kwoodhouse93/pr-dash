@@ -3,15 +3,19 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { agentBlocker, parseAgentRequest, sessionNote, type ThreadFix } from '../src/shared/agents.ts'
-import { cursorLinks, cursorPushedBranch, cursorSessionStatus, cursorStatusLabel, leadingCursorStatus } from '../src/shared/cursor.ts'
-import type { Check, CursorSession, PullRequest } from '../src/shared/types.ts'
+import { agentBlocker, leadingStatus, parseAgentRequest, sessionNote, sessionStatusLabel, type ThreadFix } from '../src/shared/agents.ts'
+import { cursorLinks, cursorPushedBranch, cursorSessionStatus } from '../src/shared/cursor.ts'
+import type { Check, AgentSession, PullRequest } from '../src/shared/types.ts'
 import { agentTask } from '../src/server/agent-tasks.ts'
 import { openDatabase } from '../src/server/db.ts'
 
-function session(patch: Partial<CursorSession> = {}): CursorSession {
+function session(patch: Partial<AgentSession> = {}): AgentSession {
   return {
     agentId: 'bc-123',
+    provider: 'cursor',
+    environmentId: null,
+    url: null,
+    unreachableSince: null,
     runId: 'run-1',
     kind: 'conflict',
     prompt: null,
@@ -50,7 +54,7 @@ function pull(patch: Partial<PullRequest> = {}): PullRequest {
     conflict: false,
     checks: [],
     linearIssues: [],
-    cursorSessions: [],
+    agentSessions: [],
     ...patch,
   } as PullRequest
 }
@@ -72,13 +76,13 @@ describe('cursor sessions', () => {
   })
 
   it('prefers a running session over a finished one', () => {
-    expect(leadingCursorStatus(['finished', 'failed', 'running'])).toBe('running')
-    expect(leadingCursorStatus([])).toBeNull()
+    expect(leadingStatus(['finished', 'failed', 'running'])).toBe('running')
+    expect(leadingStatus([])).toBeNull()
   })
 
   it('labels statuses without naming the task', () => {
-    expect(cursorStatusLabel('running')).toBe('Running')
-    expect(cursorStatusLabel('finished')).toBe('Finished')
+    expect(sessionStatusLabel('running')).toBe('Running')
+    expect(sessionStatusLabel('finished')).toBe('Finished')
   })
 
   it('reads the pushed branch and builds both session links', () => {
@@ -100,17 +104,17 @@ describe('cursor sessions', () => {
       linearConfigured: false,
       warning: null,
     })
-    db.saveCursorSession('acme/app#1', session())
-    db.saveCursorSession(
+    db.saveAgentSession('acme/app#1', session())
+    db.saveAgentSession(
       'acme/app#1',
       session({ agentId: 'bc-456', kind: 'prompt', prompt: 'Tidy the tests', createdAt: '2026-10-21T00:05:00Z' }),
     )
 
-    expect(db.snapshot().pullRequests[0]?.cursorSessions?.map((item) => item.agentId)).toEqual(['bc-456', 'bc-123'])
-    expect(db.snapshot().pullRequests[0]?.cursorSessions?.[0]).toMatchObject({ kind: 'prompt', prompt: 'Tidy the tests' })
+    expect(db.snapshot().pullRequests[0]?.agentSessions?.map((item) => item.agentId)).toEqual(['bc-456', 'bc-123'])
+    expect(db.snapshot().pullRequests[0]?.agentSessions?.[0]).toMatchObject({ kind: 'prompt', prompt: 'Tidy the tests' })
 
-    db.saveCursorSession('acme/app#1', session({ status: 'finished', result: 'Done', updatedAt: '2026-10-21T00:06:00Z' }))
-    const saved = db.snapshot().pullRequests[0]?.cursorSessions?.find((item) => item.agentId === 'bc-123')
+    db.saveAgentSession('acme/app#1', session({ status: 'finished', result: 'Done', updatedAt: '2026-10-21T00:06:00Z' }))
+    const saved = db.snapshot().pullRequests[0]?.agentSessions?.find((item) => item.agentId === 'bc-123')
     expect(saved).toMatchObject({ status: 'finished', result: 'Done', kind: 'conflict', createdAt: '2026-10-21T00:01:00Z' })
 
     db.saveSnapshot({
@@ -120,7 +124,7 @@ describe('cursor sessions', () => {
       linearConfigured: false,
       warning: null,
     })
-    expect(db.snapshot().pullRequests[0]?.cursorSessions).toHaveLength(2)
+    expect(db.snapshot().pullRequests[0]?.agentSessions).toHaveLength(2)
 
     const review = { key: 'acme/app#2', title: 'Theirs', author: 'ada' } as PullRequest
     db.saveSnapshot({
@@ -132,7 +136,7 @@ describe('cursor sessions', () => {
       warning: null,
     })
     expect(db.snapshot().reviewPullRequests.map((item) => item.key)).toEqual(['acme/app#2'])
-    expect(db.snapshot().reviewPullRequests[0]?.cursorSessions).toEqual([])
+    expect(db.snapshot().reviewPullRequests[0]?.agentSessions).toEqual([])
     db.saveSnapshot({
       viewer: 'k',
       syncedAt: '2026-10-21T00:04:00Z',
@@ -156,11 +160,15 @@ describe('cursor sessions', () => {
     legacy.close()
 
     const db = openDatabase(file)
-    expect(db.cursorSessions()).toEqual([
+    expect(db.agentSessions()).toEqual([
       {
         prKey: 'acme/app#1',
         session: session({
           agentId: 'bc-old',
+          provider: 'cursor',
+          environmentId: null,
+          url: null,
+          unreachableSince: null,
           status: 'finished',
           result: 'Resolved',
           branch: 'feature',
@@ -194,22 +202,22 @@ describe('agent shortcuts', () => {
   it('runs one shortcut of a kind at a time, and prompts side by side', () => {
     expect(agentBlocker(pull(), { kind: 'conflict' })).toMatch(/no longer has a merge conflict/)
     expect(agentBlocker(pull({ conflict: true }), { kind: 'conflict' })).toBeNull()
-    expect(agentBlocker(pull({ conflict: true, cursorSessions: [session()] }), { kind: 'conflict' })).toMatch(/already resolving/)
-    expect(agentBlocker(pull({ conflict: true, cursorSessions: [session({ status: 'finished' })] }), { kind: 'conflict' })).toBeNull()
+    expect(agentBlocker(pull({ conflict: true, agentSessions: [session()] }), { kind: 'conflict' })).toMatch(/already resolving/)
+    expect(agentBlocker(pull({ conflict: true, agentSessions: [session({ status: 'finished' })] }), { kind: 'conflict' })).toBeNull()
 
     expect(agentBlocker(pull(), { kind: 'ci' })).toMatch(/no failing checks/)
     expect(agentBlocker(pull({ checks: [failed('test')] }), { kind: 'ci' })).toBeNull()
-    expect(agentBlocker(pull({ checks: [failed('test')], cursorSessions: [session({ kind: 'ci' })] }), { kind: 'ci' })).toMatch(
+    expect(agentBlocker(pull({ checks: [failed('test')], agentSessions: [session({ kind: 'ci' })] }), { kind: 'ci' })).toMatch(
       /already investigating/,
     )
 
-    const busy = pull({ cursorSessions: [session({ kind: 'prompt', prompt: 'One' })] })
+    const busy = pull({ agentSessions: [session({ kind: 'prompt', prompt: 'One' })] })
     expect(agentBlocker(busy, { kind: 'prompt', prompt: 'Two' })).toBeNull()
     expect(agentBlocker(busy, { kind: 'prompt', prompt: '   ' })).toMatch(/Write a prompt/)
 
     expect(agentBlocker(pull(), { kind: 'thread', thread: thread(), prompt: null })).toBeNull()
     expect(agentBlocker(pull(), { kind: 'thread', thread: thread({ comments: [{ author: 'ada', body: '   ' }] }), prompt: null })).toMatch(
-      /nothing for Cursor/,
+      /nothing for an agent/,
     )
     expect(agentBlocker(pull(), { kind: 'thread', thread: thread(), prompt: 'x'.repeat(8001) })).toMatch(/under 8,000/)
     expect(agentBlocker(busy, { kind: 'thread', thread: thread(), prompt: 'Look again' })).toBeNull()

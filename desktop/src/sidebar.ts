@@ -1,8 +1,7 @@
-import { agentKindLabel } from '../../src/shared/agents.ts'
-import { cursorLinks, cursorSessionActive } from '../../src/shared/cursor.ts'
+import { agentKindLabel, sessionActive, sessionLinks } from '../../src/shared/agents.ts'
 import { layoutRails } from '../../src/shared/rails.ts'
 import { buildStacks, type Stack } from '../../src/shared/stacks.ts'
-import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type CursorSession, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
+import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
 import { buildOutline } from '../../src/shared/view.ts'
 
 // What the sidebar and the tab strip show, worked out from the open tabs and
@@ -93,7 +92,8 @@ export type AgentRow = {
   number: number
   mark: AgentMark
   age: string
-  url: string
+  /** The session's page. Null until the provider gives one. */
+  url: string | null
   tabId: number | null
 }
 
@@ -187,7 +187,7 @@ function linearProject(ref: LinearRef, known: Map<string, Known>): string | null
 }
 
 type Known = { pr: PullRequest; list: 'mine' | 'review' }
-type Run = { key: string; session: CursorSession; pr: PullRequest }
+type Run = { key: string; session: AgentSession; pr: PullRequest }
 type Step = { id: string; title: string; last?: boolean }
 
 function indexPrs(data: Snapshot | null): Map<string, Known> {
@@ -201,14 +201,14 @@ function indexPrs(data: Snapshot | null): Map<string, Known> {
   return known
 }
 
-export function runKey(session: CursorSession): string {
+export function runKey(session: AgentSession): string {
   return `${session.agentId}:${session.runId}`
 }
 
 function collectRuns(known: Map<string, Known>): Run[] {
   const runs = new Map<string, Run>()
   for (const { pr } of known.values()) {
-    for (const session of pr.cursorSessions ?? []) {
+    for (const session of pr.agentSessions ?? []) {
       const key = runKey(session)
       if (!runs.has(key)) runs.set(key, { key, session, pr })
     }
@@ -224,7 +224,7 @@ function isUnread(run: Run, state: AgentState): boolean {
   return !seen || seen < updatedAt
 }
 
-function agentLabel(session: CursorSession): string {
+function agentLabel(session: AgentSession): string {
   const first = session.prompt?.split('\n')[0]?.trim()
   if (session.kind === 'prompt' && first) return first
   if (session.kind === 'thread' && first) return first.split('/').at(-1)!
@@ -240,9 +240,11 @@ export function ageLabel(from: string, now: number): string {
 }
 
 function agentOf(url: string, runs: Run[]): Run | null {
-  if (!/^https:\/\/(www\.)?cursor\.com\//.test(url)) return null
+  const cursor = /^https:\/\/(www\.)?cursor\.com\//.test(url)
+  // A Cursor tab moves around inside its agent's pages. Any other provider's tab is on the session's own address.
+  const shown = runs.filter((run) => (run.session.provider === 'cursor' ? cursor && url.includes(run.session.agentId) : sessionLinks(run.session).webUrl === url))
   // Newest run first, so a tab on an agent with several runs counts as the latest.
-  return runs.filter((run) => url.includes(run.session.agentId)).sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt))[0] ?? null
+  return shown.sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt))[0] ?? null
 }
 
 /** Every unread run a tab on this address is showing. */
@@ -440,7 +442,7 @@ export function buildSidebar(input: {
     for (const other of runs) if (other.session.agentId === run.session.agentId && !tabOfRun.has(other.key)) tabOfRun.set(other.key, tab.id)
   }
   const markOf = (run: Run): AgentMark => {
-    if (cursorSessionActive(run.session.status)) return 'running'
+    if (sessionActive(run.session.status)) return 'running'
     if (!isUnread(run, agentState)) return 'read'
     return run.session.status === 'failed' ? 'failed' : 'unread'
   }
@@ -452,13 +454,13 @@ export function buildSidebar(input: {
       number: run.pr.number,
       mark,
       age: ageLabel(mark === 'running' ? run.session.createdAt : run.session.updatedAt, now),
-      url: cursorLinks(run.session.agentId).webUrl,
+      url: sessionLinks(run.session).webUrl,
       tabId: tabOfRun.get(run.key) ?? null,
     }
   }
   const dismissed = new Set(agentState.dismissed)
   const rows = runs.map(agentRow)
-  const stamp = new Map(runs.map((run) => [run.key, cursorSessionActive(run.session.status) ? run.session.createdAt : run.session.updatedAt]))
+  const stamp = new Map(runs.map((run) => [run.key, sessionActive(run.session.status) ? run.session.createdAt : run.session.updatedAt]))
   const newest = (a: AgentRow, b: AgentRow) => stamp.get(b.key)!.localeCompare(stamp.get(a.key)!)
   const listed = (row: AgentRow) => (row.mark !== 'read' || held.has(row.key)) && !dismissed.has(row.key)
   const current = rows.filter(listed)
@@ -477,7 +479,7 @@ export function buildSidebar(input: {
     else top.push(tab)
   }
 
-  const activeRuns = new Set(runs.filter((run) => cursorSessionActive(run.session.status)).map((run) => run.pr.key))
+  const activeRuns = new Set(runs.filter((run) => sessionActive(run.session.status)).map((run) => run.pr.key))
   const rowOf = (tab: TabInfo): TabRow => {
     const shown = lookup(tab.url)
     return {

@@ -36,8 +36,8 @@ import type { FeedbackDetail } from '../shared/feedback.ts'
 import { cancelQueuedSync, describeSync, enqueueSync, loadThreadFeedback, noteListFocus, refreshPull, refreshSnapshot, startBackgroundSync, SyncCancelled } from './sync.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase, selectChecks } from '../shared/ci.ts'
-import { agentBlocker, parseAgentRequest } from '../shared/agents.ts'
-import { startCursorAgent } from './cursor.ts'
+import { agentBlocker, isAgentProvider, parseAgentRequest } from '../shared/agents.ts'
+import { AgentLaunchUnavailable, agentSettings, launchAgent } from './agents.ts'
 import { rebasePull, RebaseRejected } from './rebase.ts'
 import { isLoopback, refusal } from './origin.ts'
 
@@ -419,19 +419,46 @@ app.post('/api/feedback/resolve', async (c) => {
 })
 
 app.post('/api/pulls/agents', async (c) => {
-  const body = await c.req.json<{ key?: string }>().catch(() => null)
+  const body = await c.req.json<{ key?: string; provider?: unknown }>().catch(() => null)
   const request = parseAgentRequest(body)
   if (!body?.key || !request) return c.json({ error: 'A pull request and an agent kind are required.' }, 400)
+  if (body.provider != null && !isAgentProvider(body.provider)) return c.json({ error: 'That is not an agent provider.' }, 400)
   const pr = listedPulls(db.snapshot()).find((item) => item.key === body.key)
   if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
   const blocked = agentBlocker(pr, request)
   if (blocked) return c.json({ error: blocked }, 409)
   try {
-    const session = await startCursorAgent(pr, request)
-    db.saveCursorSession(pr.key, session)
-    return c.json({ snapshot: db.snapshot(), agentId: session.agentId })
+    const session = await launchAgent(db, pr, request, body.provider ?? null)
+    return c.json({ snapshot: db.snapshot(), agentId: session.agentId, provider: session.provider, url: session.url })
   } catch (error) {
+    if (error instanceof AgentLaunchUnavailable) {
+      return c.json({ error: error.message, provider: error.provider, fallback: error.fallback }, 503)
+    }
     return c.json({ error: messageOf(error) }, 502)
+  }
+})
+
+app.get('/api/agents', async (c) => c.json(await agentSettings(db)))
+
+app.post('/api/agents', async (c) => {
+  const body = await c.req.json<{ defaultProvider?: unknown }>().catch(() => null)
+  if (!isAgentProvider(body?.defaultProvider)) return c.json({ error: 'Pick an agent provider from the list.' }, 400)
+  db.setDefaultProvider(body.defaultProvider)
+  return c.json({ settings: await agentSettings(db), snapshot: db.snapshot() })
+})
+
+app.post('/api/agents/repo', async (c) => {
+  try {
+    const body = await c.req.json<{ repo?: string; provider?: unknown; checkout?: unknown }>()
+    const repo = parseRepoName(body.repo ?? '')
+    if (!db.watchedRepos().includes(repo)) return c.json({ error: `${repo} is not one of your repositories.` }, 404)
+    if (body.provider != null && !isAgentProvider(body.provider)) return c.json({ error: 'Pick an agent provider from the list.' }, 400)
+    if (body.checkout != null && typeof body.checkout !== 'string') return c.json({ error: 'Give the folder as text.' }, 400)
+    const checkout = body.checkout?.trim().slice(0, 1000) || null
+    db.setRepoAgent(repo, { provider: body.provider ?? null, environmentId: db.repoAgents().get(repo)?.environmentId ?? null, checkout })
+    return c.json({ settings: await agentSettings(db), snapshot: db.snapshot() })
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 400)
   }
 })
 

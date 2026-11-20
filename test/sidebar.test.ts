@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildSidebar, drawStacks, linearRef, linearStayUrl, prRef, pruneAgentState, runsShownAt, shareUrl, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
-import type { CursorSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
+import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
 
 const NOW = Date.parse('2026-11-19T12:00:00Z')
 
@@ -35,9 +35,13 @@ function issue(identifier: string, projectName: string | null): LinearIssue {
   return { identifier, title: `Title ${identifier}`, url: null, projectId: projectName, projectName }
 }
 
-function session(agentId: string, over: Partial<CursorSession> = {}): CursorSession {
+function session(agentId: string, over: Partial<AgentSession> = {}): AgentSession {
   return {
     agentId,
+    provider: 'cursor',
+    environmentId: null,
+    url: null,
+    unreachableSince: null,
     runId: 'run-1',
     kind: 'ci',
     prompt: null,
@@ -278,7 +282,7 @@ describe('sidebar agents', () => {
   const done = session('bc-done', { kind: 'conflict', status: 'finished', updatedAt: '2026-11-19T10:00:00Z' })
   const failed = session('bc-fail', { kind: 'thread', prompt: 'src/deals/invite.ts:88\n\nUse the list', status: 'failed', updatedAt: '2026-11-19T11:00:00Z' })
   const old = session('bc-old', { status: 'finished', updatedAt: '2026-10-01T00:00:00Z' })
-  const data = snapshot([pr(1, { cursorSessions: [running, done] }), pr(2, { cursorSessions: [failed, old] })])
+  const data = snapshot([pr(1, { agentSessions: [running, done] }), pr(2, { agentSessions: [failed, old] })])
 
   it('lists running agents, then unread ones, and folds the rest away', () => {
     const model = build([], data)

@@ -108,8 +108,12 @@ describe('forgetting a repository', () => {
       warning: null,
     })
     db.setAssignments(initiative.id, ['acme/app#1', 'keep/other#2'], 'add')
-    db.saveCursorSession('acme/app#1', {
+    db.saveAgentSession('acme/app#1', {
       agentId: 'bc-1',
+      provider: 'cursor',
+      environmentId: null,
+      url: null,
+      unreachableSince: null,
       runId: 'run-1',
       kind: 'prompt',
       prompt: 'Look',
@@ -119,8 +123,12 @@ describe('forgetting a repository', () => {
       createdAt: '2026-10-21T00:00:00Z',
       updatedAt: '2026-10-21T00:00:00Z',
     })
-    db.saveCursorSession('keep/other#2', {
+    db.saveAgentSession('keep/other#2', {
       agentId: 'bc-2',
+      provider: 'cursor',
+      environmentId: null,
+      url: null,
+      unreachableSince: null,
       runId: 'run-2',
       kind: 'prompt',
       prompt: 'Stay',
@@ -177,7 +185,7 @@ describe('forgetting a repository', () => {
     expect(snap.reviewPullRequests).toEqual([])
     expect(snap.pullRequests[0]?.initiativeIds).toEqual([initiative.id])
     expect(db.ruleCache().map((rule) => rule.repo)).toEqual(['keep/other'])
-    expect(db.cursorSessions().map((item) => item.prKey)).toEqual(['keep/other#2'])
+    expect(db.agentSessions().map((item) => item.prKey)).toEqual(['keep/other#2'])
     expect(db.queue.snapshot().entries.map((item) => item.repo)).toEqual(['keep/other'])
     expect(db.storedRepos()).toEqual(['keep/other'])
   })

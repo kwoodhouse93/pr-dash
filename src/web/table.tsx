@@ -1,18 +1,29 @@
 import { createContext, useContext, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, selectChecks, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
-import { activeSession, agentKindLabel, agentWork, failingChecks, PROMPT_LIMIT, type AgentRequest } from '../shared/agents.ts'
+import {
+  activeSession,
+  agentKindLabel,
+  agentWork,
+  failingChecks,
+  leadingStatus,
+  PROMPT_LIMIT,
+  providerLabel,
+  sessionActive,
+  sessionLinks,
+  sessionStatusLabel,
+  type AgentRequest,
+} from '../shared/agents.ts'
 import { approvedByLogin } from '../shared/approval.ts'
-import { cursorLinks, cursorSessionActive, cursorStatusLabel, leadingCursorStatus } from '../shared/cursor.ts'
 import { canMergeSlice, canSquashMerge, sliceParts } from '../shared/merge.ts'
 import { stepLabel, type MergeWatch, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { Rail } from '../shared/rails.ts'
 import { downstackKeys, mergeLineKeys, upstackKeys, type Parents, type StackSummary } from '../shared/stacks.ts'
 import { rollup, SEGMENT_LABEL, segmentState, type SegmentState } from '../shared/segments.ts'
 import { RepoIcon } from './repo-mark.tsx'
-import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
+import type { AgentRouting, AgentSession, Check, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import { blockRails, type Bucket, type Outline, type ProjectGroup, type StackBlock } from '../shared/view.ts'
 import { AgentDrawer, AgentList } from './agents.tsx'
-import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
+import { AgentProvider, launchTag, useAgentLaunch, useAgentName, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
 import { ageHeat, copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
 import { usePrHref } from './pr-links.tsx'
@@ -75,6 +86,7 @@ export function PrTable({
   holds,
   onRerun,
   onStartAgent,
+  agentRouting,
   onRebase,
   byIssue,
   onRefreshPr,
@@ -108,6 +120,8 @@ export function PrTable({
   holds: Map<string, CheckHold[]>
   onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
   onStartAgent: StartAgent
+  /** Which provider starts agents for each repository. Left out, Cursor starts them all. */
+  agentRouting?: AgentRouting
   onRebase: (key: string) => Promise<void>
   byIssue: boolean
   onRefreshPr: (key: string) => Promise<void>
@@ -147,7 +161,7 @@ export function PrTable({
   }
   return (
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
-    <AgentProvider start={onStartAgent}>
+    <AgentProvider start={onStartAgent} routing={agentRouting}>
     <HoldContext.Provider value={holds}>
     <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
       <thead>
@@ -164,7 +178,7 @@ export function PrTable({
           <th className="branch" title="A red cross is a merge conflict. A white cross is behind the base branch.">Branch</th>
           <th>Review</th>
           <th>Feedback</th>
-          <th className="agents" title="Cursor agents">
+          <th className="agents" title="Agents started from this dashboard">
             <span className="sr">Agents</span>
             <RobotIcon />
           </th>
@@ -1145,6 +1159,7 @@ function Subline({
 function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
   const conflicts = prs.filter((pr) => pr.conflict)
   const { launch, pending, error } = useAgentLaunch()
+  const name = useAgentName(prs[0]?.repo ?? null)
   const { locked } = useStackLock()
 
   if (conflicts.length === 0) {
@@ -1164,15 +1179,15 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
           disabled={locked}
           label={
             <>
-              <span className="sr">Resolve merge conflict with Cursor</span>
+              <span className="sr">Resolve merge conflict with {name}</span>
               <svg viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </>
           }
         >
-          <h3>Resolve with Cursor</h3>
-          <p>Cursor will resolve the conflict and push to this pull request’s existing branch.</p>
+          <h3>Resolve with {name}</h3>
+          <p>{name} will resolve the conflict and push to this pull request’s existing branch.</p>
           {conflicts.map((pr) => {
             const running = activeSession(pr, 'conflict')
             const request: AgentRequest = { kind: 'conflict' }
@@ -1186,10 +1201,10 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
                     type="button"
                     className="primary resolve-cta"
                     disabled={locked || pending !== null}
-                    aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with Cursor` : undefined}
+                    aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with ${name}` : undefined}
                     onClick={() => void launch(pr, request)}
                   >
-                    {pending === launchTag(pr.key, request) ? 'Starting Cursor…' : 'Resolve with Cursor'}
+                    {pending === launchTag(pr.key, request) ? `Starting ${name}…` : `Resolve with ${name}`}
                   </button>
                 )}
               </div>
@@ -1202,22 +1217,24 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
   )
 }
 
-function RunningNote({ session, prefix = null }: { session: CursorSession; prefix?: string | null }) {
-  const links = cursorLinks(session.agentId)
+function RunningNote({ session, prefix = null }: { session: AgentSession; prefix?: string | null }) {
+  const { webUrl } = sessionLinks(session)
   return (
     <p>
       {prefix ? `${prefix} · ` : ''}
-      {cursorStatusLabel(session.status)}. {agentWork(session.kind)}{' '}
-      <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
-        Open session
-      </a>
+      {sessionStatusLabel(session.status)}. {agentWork(session.kind, session.provider)}{' '}
+      {webUrl ? (
+        <a className="external" href={webUrl} target="_blank" rel="noreferrer">
+          Open session
+        </a>
+      ) : null}
     </p>
   )
 }
 
 function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
   const sessions = prs
-    .flatMap((pr) => (pr.cursorSessions ?? []).map((session) => ({ pr, session })))
+    .flatMap((pr) => (pr.agentSessions ?? []).map((session) => ({ pr, session })))
     .sort((left, right) => right.session.createdAt.localeCompare(left.session.createdAt))
   const { locked } = useStackLock()
   const closeMenu = useMenuClose()
@@ -1225,16 +1242,16 @@ function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
   if (sessions.length === 0) {
     return (
       <td className="agents">
-        <span className="sr">No Cursor agents</span>
+        <span className="sr">No agents</span>
       </td>
     )
   }
-  const lead = leadingCursorStatus(sessions.map((item) => item.session.status)) ?? 'running'
-  const active = sessions.filter((item) => cursorSessionActive(item.session.status)).length
+  const lead = leadingStatus(sessions.map((item) => item.session.status)) ?? 'running'
+  const active = sessions.filter((item) => sessionActive(item.session.status)).length
   const only = sessions.length === 1 ? sessions[0]!.session : null
   const spoken = only
-    ? `Cursor agent, ${agentKindLabel(only.kind)}, ${cursorStatusLabel(only.status)}`
-    : `${sessions.length} Cursor agents, ${active} active`
+    ? `${providerLabel(only.provider)} agent, ${agentKindLabel(only.kind)}, ${sessionStatusLabel(only.status)}`
+    : `${sessions.length} agents, ${active} active`
   const label = (
     <>
       <span className="sr">{spoken}</span>
@@ -1407,6 +1424,7 @@ function RowMenuBody(props: RowMenuProps) {
   const close = useMenuClose()
   const agents = useAgentLaunch()
   const pr = props.prByKey.get(props.primaryKey)
+  const name = useAgentName(pr?.repo ?? props.prs[0]?.repo ?? null)
   const promptTargets = props.prs.length ? props.prs : pr ? [pr] : []
   const failing = props.prs.filter((item) => failingChecks(item).length > 0)
   const copyTargets = downstackTargets(props.parents, props.primaryKey, props.prByKey, props.prs)
@@ -1468,7 +1486,7 @@ function RowMenuBody(props: RowMenuProps) {
       ) : null}
       {promptTargets.length ? (
         <button type="button" className="menu-item" onClick={() => setView('prompt')}>
-          Work on {promptTargets.length > 1 ? 'a pull request' : `#${promptTargets[0]!.number}`} with Cursor…
+          Work on {promptTargets.length > 1 ? 'a pull request' : `#${promptTargets[0]!.number}`} with {name}…
         </button>
       ) : null}
       {failing.map((item) => {
@@ -1487,9 +1505,9 @@ function RowMenuBody(props: RowMenuProps) {
             }}
           >
             {agents.pending === launchTag(item.key, request)
-              ? 'Starting Cursor…'
+              ? `Starting ${name}…`
               : running
-                ? `Cursor is investigating CI on #${item.number}`
+                ? `${providerLabel(running.provider)} is investigating CI on #${item.number}`
                 : `Investigate CI failure on #${item.number}`}
           </button>
         )
@@ -1513,6 +1531,7 @@ function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; i
   const [text, setText] = useState('')
   const { launch, pending, error } = useAgentLaunch()
   const pr = prs.find((item) => item.key === key) ?? prs[0]!
+  const name = useAgentName(pr.repo)
   const busy = pending !== null
   const ready = text.trim().length > 0 && text.length <= PROMPT_LIMIT
   return (
@@ -1526,8 +1545,8 @@ function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; i
         })
       }}
     >
-      <h3>Work on #{pr.number} with Cursor</h3>
-      <p>Cursor gets this pull request’s link, branches, and linked issues, and pushes to its existing branch.</p>
+      <h3>Work on #{pr.number} with {name}</h3>
+      <p>{name} gets this pull request’s link, branches, and linked issues, and pushes to its existing branch.</p>
       {prs.length > 1 ? (
         <label className="agent-target">
           Pull request
@@ -1541,8 +1560,8 @@ function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; i
         </label>
       ) : null}
       <textarea
-        aria-label="Prompt for Cursor"
-        placeholder="What should Cursor do?"
+        aria-label={`Prompt for ${name}`}
+        placeholder={`What should ${name} do?`}
         rows={5}
         autoFocus
         value={text}
@@ -1558,7 +1577,7 @@ function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; i
       />
       <p className="faint reply-hint">⌘↵ to start</p>
       <button type="submit" className="primary resolve-cta" disabled={!ready || busy}>
-        {busy ? 'Starting Cursor…' : 'Start agent'}
+        {busy ? `Starting ${name}…` : 'Start agent'}
       </button>
       {error ? <p className="launch-error">{error}</p> : null}
     </form>
@@ -2015,6 +2034,7 @@ function RerunActions({ keys, onRerun }: { keys: string[]; onRerun: (keys: strin
 function CiAgentActions({ prs }: { prs: PullRequest[] }) {
   const failing = prs.filter((pr) => failingChecks(pr).length > 0)
   const { launch, pending, error } = useAgentLaunch()
+  const name = useAgentName(prs[0]?.repo ?? null)
   if (failing.length === 0) return null
   const request: AgentRequest = { kind: 'ci' }
   const idle = failing.filter((pr) => !activeSession(pr, 'ci'))
@@ -2036,12 +2056,12 @@ function CiAgentActions({ prs }: { prs: PullRequest[] }) {
                 onClick={() => void launch(pr, request)}
               >
                 {pending === launchTag(pr.key, request)
-                  ? 'Starting Cursor…'
-                  : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with Cursor`}
+                  ? `Starting ${name}…`
+                  : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with ${name}`}
               </button>
             ))}
           </div>
-          <p>Cursor reads the failing logs, pushes a fix if the cause is clear, and reports back if it is not.</p>
+          <p>{name} reads the failing logs, pushes a fix if the cause is clear, and reports back if it is not.</p>
         </>
       ) : null}
       {error ? <p className="launch-error">{error}</p> : null}

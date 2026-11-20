@@ -13,8 +13,9 @@ import {
   type FeedbackPayload,
   type FeedbackThread,
 } from '../shared/feedback.ts'
+import { pullKeyRepo } from '../shared/repos.ts'
 import type { PullRequest } from '../shared/types.ts'
-import { useAgentLaunch } from './agent-launch.tsx'
+import { useAgentLaunch, useAgentName } from './agent-launch.tsx'
 import { api } from './api.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
@@ -566,6 +567,7 @@ function threadFix(thread: FeedbackThread): ThreadFix {
 
 function FixWithCursor({ prKey, thread }: { prKey: string; thread: FeedbackThread }) {
   const { launch, pending, error } = useAgentLaunch()
+  const name = useAgentName(pullKeyRepo(prKey))
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLButtonElement>(null)
   const busy = pending !== null
@@ -587,13 +589,13 @@ function FixWithCursor({ prKey, thread }: { prKey: string; thread: FeedbackThrea
             className="primary"
             disabled={busy}
             aria-busy={busy}
-            aria-label={`Fix ${place} with Cursor`}
+            aria-label={`Fix ${place} with ${name}`}
             onClick={() => {
               setOpen(false)
               run(null)
             }}
           >
-            {busy && !open ? 'Starting Cursor…' : 'Fix with Cursor'}
+            {busy && !open ? `Starting ${name}…` : `Fix with ${name}`}
           </button>
           <button
             ref={anchor}
@@ -609,7 +611,7 @@ function FixWithCursor({ prKey, thread }: { prKey: string; thread: FeedbackThrea
         </div>
       </div>
       {open && anchor.current ? (
-        <FixPrompt anchor={anchor.current} busy={busy} error={error} onClose={() => setOpen(false)} onStart={run} />
+        <FixPrompt anchor={anchor.current} name={name} busy={busy} error={error} onClose={() => setOpen(false)} onStart={run} />
       ) : null}
       {error && !open ? <p className="launch-error">{error}</p> : null}
     </>
@@ -618,12 +620,15 @@ function FixWithCursor({ prKey, thread }: { prKey: string; thread: FeedbackThrea
 
 function FixPrompt({
   anchor,
+  name,
   busy,
   error,
   onClose,
   onStart,
 }: {
   anchor: HTMLElement
+  /** Whatever starts the agent: Cursor, T3 Code. */
+  name: string
   busy: boolean
   error: string | null
   onClose: () => void
@@ -674,10 +679,10 @@ function FixPrompt({
       }}
     >
       <h3>Fix with a prompt</h3>
-      <p>Cursor still gets this thread and the pull request. These instructions are added on top.</p>
+      <p>{name} still gets this thread and the pull request. These instructions are added on top.</p>
       <textarea
-        aria-label="Prompt for Cursor"
-        placeholder="What should Cursor do with this thread?"
+        aria-label={`Prompt for ${name}`}
+        placeholder={`What should ${name} do with this thread?`}
         rows={4}
         autoFocus
         value={text}
@@ -693,7 +698,7 @@ function FixPrompt({
       />
       <p className="faint reply-hint">⌘↵ to start</p>
       <button type="submit" className="primary resolve-cta" disabled={!ready || busy}>
-        {busy ? 'Starting Cursor…' : 'Fix with Cursor'}
+        {busy ? `Starting ${name}…` : `Fix with ${name}`}
       </button>
       {error ? <p className="launch-error">{error}</p> : null}
     </form>,

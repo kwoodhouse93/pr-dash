@@ -1,8 +1,8 @@
-import type { AgentRequest } from '../shared/agents.ts'
+import type { AgentRequest, AgentSettings } from '../shared/agents.ts'
 import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import type { RepoCatalog } from '../shared/repos.ts'
-import type { LinearAssignee, LinearStatus, RepoMark, Snapshot } from '../shared/types.ts'
+import type { AgentProviderId, LinearAssignee, LinearStatus, RepoMark, Snapshot } from '../shared/types.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -16,7 +16,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       throw new Error('The server returned an unreadable response.')
     }
   }
-  if (!response.ok) throw new Error(body.error || response.statusText)
+  // The body rides along for callers that act on more than the message.
+  if (!response.ok) throw Object.assign(new Error(body.error || response.statusText), { body })
   return body as T
 }
 
@@ -91,8 +92,12 @@ export const api = {
     post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
   rerun: (keys: string[], mode: 'failed' | 'all') =>
     post<{ reran: number; errors: string[]; runs: { repo: string; runId: number }[] }>('/api/rerun', { keys, mode }),
-  startAgent: (key: string, request: AgentRequest) =>
-    post<{ snapshot: Snapshot; agentId: string }>('/api/pulls/agents', { key, ...request }),
+  startAgent: (key: string, request: AgentRequest, provider?: AgentProviderId) =>
+    post<{ snapshot: Snapshot; agentId: string; provider: AgentProviderId; url: string | null }>('/api/pulls/agents', { key, ...request, provider }),
+  agentSettings: () => request<AgentSettings>('/api/agents'),
+  setDefaultAgent: (defaultProvider: AgentProviderId) => post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents', { defaultProvider }),
+  setRepoAgent: (repo: string, agent: { provider: AgentProviderId | null; checkout: string | null }) =>
+    post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents/repo', { repo, ...agent }),
   rebase: (key: string) => post<Snapshot>('/api/rebase', { key }),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),
   enqueue: (key: string, scope: 'pr' | 'downstack') => post<QueueSnapshot>('/api/merge-queue', { key, scope }),

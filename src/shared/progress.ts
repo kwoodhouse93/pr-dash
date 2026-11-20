@@ -16,7 +16,7 @@ export function refreshStep(message: string): RefreshStep | null {
     return 'checks'
   }
   if (message.startsWith('Reading Linear')) return 'issues'
-  if (message.startsWith('Checking Cursor')) return 'cursor'
+  if (message.startsWith('Checking agents')) return 'cursor'
   if (message.startsWith('Reading thread replies')) return 'threads'
   return null
 }

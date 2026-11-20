@@ -910,6 +910,20 @@ button.pill.queue { cursor: help; }
 .panel .text-btn { padding: 2px 6px; font-size: 14px; }
 .repo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repo-meta { color: var(--faint); font-size: 13px; white-space: nowrap; }
+.agent-health { align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.agent-health-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--faint); align-self: center; }
+.agent-health[data-state="ready"] .agent-health-dot { background: var(--green); }
+.agent-health[data-state="unreachable"] .agent-health-dot { background: var(--red); }
+.agent-health[data-state="unconfigured"] .agent-health-dot { background: var(--yellow); }
+.agent-health-state { color: var(--muted); font-size: 14px; }
+.agent-health .panel-note { flex: 1 1 240px; min-width: 0; }
+.agent-check { justify-content: flex-end; }
+.agent-repo { align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.agent-repo .repo-name { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agent-checkout { display: flex; align-items: center; gap: 6px; flex: 2 1 260px; min-width: 0; }
+.agent-checkout input { flex: 1; min-width: 0; font-family: "Source Code Pro", ui-monospace, monospace; font-size: 13px; }
+.panel .agent-problem { flex: 1 0 100%; color: var(--yellow); font-size: 14px; }
+.agent-unreachable { color: var(--yellow); }
 .repo-error { color: var(--red); }
 .icon-btn {
   width: 24px;
@@ -1249,12 +1263,14 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
   background: var(--blue-dim);
   color: var(--blue);
 }
+.cursor-chip.waiting { background: var(--yellow-dim); color: var(--yellow); }
 .cursor-chip.finished { background: var(--green-dim); color: var(--green); }
 .cursor-chip.failed { background: var(--red-dim); color: var(--red); }
 .cursor-chip.cancelled,
 .cursor-chip.expired { background: var(--chip); color: var(--muted); }
 .cursor-chip { white-space: nowrap; }
 .agent-status { color: var(--blue); }
+.agent-status.waiting { color: var(--yellow); }
 .agent-status.finished { color: var(--green); }
 .agent-status.failed { color: var(--red); }
 .agent-status.cancelled,
@@ -1279,6 +1295,7 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
 .agent-dot.creating,
 .agent-dot.running { box-shadow: 0 0 0 3px var(--blue-dim); }
 .agent-dot.finished { background: var(--green); }
+.agent-dot.waiting { background: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-dim); }
 .agent-dot.failed { background: var(--red); }
 .agent-dot.cancelled,
 .agent-dot.expired { background: var(--faint); }

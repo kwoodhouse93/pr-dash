@@ -121,24 +121,40 @@ export type PullRequest = {
   linearIssues: LinearIssue[]
   initiativeIds: string[]
   /** Newest first. */
-  cursorSessions?: CursorSession[]
+  agentSessions?: AgentSession[]
 }
 
-export type CursorSessionStatus = 'creating' | 'running' | 'finished' | 'failed' | 'cancelled' | 'expired'
+export type AgentSessionStatus = 'creating' | 'running' | 'waiting' | 'finished' | 'failed' | 'cancelled' | 'expired'
 
 export type AgentKind = 'conflict' | 'ci' | 'prompt' | 'thread'
 
-export type CursorSession = {
+/** Where an agent runs. Each has a provider on the server. */
+export type AgentProviderId = 'cursor' | 't3'
+
+export type AgentSession = {
+  provider: AgentProviderId
   agentId: string
   runId: string
   kind: AgentKind
   /** The user's text, or the file a review-thread fix was aimed at. */
   prompt: string | null
-  status: CursorSessionStatus
+  status: AgentSessionStatus
   result: string | null
   branch: string | null
+  /** The T3 Code environment the session runs in. Null is this machine, and every Cursor session. */
+  environmentId: string | null
+  /** The provider's page for the session, once it has one. */
+  url: string | null
+  /** When the provider stopped answering. While set, the status may be out of date. */
+  unreachableSince: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** Which provider starts agents: the default, and the repositories that use another. */
+export type AgentRouting = {
+  defaultProvider: AgentProviderId
+  repos: Record<string, AgentProviderId>
 }
 
 export type RepoMark = { icon: string; color: string }
@@ -159,6 +175,8 @@ export type Snapshot = {
   repos: string[]
   /** Icon and colour the user picked for a repository. A repository without one gets a default from its name. */
   repoMarks?: Record<string, RepoMark>
+  /** Absent on a snapshot from a server that only starts Cursor agents. */
+  agents?: AgentRouting
   pullRequests: PullRequest[]
   reviewPullRequests: PullRequest[]
   initiatives: Initiative[]

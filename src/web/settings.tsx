@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { parseRepoName, removalWarning, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
+import { AgentSettingsPanel } from './agent-settings.tsx'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatAgo, formatExact, formatTime } from './format.ts'
 import type { PrLinkHost } from './pr-links.tsx'
 import { RepoIcon, RepoMarkPicker } from './repo-mark.tsx'
-import type { RepoMark } from '../shared/types.ts'
+import type { RepoMark, Snapshot } from '../shared/types.ts'
 
 /** How many search matches the add box lists before asking for a narrower search. */
 const MATCH_LIMIT = 8
@@ -21,6 +22,7 @@ export function SettingsPage({
   onAddRepo,
   onRemoveRepo,
   onRepoMark,
+  onAgents,
   initiatives,
   prLinks = 'github',
   onPrLinks = () => {},
@@ -35,6 +37,8 @@ export function SettingsPage({
   onRemoveRepo: (repo: string) => Promise<void>
   /** Saves the icon and colour shown for a repository. Left out, the icon is shown and cannot be changed. */
   onRepoMark?: (repo: string, mark: RepoMark) => Promise<void>
+  /** Takes the snapshot after an agent setting changes. Left out, the Agents section is not shown. */
+  onAgents?: (snapshot: Snapshot) => void
   /** The initiatives editor. Left out, the section is not shown. */
   initiatives?: ReactNode
   prLinks?: PrLinkHost
@@ -252,6 +256,7 @@ export function SettingsPage({
             </ul>
           ) : null}
         </section>
+        {onAgents ? <AgentSettingsPanel repos={repos} onSnapshot={onAgents} /> : null}
         {initiatives ? <section className="panel initiatives">{initiatives}</section> : null}
         <section className="panel">
           <div className="panel-row setting">

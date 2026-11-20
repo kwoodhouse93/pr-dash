@@ -1,8 +1,99 @@
 import { checkPhase, selectChecks } from './ci.ts'
-import { cursorSessionActive } from './cursor.ts'
-import type { AgentKind, Check, CursorSession, PullRequest } from './types.ts'
+import { cursorLinks } from './cursor.ts'
+import type { AgentKind, AgentProviderId, AgentRouting, AgentSession, AgentSessionStatus, Check, PullRequest } from './types.ts'
 
-/** A review thread, trimmed to what Cursor needs in order to fix it. */
+export const AGENT_PROVIDERS: { id: AgentProviderId; label: string; where: string }[] = [
+  { id: 'cursor', label: 'Cursor', where: 'Cursor Cloud Agents, billed by Cursor.' },
+  { id: 't3', label: 'T3 Code', where: 'Threads in T3 Code on this machine, under the coding agent you are signed in to there.' },
+]
+
+export const DEFAULT_ROUTING: AgentRouting = { defaultProvider: 'cursor', repos: {} }
+
+export function isAgentProvider(value: unknown): value is AgentProviderId {
+  return AGENT_PROVIDERS.some((provider) => provider.id === value)
+}
+
+export function providerLabel(id: AgentProviderId): string {
+  return AGENT_PROVIDERS.find((provider) => provider.id === id)?.label ?? id
+}
+
+/** The provider that starts agents for this repository. */
+export function providerFor(routing: AgentRouting | null | undefined, repo: string | null): AgentProviderId {
+  const chosen = routing ?? DEFAULT_ROUTING
+  return (repo ? chosen.repos[repo] : undefined) ?? chosen.defaultProvider
+}
+
+/** Whether a provider can be used, and why not. */
+export type AgentHealth =
+  | { state: 'ready'; detail: string | null }
+  /** Something the user has to set up: a key, the command, a checkout folder. */
+  | { state: 'unconfigured'; detail: string }
+  /** Set up, but not answering now. */
+  | { state: 'unreachable'; detail: string }
+
+export type AgentSettings = {
+  defaultProvider: AgentProviderId
+  providers: { id: AgentProviderId; health: AgentHealth }[]
+  repos: {
+    repo: string
+    /** Null follows the default. */
+    provider: AgentProviderId | null
+    /** The folder T3 Code works in for this repository. */
+    checkout: string | null
+    /** Why T3 Code cannot use that folder, or null. */
+    checkoutProblem: string | null
+  }[]
+}
+
+const STATUS_RANK: Record<AgentSessionStatus, number> = {
+  waiting: 0,
+  running: 1,
+  creating: 2,
+  failed: 3,
+  finished: 4,
+  cancelled: 5,
+  expired: 6,
+}
+
+/** Still going, so a refresh reads it again. A session waiting for an answer is still going. */
+export function sessionActive(status: AgentSessionStatus): boolean {
+  return status === 'creating' || status === 'running' || status === 'waiting'
+}
+
+export function sessionStatusLabel(status: AgentSessionStatus): string {
+  switch (status) {
+    case 'creating':
+      return 'Creating'
+    case 'running':
+      return 'Running'
+    case 'waiting':
+      return 'Needs input'
+    case 'finished':
+      return 'Finished'
+    case 'failed':
+      return 'Failed'
+    case 'cancelled':
+      return 'Cancelled'
+    case 'expired':
+      return 'Expired'
+  }
+}
+
+export function leadingStatus(statuses: AgentSessionStatus[]): AgentSessionStatus | null {
+  if (statuses.length === 0) return null
+  return [...statuses].sort((left, right) => STATUS_RANK[left] - STATUS_RANK[right])[0] ?? null
+}
+
+/** Where a session opens. `appUrl` hands off to the provider's own app. */
+export function sessionLinks(session: Pick<AgentSession, 'provider' | 'agentId' | 'url'>): { webUrl: string | null; appUrl: string | null } {
+  if (session.provider === 'cursor') {
+    const links = cursorLinks(session.agentId)
+    return { webUrl: session.url ?? links.webUrl, appUrl: links.desktopUrl }
+  }
+  return { webUrl: session.url, appUrl: null }
+}
+
+/** A review thread, trimmed to what an agent needs in order to fix it. */
 export type ThreadFix = {
   /** GitHub's node ID for the review thread, used to reply to and resolve it. */
   id: string | null
@@ -37,26 +128,26 @@ const KIND_LABEL: Record<AgentKind, string> = {
 }
 
 const KIND_WORK: Record<AgentKind, string> = {
-  conflict: 'Cursor is resolving the merge conflict on this pull request.',
-  ci: 'Cursor is investigating the failing checks on this pull request.',
-  prompt: 'Cursor is working on this pull request.',
-  thread: 'Cursor is fixing a review thread on this pull request.',
+  conflict: 'is resolving the merge conflict on this pull request.',
+  ci: 'is investigating the failing checks on this pull request.',
+  prompt: 'is working on this pull request.',
+  thread: 'is fixing a review thread on this pull request.',
 }
 
 export function agentKindLabel(kind: AgentKind): string {
   return KIND_LABEL[kind]
 }
 
-export function agentWork(kind: AgentKind): string {
-  return KIND_WORK[kind]
+export function agentWork(kind: AgentKind, provider: AgentProviderId = 'cursor'): string {
+  return `${providerLabel(provider)} ${KIND_WORK[kind]}`
 }
 
 export function failingChecks(pr: PullRequest): Check[] {
   return selectChecks(pr.checks).filter((check) => checkPhase(check) === 'fail')
 }
 
-export function activeSession(pr: PullRequest, kind: AgentKind): CursorSession | null {
-  return (pr.cursorSessions ?? []).find((session) => session.kind === kind && cursorSessionActive(session.status)) ?? null
+export function activeSession(pr: PullRequest, kind: AgentKind): AgentSession | null {
+  return (pr.agentSessions ?? []).find((session) => session.kind === kind && sessionActive(session.status)) ?? null
 }
 
 /**
@@ -67,18 +158,18 @@ export function agentBlocker(pr: PullRequest, request: AgentRequest): string | n
   switch (request.kind) {
     case 'conflict':
       if (!pr.conflict) return 'That pull request no longer has a merge conflict.'
-      if (activeSession(pr, 'conflict')) return 'Cursor is already resolving this conflict.'
+      if (activeSession(pr, 'conflict')) return 'An agent is already resolving this conflict.'
       return null
     case 'ci':
       if (failingChecks(pr).length === 0) return 'That pull request has no failing checks.'
-      if (activeSession(pr, 'ci')) return 'Cursor is already investigating these checks.'
+      if (activeSession(pr, 'ci')) return 'An agent is already investigating these checks.'
       return null
     case 'prompt':
-      if (!request.prompt.trim()) return 'Write a prompt for Cursor.'
+      if (!request.prompt.trim()) return 'Write a prompt for the agent.'
       if (request.prompt.length > PROMPT_LIMIT) return `Keep the prompt under ${PROMPT_LIMIT.toLocaleString('en-US')} characters.`
       return null
     case 'thread':
-      if (!request.thread.comments.some((comment) => comment.body.trim())) return 'That thread has nothing for Cursor to fix.'
+      if (!request.thread.comments.some((comment) => comment.body.trim())) return 'That thread has nothing for an agent to fix.'
       if (request.prompt && request.prompt.length > PROMPT_LIMIT) return `Keep the prompt under ${PROMPT_LIMIT.toLocaleString('en-US')} characters.`
       return null
   }

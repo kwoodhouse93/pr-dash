@@ -160,7 +160,7 @@ function tabRow({ depth, row, rail }) {
   node.append(el('span', 'title', row.title))
   if (row.agent) {
     const spin = el('span', 'spin')
-    spin.title = 'A Cursor agent is working on this pull request'
+    spin.title = 'An agent is working on this pull request'
     node.append(spin)
   }
   if (row.needs > 0) {

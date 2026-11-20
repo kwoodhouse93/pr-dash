@@ -1,7 +1,7 @@
-import { sessionNote, type AgentRequest } from '../shared/agents.ts'
-import { cursorPushedBranch, cursorSessionActive, cursorSessionStatus } from '../shared/cursor.ts'
-import type { CursorSession, PullRequest } from '../shared/types.ts'
-import { agentTask } from './agent-tasks.ts'
+import { sessionNote } from '../shared/agents.ts'
+import { cursorLinks, cursorPushedBranch, cursorSessionStatus } from '../shared/cursor.ts'
+import type { AgentSession } from '../shared/types.ts'
+import { AgentUnavailable, newSession, type AgentProvider, type AgentStart } from './agent-provider.ts'
 import { requestSignal } from './request-signal.ts'
 
 const CURSOR_API = 'https://api.cursor.com/v1/agents'
@@ -25,56 +25,42 @@ type CursorRunResponse = CursorErrorBody & {
   git?: { branches?: { branch?: string | null }[] }
 }
 
-export async function startCursorAgent(pr: PullRequest, request: AgentRequest): Promise<CursorSession> {
+const NO_KEY = 'Set CURSOR_API_KEY on the server to start Cursor agents.'
+
+export const cursorProvider: AgentProvider = {
+  id: 'cursor',
+  async health() {
+    return process.env.CURSOR_API_KEY ? { state: 'ready', detail: null } : { state: 'unconfigured', detail: NO_KEY }
+  },
+  start: startCursorAgent,
+  read: (session) => reaching(() => readCursorSession(cursorKey(), session)),
+}
+
+async function startCursorAgent({ pr, request, task }: AgentStart): Promise<AgentSession> {
   const apiKey = cursorKey()
-  const task = agentTask(pr, request)
-  const body = await cursorPost<CursorCreateResponse>(
-    apiKey,
-    CURSOR_API,
-    {
+  const body = await reaching(() =>
+    cursorPost<CursorCreateResponse>(apiKey, CURSOR_API, {
       name: task.name,
       prompt: { text: task.prompt },
       repos: [{ url: `https://github.com/${pr.repo}`, prUrl: pr.url }],
       workOnCurrentBranch: true,
       autoCreatePR: false,
-    },
+    }),
   )
   const agentId = body.agent?.id ?? body.id
   const runId = body.run?.id ?? body.agent?.latestRunId
   if (!agentId || !runId) throw new Error('Cursor started without returning an agent link.')
-  const now = new Date().toISOString()
-  return {
+  return newSession('cursor', {
     agentId,
     runId,
     kind: request.kind,
     prompt: sessionNote(request),
     status: cursorSessionStatus(body.run?.status),
-    result: null,
-    branch: null,
-    createdAt: now,
-    updatedAt: now,
-  }
+    url: cursorLinks(agentId).webUrl,
+  })
 }
 
-export async function refreshCursorSessions(
-  sessions: { prKey: string; session: CursorSession }[],
-  save: (prKey: string, session: CursorSession) => void,
-): Promise<void> {
-  const apiKey = process.env.CURSOR_API_KEY
-  if (!apiKey) return
-  const active = sessions.filter((item) => cursorSessionActive(item.session.status))
-  await Promise.all(
-    active.map(async (item) => {
-      try {
-        save(item.prKey, await readCursorSession(apiKey, item.session))
-      } catch {
-        // Keep the last status. The next refresh tries again.
-      }
-    }),
-  )
-}
-
-async function readCursorSession(apiKey: string, session: CursorSession): Promise<CursorSession> {
+async function readCursorSession(apiKey: string, session: AgentSession): Promise<AgentSession> {
   const agent = await cursorGet<CursorAgentResponse>(apiKey, `${CURSOR_API}/${encodeURIComponent(session.agentId)}`)
   const runId = agent.latestRunId || session.runId
   const run = await cursorGet<CursorRunResponse>(
@@ -91,9 +77,24 @@ async function readCursorSession(apiKey: string, session: CursorSession): Promis
   }
 }
 
+/** Cursor answered, and said no. */
+class CursorRefused extends Error {}
+
+/** A request Cursor never answered means Cursor is out of reach, not that the request was wrong. */
+async function reaching<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work()
+  } catch (error) {
+    if (error instanceof CursorRefused || error instanceof AgentUnavailable) throw error
+    // A cancelled refresh, not a silent Cursor.
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    throw new AgentUnavailable('unreachable', `Could not reach Cursor: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 function cursorKey(): string {
   const apiKey = process.env.CURSOR_API_KEY
-  if (!apiKey) throw new Error('Set CURSOR_API_KEY to start Cursor agents.')
+  if (!apiKey) throw new AgentUnavailable('unconfigured', NO_KEY)
   return apiKey
 }
 
@@ -121,7 +122,8 @@ async function cursorGet<T>(apiKey: string, url: string): Promise<T> {
 async function readCursor<T>(response: Response): Promise<T> {
   const text = await response.text()
   const body = parseResponse(text)
-  if (!response.ok) throw new Error(cursorError(response.status, body))
+  if (response.status >= 500) throw new AgentUnavailable('unreachable', cursorError(response.status, body))
+  if (!response.ok) throw new CursorRefused(cursorError(response.status, body))
   return body as T
 }
 
