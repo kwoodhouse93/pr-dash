@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { agentKindLabel, agentWork, providerLabel, sessionActive, sessionLinks, sessionStatusLabel } from '../shared/agents.ts'
+import { agentKindLabel, agentWork, providerLabel, sessionActive, sessionStatusLabel } from '../shared/agents.ts'
 import type { AgentSession, PullRequest } from '../shared/types.ts'
+import { useSessionLinks } from './agent-launch.tsx'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
@@ -201,7 +202,7 @@ async function copyReply(text: string) {
 function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: boolean; open: boolean; onToggle: () => void }) {
   const { session } = item
   const bodyId = useId()
-  const links = sessionLinks(session)
+  const links = useSessionLinks(session)
   const name = providerLabel(session.provider)
   return (
     <section className="agent-section" data-open={open || undefined}>
@@ -228,13 +229,14 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
           {session.result ? <Markdown className="cursor-result agent-reply" text={session.result} /> : null}
           <div className="agent-links">
             {links.appUrl ? (
-              <a className="external" href={links.appUrl}>
+              // A web address that hands off to the app opens in a tab. An app link goes straight to the app.
+              <a className="external" href={links.appUrl} {...(/^https?:/.test(links.appUrl) ? { target: '_blank', rel: 'noreferrer' } : {})}>
                 Open in {name}
               </a>
             ) : null}
             {links.webUrl ? (
               <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
-                {links.appUrl ? 'Open on the web' : `Open in ${name}`}
+                {!links.appUrl ? `Open in ${name}` : session.provider === 'cursor' ? 'Open on the web' : 'Open here'}
               </a>
             ) : null}
             {session.result ? (

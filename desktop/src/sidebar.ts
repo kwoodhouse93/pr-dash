@@ -36,7 +36,13 @@ export type TabInfo = {
 }
 
 /** Whether each dashboard list groups pull requests under their Linear issue. */
-export type DashboardPrefs = { mineByIssue: boolean; reviewByIssue: boolean; sort?: Sort }
+export type DashboardPrefs = {
+  mineByIssue: boolean
+  reviewByIssue: boolean
+  sort?: Sort
+  /** The T3 Code the dashboard is paired with, so a T3 Code thread opens in a tab. */
+  t3Origin?: string | null
+}
 
 export type AgentState = {
   /** Agents that finished before this are not news. */
@@ -249,8 +255,13 @@ export function ageLabel(from: string, now: number): string {
 
 function agentOf(url: string, runs: Run[]): Run | null {
   const cursor = /^https:\/\/(www\.)?cursor\.com\//.test(url)
-  // A Cursor tab moves around inside its agent's pages. Any other provider's tab is on the session's own address.
-  const shown = runs.filter((run) => (run.session.provider === 'cursor' ? cursor && url.includes(run.session.agentId) : sessionLinks(run.session).webUrl === url))
+  // A tab moves around inside its agent's pages, so go by the agent's id in the address.
+  // T3 Code writes a thread's id into an address both plainly and escaped.
+  const shown = runs.filter((run) =>
+    run.session.provider === 'cursor'
+      ? cursor && url.includes(run.session.agentId)
+      : !cursor && (url.includes(`/${run.session.agentId}`) || url.includes(`/${encodeURIComponent(run.session.agentId)}`)),
+  )
   // Newest run first, so a tab on an agent with several runs counts as the latest.
   return shown.sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt))[0] ?? null
 }
@@ -462,7 +473,7 @@ export function buildSidebar(input: {
       number: run.pr.number,
       mark,
       age: ageLabel(mark === 'running' ? run.session.createdAt : run.session.updatedAt, now),
-      url: sessionLinks(run.session).webUrl,
+      url: sessionLinks(run.session, input.prefs.t3Origin).webUrl,
       tabId: tabOfRun.get(run.key) ?? null,
     }
   }

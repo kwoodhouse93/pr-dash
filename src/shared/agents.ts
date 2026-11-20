@@ -33,6 +33,8 @@ export type AgentHealth =
 
 export type AgentSettings = {
   defaultProvider: AgentProviderId
+  /** The address of the T3 Code running on this machine, or null when none is. */
+  t3Origin: string | null
   providers: { id: AgentProviderId; health: AgentHealth }[]
   repos: {
     repo: string
@@ -86,13 +88,34 @@ export function leadingStatus(statuses: AgentSessionStatus[]): AgentSessionStatu
   return [...statuses].sort((left, right) => STATUS_RANK[left] - STATUS_RANK[right])[0] ?? null
 }
 
-/** Where a session opens. `appUrl` hands off to the provider's own app. */
-export function sessionLinks(session: Pick<AgentSession, 'provider' | 'agentId' | 'url'>): { webUrl: string | null; appUrl: string | null } {
+/**
+ * A T3 Code thread's page in the T3 Code that runs on this machine, from the link T3 Code gives for it.
+ * `origin` is that T3 Code's address, known once this browser is paired with it. Null without one.
+ */
+export function t3ThreadUrl(origin: string | null | undefined, link: string | null): string | null {
+  if (!origin || !link) return null
+  try {
+    const { pathname } = new URL(link)
+    return pathname.startsWith('/threads/') ? new URL(pathname, origin).toString() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Where a session opens. `webUrl` is a page to show in a tab. `appUrl` hands off to the provider's own app.
+ * A T3 Code thread only has a page to show once this browser is paired with T3 Code; until then its link hands off.
+ */
+export function sessionLinks(
+  session: Pick<AgentSession, 'provider' | 'agentId' | 'url'>,
+  t3Origin?: string | null,
+): { webUrl: string | null; appUrl: string | null } {
   if (session.provider === 'cursor') {
     const links = cursorLinks(session.agentId)
     return { webUrl: session.url ?? links.webUrl, appUrl: links.desktopUrl }
   }
-  return { webUrl: session.url, appUrl: null }
+  const local = t3ThreadUrl(t3Origin, session.url)
+  return local ? { webUrl: local, appUrl: session.url } : { webUrl: session.url, appUrl: null }
 }
 
 /** A review thread, trimmed to what an agent needs in order to fix it. */

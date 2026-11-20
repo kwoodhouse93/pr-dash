@@ -9,7 +9,7 @@ import { AgentSettingsPanel } from '../src/web/agent-settings.tsx'
 import { api } from '../src/web/api.ts'
 
 vi.mock('../src/web/api.ts', () => ({
-  api: { agentSettings: vi.fn(), setDefaultAgent: vi.fn(), setRepoAgent: vi.fn() },
+  api: { agentSettings: vi.fn(), setDefaultAgent: vi.fn(), setRepoAgent: vi.fn(), pairT3: vi.fn() },
 }))
 
 const toasts = vi.hoisted(() => ({ toastError: vi.fn(), toastSuccess: vi.fn() }))
@@ -24,6 +24,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 function settings(patch: Partial<AgentSettings> = {}): AgentSettings {
   return {
     defaultProvider: 'cursor',
+    t3Origin: 'http://127.0.0.1:3773',
     providers: [
       { id: 'cursor', health: { state: 'unconfigured', detail: 'Set CURSOR_API_KEY on the server to start Cursor agents.' } },
       { id: 't3', health: { state: 'ready', detail: 't3 v0.1.10' } },
@@ -89,6 +90,49 @@ describe('agent settings and launch', () => {
     expect(document.querySelector('.agent-repo .agent-problem')?.textContent).toMatch(/has no project for this repository/)
   })
 
+  it('pairs this browser with T3 Code: opens the pairing link in a tab and remembers where T3 Code is', async () => {
+    vi.mocked(api.agentSettings).mockResolvedValue(settings())
+    vi.mocked(api.pairT3).mockResolvedValue({ pairUrl: 'http://127.0.0.1:3773/pair#token=ABC', origin: 'http://127.0.0.1:3773' })
+    const tab = { location: { replace: vi.fn() }, close: vi.fn() }
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    const paired: (string | null)[] = []
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} onT3Origin={(origin) => paired.push(origin)} />)
+    const pair = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Pair') as HTMLElement
+    await act(async () => pair.click())
+    expect(tab.location.replace).toHaveBeenCalledWith('http://127.0.0.1:3773/pair#token=ABC')
+    expect(paired).toEqual(['http://127.0.0.1:3773'])
+  })
+
+  it('takes a pairing code by hand when pairing by itself fails', async () => {
+    vi.mocked(api.agentSettings).mockResolvedValue(settings())
+    vi.mocked(api.pairT3).mockRejectedValue(new Error('Pairing with T3 Code is only offered when the dashboard runs on this machine.'))
+    const tab = { location: { replace: vi.fn() }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    const paired: (string | null)[] = []
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} onT3Origin={(origin) => paired.push(origin)} />)
+    await act(async () => ([...document.querySelectorAll('button')].find((button) => button.textContent === 'Pair') as HTMLElement).click())
+    expect(tab.close).toHaveBeenCalled()
+    expect(document.querySelector('.repo-error')?.textContent).toMatch(/only offered/)
+    expect(paired).toEqual([])
+    const input = document.querySelector('input[aria-label="T3 Code pairing code"]') as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, ' XYZ 1 ')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => ([...document.querySelectorAll('button')].find((button) => button.textContent === 'Pair with code') as HTMLElement).click())
+    expect(open).toHaveBeenLastCalledWith('http://127.0.0.1:3773/pair#token=XYZ%201', '_blank')
+    expect(paired).toEqual(['http://127.0.0.1:3773'])
+  })
+
+  it('says a paired browser is paired, and forgets it when asked', async () => {
+    vi.mocked(api.agentSettings).mockResolvedValue(settings())
+    const paired: (string | null)[] = []
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} t3Origin="http://127.0.0.1:3773" onT3Origin={(origin) => paired.push(origin)} />)
+    expect(document.body.textContent).toContain('paired with T3 Code at 127.0.0.1:3773')
+    await act(async () => ([...document.querySelectorAll('button')].find((button) => button.textContent === 'Forget') as HTMLElement).click())
+    expect(paired).toEqual([null])
+  })
+
   function Launcher({ repo }: { repo: string }) {
     const { launch, error } = useAgentLaunch()
     const name = useAgentName(repo)
@@ -116,6 +160,19 @@ describe('agent settings and launch', () => {
     expect(start).toHaveBeenCalledWith('acme/web#7', { kind: 'ci' }, undefined)
     expect(open).not.toHaveBeenCalled()
     expect(toasts.toastSuccess).toHaveBeenCalledWith('Started in T3 Code. Follow it in the Agents column.')
+  })
+
+  it('opens a new T3 Code thread in a tab when this browser is paired with T3 Code', async () => {
+    const tab = { document: { open() {}, write() {}, close() {} }, location: { replace: vi.fn() }, opener: null, close() {} }
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    const start = vi.fn(async () => ({ url: 'https://app.t3.codes/threads/env-1/mcp%3Athread-1' }))
+    await render(
+      <AgentProvider start={start} routing={{ defaultProvider: 't3', repos: {} }} t3Origin="http://127.0.0.1:3773">
+        <Launcher repo="acme/web" />
+      </AgentProvider>,
+    )
+    await act(async () => (document.querySelector('button') as HTMLElement).click())
+    expect(tab.location.replace).toHaveBeenCalledWith('http://127.0.0.1:3773/threads/env-1/mcp%3Athread-1')
   })
 
   it('offers another provider when the chosen one is out of reach, and starts there only when asked', async () => {

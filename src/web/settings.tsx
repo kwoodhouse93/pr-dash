@@ -23,6 +23,8 @@ export function SettingsPage({
   onRemoveRepo,
   onRepoMark,
   onAgents,
+  t3Origin = null,
+  onT3Origin = () => {},
   initiatives,
   prLinks = 'github',
   onPrLinks = () => {},
@@ -39,6 +41,9 @@ export function SettingsPage({
   onRepoMark?: (repo: string, mark: RepoMark) => Promise<void>
   /** Takes the snapshot after an agent setting changes. Left out, the Agents section is not shown. */
   onAgents?: (snapshot: Snapshot) => void
+  /** The T3 Code this browser is paired with, or null. */
+  t3Origin?: string | null
+  onT3Origin?: (origin: string | null) => void
   /** The initiatives editor. Left out, the section is not shown. */
   initiatives?: ReactNode
   prLinks?: PrLinkHost
@@ -256,7 +261,7 @@ export function SettingsPage({
             </ul>
           ) : null}
         </section>
-        {onAgents ? <AgentSettingsPanel repos={repos} onSnapshot={onAgents} /> : null}
+        {onAgents ? <AgentSettingsPanel repos={repos} onSnapshot={onAgents} t3Origin={t3Origin} onT3Origin={onT3Origin} /> : null}
         {initiatives ? <section className="panel initiatives">{initiatives}</section> : null}
         <section className="panel">
           <div className="panel-row setting">

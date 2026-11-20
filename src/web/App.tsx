@@ -622,6 +622,8 @@ export function App() {
                 setData(adopt(await api.setRepoMark(repo, mark)))
               }}
               onAgents={(snap) => setData(adopt(snap))}
+              t3Origin={prefs.t3Origin}
+              onT3Origin={(t3Origin) => setPrefs((current) => ({ ...current, t3Origin }))}
             />
           ) : null}
           {page === 'queue' ? (
@@ -770,6 +772,7 @@ export function App() {
                 setData(adopt(snap))
               }}
               agentRouting={data?.agents}
+              t3Origin={prefs.t3Origin}
               onStartAgent={async (key, request, provider) => {
                 const result = await api.startAgent(key, request, provider)
                 ++applyId.current

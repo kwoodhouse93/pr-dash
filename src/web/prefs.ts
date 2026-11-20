@@ -19,6 +19,8 @@ export type Preferences = {
   collapsed: string[]
   page: DashboardPage
   prLinks: PrLinkHost
+  /** The T3 Code this browser is paired with, so its threads open in a tab. Null hands them off to the T3 Code app. */
+  t3Origin: string | null
 }
 
 export function loadPreferences(): Preferences {
@@ -44,6 +46,7 @@ export function loadPreferences(): Preferences {
       collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
       page,
       prLinks: raw.prLinks === 'graphite' ? 'graphite' : 'github',
+      t3Origin: typeof raw.t3Origin === 'string' && /^https?:\/\//.test(raw.t3Origin) ? raw.t3Origin : null,
     }
   } catch {
     return fresh()
@@ -65,6 +68,7 @@ function fresh(): Preferences {
     collapsed: [],
     page: 'mine',
     prLinks: 'github',
+    t3Origin: null,
   }
 }
 

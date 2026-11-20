@@ -14,7 +14,18 @@ function healthLabel(health: AgentHealth): string {
  * Which provider starts agents, and where T3 Code works for each repository.
  * `repos` is the list being synced; the panel loads again when it changes.
  */
-export function AgentSettingsPanel({ repos, onSnapshot }: { repos: string[]; onSnapshot: (snapshot: Snapshot) => void }) {
+export function AgentSettingsPanel({
+  repos,
+  onSnapshot,
+  t3Origin = null,
+  onT3Origin = () => {},
+}: {
+  repos: string[]
+  onSnapshot: (snapshot: Snapshot) => void
+  /** The T3 Code this browser is paired with, or null. */
+  t3Origin?: string | null
+  onT3Origin?: (origin: string | null) => void
+}) {
   const [settings, setSettings] = useState<AgentSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -104,6 +115,7 @@ export function AgentSettingsPanel({ repos, onSnapshot }: { repos: string[]; onS
         </div>
       ) : null}
       {error ? <p className="panel-row repo-error">{error}</p> : null}
+      {settings ? <T3Pairing running={settings.t3Origin} paired={t3Origin} onPaired={onT3Origin} /> : null}
       {settings && settings.repos.length > 0 ? (
         <ul className="agent-repos" aria-label="Agent provider for each repository">
           {settings.repos.map((row) => (
@@ -118,6 +130,101 @@ export function AgentSettingsPanel({ repos, onSnapshot }: { repos: string[]; onS
         </ul>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * Pairs this browser with the T3 Code on this machine, so a thread opens in a tab here
+ * instead of handing off to the T3 Code app. `running` is where that T3 Code answers now.
+ */
+function T3Pairing({ running, paired, onPaired }: { running: string | null; paired: string | null; onPaired: (origin: string | null) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [manual, setManual] = useState(false)
+  const [code, setCode] = useState('')
+
+  async function pair() {
+    setBusy(true)
+    setError(null)
+    // Opened during the click, so the browser allows it. The pairing link goes there once it is made.
+    const tab = window.open('', '_blank')
+    try {
+      const made = await api.pairT3()
+      if (tab) tab.location.replace(made.pairUrl)
+      else window.location.assign(made.pairUrl)
+      onPaired(made.origin)
+    } catch (caught) {
+      tab?.close()
+      setError(caught instanceof Error ? caught.message : 'Could not pair with T3 Code')
+      setManual(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function pairWithCode() {
+    const token = code.trim()
+    if (!token || !running) return
+    window.open(`${running}/pair#token=${encodeURIComponent(token)}`, '_blank')
+    onPaired(running)
+    setCode('')
+    setManual(false)
+    setError(null)
+  }
+
+  // T3 Code moved to another address since pairing: the pairing was with the old one.
+  const stale = paired !== null && running !== null && paired !== running
+  return (
+    <>
+      <div className="panel-row setting">
+        <div>
+          <h3>Show T3 Code threads here</h3>
+          <p className="panel-note">
+            {paired && !stale
+              ? `This browser is paired with T3 Code at ${paired.replace(/^https?:\/\//, '')}. A thread opens in a tab, where you can read it and reply. T3 Code keeps a pairing for 30 days.`
+              : stale
+                ? 'T3 Code has moved since this browser was paired with it. Pair again to open threads in a tab.'
+                : 'Pair this browser with T3 Code to open a thread in a tab. Until then, a thread’s link hands off to the T3 Code app.'}
+          </p>
+        </div>
+        <button type="button" className="ghost" disabled={busy} onClick={() => void pair()}>
+          {busy ? 'Pairing…' : paired ? 'Pair again' : 'Pair'}
+        </button>
+        {paired ? (
+          <button type="button" className="text-btn" disabled={busy} title="Stops opening threads here. To end the pairing itself, revoke PR Dash in T3 Code." onClick={() => onPaired(null)}>
+            Forget
+          </button>
+        ) : (
+          <button type="button" className="text-btn" disabled={busy} onClick={() => setManual((current) => !current)}>
+            Enter a code
+          </button>
+        )}
+      </div>
+      {error ? <p className="panel-row repo-error">{error}</p> : null}
+      {manual && !paired ? (
+        <form
+          className="panel-row agent-checkout"
+          onSubmit={(event) => {
+            event.preventDefault()
+            pairWithCode()
+          }}
+        >
+          <input
+            className="search"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            placeholder="Pairing code, from `t3 pair` or T3 Code’s settings"
+            aria-label="T3 Code pairing code"
+            spellCheck={false}
+            disabled={!running}
+          />
+          <button type="submit" className="text-btn" disabled={!running || !code.trim()}>
+            Pair with code
+          </button>
+          {!running ? <p className="agent-problem">T3 Code is not running on this machine, so there is nothing to pair with.</p> : null}
+        </form>
+      ) : null}
+    </>
   )
 }
 

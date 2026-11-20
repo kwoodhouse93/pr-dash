@@ -1,13 +1,13 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { providerFor, sessionActive, sessionLinks, leadingStatus } from '../src/shared/agents.ts'
+import { providerFor, sessionActive, sessionLinks, leadingStatus, t3ThreadUrl } from '../src/shared/agents.ts'
 import type { AgentSession } from '../src/shared/types.ts'
 import { AgentUnavailable, refreshSessions, type AgentProvider } from '../src/server/agent-provider.ts'
 import { openDatabase } from '../src/server/db.ts'
-import { originRepo, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
+import { originRepo, t3Origin, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
 
 function session(patch: Partial<AgentSession> = {}): AgentSession {
   return {
@@ -76,6 +76,37 @@ describe('session status', () => {
     expect(sessionLinks(session())).toEqual({ webUrl: null, appUrl: null })
     expect(sessionLinks(session({ url: 'https://t3.example/thread' })).webUrl).toBe('https://t3.example/thread')
     expect(sessionLinks(session({ provider: 'cursor', agentId: 'bc-1' })).webUrl).toBe('https://cursor.com/agents/bc-1')
+  })
+})
+
+describe('T3 Code thread links', () => {
+  const link = 'https://app.t3.codes/threads/env-1/mcp%3Athread-1'
+
+  it('hands off to the T3 Code app until this browser is paired', () => {
+    expect(sessionLinks(session({ url: link }))).toEqual({ webUrl: link, appUrl: null })
+  })
+
+  it('shows the thread from the T3 Code on this machine once paired, and keeps the hand-off', () => {
+    expect(sessionLinks(session({ url: link }), 'http://127.0.0.1:3773')).toEqual({
+      webUrl: 'http://127.0.0.1:3773/threads/env-1/mcp%3Athread-1',
+      appUrl: link,
+    })
+  })
+
+  it('has no local page for a session without a link, or a link that is not a thread', () => {
+    expect(t3ThreadUrl('http://127.0.0.1:3773', null)).toBeNull()
+    expect(t3ThreadUrl('http://127.0.0.1:3773', 'https://app.t3.codes/pair')).toBeNull()
+    expect(t3ThreadUrl(null, link)).toBeNull()
+  })
+
+  it('reads where T3 Code answers from what it wrote when it started', () => {
+    const home = mkdtempSync(path.join(tmpdir(), 'pr-dash-t3-'))
+    expect(t3Origin(home)).toBeNull()
+    mkdirSync(path.join(home, 'userdata'))
+    writeFileSync(path.join(home, 'userdata', 'server-runtime.json'), JSON.stringify({ origin: 'http://127.0.0.1:3773', port: 3773 }))
+    expect(t3Origin(home)).toBe('http://127.0.0.1:3773')
+    writeFileSync(path.join(home, 'userdata', 'server-runtime.json'), JSON.stringify({ origin: 'file:///etc' }))
+    expect(t3Origin(home)).toBeNull()
   })
 })
 

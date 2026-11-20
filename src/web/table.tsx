@@ -9,7 +9,6 @@ import {
   PROMPT_LIMIT,
   providerLabel,
   sessionActive,
-  sessionLinks,
   sessionStatusLabel,
   type AgentRequest,
 } from '../shared/agents.ts'
@@ -23,7 +22,7 @@ import { RepoIcon } from './repo-mark.tsx'
 import type { AgentRouting, AgentSession, Check, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import { blockRails, type Bucket, type Outline, type ProjectGroup, type StackBlock } from '../shared/view.ts'
 import { AgentDrawer, AgentList } from './agents.tsx'
-import { AgentProvider, launchTag, useAgentLaunch, useAgentName, type StartAgent } from './agent-launch.tsx'
+import { AgentProvider, launchTag, useAgentLaunch, useAgentName, useSessionLinks, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
 import { ageHeat, copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
 import { usePrHref } from './pr-links.tsx'
@@ -87,6 +86,7 @@ export function PrTable({
   onRerun,
   onStartAgent,
   agentRouting,
+  t3Origin,
   onRebase,
   byIssue,
   onRefreshPr,
@@ -122,6 +122,8 @@ export function PrTable({
   onStartAgent: StartAgent
   /** Which provider starts agents for each repository. Left out, Cursor starts them all. */
   agentRouting?: AgentRouting
+  /** The T3 Code this browser is paired with, so its threads open in a tab. */
+  t3Origin?: string | null
   onRebase: (key: string) => Promise<void>
   byIssue: boolean
   onRefreshPr: (key: string) => Promise<void>
@@ -161,7 +163,7 @@ export function PrTable({
   }
   return (
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
-    <AgentProvider start={onStartAgent} routing={agentRouting}>
+    <AgentProvider start={onStartAgent} routing={agentRouting} t3Origin={t3Origin}>
     <HoldContext.Provider value={holds}>
     <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
       <thead>
@@ -1218,7 +1220,7 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
 }
 
 function RunningNote({ session, prefix = null }: { session: AgentSession; prefix?: string | null }) {
-  const { webUrl } = sessionLinks(session)
+  const { webUrl } = useSessionLinks(session)
   return (
     <p>
       {prefix ? `${prefix} · ` : ''}

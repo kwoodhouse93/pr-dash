@@ -4,7 +4,7 @@ import { AgentUnavailable, type AgentProvider } from './agent-provider.ts'
 import { agentTask } from './agent-tasks.ts'
 import { cursorProvider } from './cursor.ts'
 import type { DashboardDb } from './db.ts'
-import { checkoutProblem, shortFolder, t3Provider, t3ProjectsByRepo } from './t3.ts'
+import { checkoutProblem, shortFolder, t3Origin, t3Provider, t3ProjectsByRepo } from './t3.ts'
 
 export const agentProviders: Record<AgentProviderId, AgentProvider> = {
   cursor: cursorProvider,
@@ -83,5 +83,5 @@ export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
       }),
     ),
   ])
-  return { defaultProvider: routing.defaultProvider, providers, repos }
+  return { defaultProvider: routing.defaultProvider, t3Origin: t3Origin(), providers, repos }
 }

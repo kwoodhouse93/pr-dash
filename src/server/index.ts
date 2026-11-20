@@ -38,6 +38,7 @@ import type { PullRequest, Snapshot } from '../shared/types.ts'
 import { checkPhase, selectChecks } from '../shared/ci.ts'
 import { agentBlocker, isAgentProvider, parseAgentRequest } from '../shared/agents.ts'
 import { AgentLaunchUnavailable, agentSettings, launchAgent } from './agents.ts'
+import { t3PairLink } from './t3.ts'
 import { rebasePull, RebaseRejected } from './rebase.ts'
 import { isLoopback, refusal } from './origin.ts'
 
@@ -445,6 +446,16 @@ app.post('/api/agents', async (c) => {
   if (!isAgentProvider(body?.defaultProvider)) return c.json({ error: 'Pick an agent provider from the list.' }, 400)
   db.setDefaultProvider(body.defaultProvider)
   return c.json({ settings: await agentSettings(db), snapshot: db.snapshot() })
+})
+
+app.post('/api/agents/t3/pair', async (c) => {
+  // The link lets its holder into T3 Code on this machine, so it is only made for a dashboard that is on this machine too.
+  if (!loopbackOnly) return c.json({ error: 'Pairing with T3 Code is only offered when the dashboard runs on this machine.' }, 403)
+  try {
+    return c.json(await t3PairLink())
+  } catch (error) {
+    return c.json({ error: messageOf(error) }, 502)
+  }
 })
 
 app.post('/api/agents/repo', async (c) => {

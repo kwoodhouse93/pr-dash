@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -177,6 +177,39 @@ export async function checkoutProblem(repo: string, folder: string): Promise<str
   return null
 }
 
+const T3_HOME = () => process.env.T3CODE_HOME || path.join(homedir(), '.t3')
+
+/** The address the T3 Code on this machine answers at, from what it writes down when it starts. Null when it has not. */
+export function t3Origin(home = T3_HOME()): string | null {
+  try {
+    const { origin } = JSON.parse(readFileSync(path.join(home, 'userdata', 'server-runtime.json'), 'utf8')) as { origin?: unknown }
+    if (typeof origin !== 'string') return null
+    const url = new URL(origin)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : null
+  } catch {
+    return null
+  }
+}
+
+/** What a browser paired from here may do in T3 Code: read threads and take part in them. Nothing wider. */
+const PAIR_SCOPES = ['orchestration:read', 'orchestration:operate']
+
+/**
+ * A link that pairs whichever browser opens it with the T3 Code on this machine, so that
+ * browser can show T3 Code's threads. It works once, and for five minutes.
+ */
+export async function t3PairLink(): Promise<{ pairUrl: string; origin: string }> {
+  const origin = t3Origin()
+  if (!origin) throw new AgentUnavailable('unreachable', 'T3 Code is not running on this machine. Start it, then try again.')
+  const made = await t3(
+    ['auth', 'pairing', 'create', '--json', '--ttl', '5m', '--label', 'PR Dash', '--base-url', origin, ...PAIR_SCOPES.flatMap((scope) => ['--scope', scope])],
+    { timeoutMs: 15_000 },
+  )
+  const pairUrl = parseJson<{ pairUrl?: string }>(made)?.pairUrl
+  if (!pairUrl) throw new Error('T3 Code did not return a pairing link.')
+  return { pairUrl, origin }
+}
+
 export type T3Project = { id: string; title: string; root: string }
 
 /**
@@ -185,7 +218,7 @@ export type T3Project = { id: string; title: string; root: string }
  * change shape between versions, so anything unexpected reads as no projects, and a
  * folder set by hand still works.
  */
-export function t3Projects(home = process.env.T3CODE_HOME || path.join(homedir(), '.t3')): T3Project[] {
+export function t3Projects(home = T3_HOME()): T3Project[] {
   const file = path.join(home, 'userdata', 'statev2.sqlite')
   if (!existsSync(file)) return []
   let db: DatabaseSync | null = null
