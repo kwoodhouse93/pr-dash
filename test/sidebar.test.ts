@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildSidebar, prRef, pruneAgentState, runsShownAt, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
+import { buildSidebar, drawStacks, prRef, pruneAgentState, runsShownAt, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
+import { buildStacks } from '../src/shared/stacks.ts'
 import type { CursorSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
 
 const NOW = Date.parse('2026-11-19T12:00:00Z')
@@ -15,6 +16,10 @@ function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
     url: `https://github.com/acme/app/pull/${number}`,
     baseRef: 'main',
     headRef: `branch-${number}`,
+    defaultBranch: 'main',
+    // A lower number was updated more recently, so the dashboard lists it first.
+    createdAt: new Date(NOW - number * 60_000).toISOString(),
+    updatedAt: new Date(NOW - number * 60_000).toISOString(),
     ci: 'green',
     linearIssues: [],
     initiativeIds: [],
@@ -174,6 +179,53 @@ describe('sidebar tabs', () => {
     const review = snapshot([], [pr(9, { unreadCount: 3, awaitingYouCount: 5 })])
     const model = build([tab(1, 'https://github.com/acme/app/pull/9')], review)
     expect(model.nodes.flatMap((node) => (node.kind === 'tab' ? [node.row.needs] : []))).toEqual([3])
+  })
+})
+
+describe('stack rails', () => {
+  // 10, 11 and 12 in a line, with 20 and 21 branching off 11.
+  const on = (number: number, base: number | null) => pr(number, { baseRef: base ? `branch-${base}` : 'main' })
+  const prs = [on(10, null), on(11, 10), on(12, 11), on(20, 11), on(21, 20)]
+  const stack = buildStacks(prs)[0]!
+  const stacks = new Map(prs.map((item) => [item.key, stack]))
+  const key = (number: number) => `acme/app#${number}`
+  const rails = (numbers: number[]) => drawStacks(numbers.map(key), stacks).map((item) => item!.rail)
+
+  it('gives a branch its own lane and joins it where it is based', () => {
+    const drawn = rails([21, 20, 12, 11, 10])
+    expect(drawn.map((rail) => rail.lanes)).toEqual([2, 2, 2, 2, 2])
+    expect(drawn.map((rail) => rail.lane)).toEqual([0, 0, 1, 0, 0])
+    expect(drawn[2]).toMatchObject({ up: null, down: 'solid', through: [{ lane: 0, line: 'solid' }] })
+    expect(drawn[3]).toMatchObject({ up: 'solid', down: 'solid', joins: [{ lane: 1, line: 'solid' }] })
+    expect(drawn[4]).toMatchObject({ up: 'solid', down: null })
+  })
+
+  it('dots the line across pull requests that are not open, and stubs the ends that go on', () => {
+    const [top, bottom] = rails([12, 10])
+    expect(top).toMatchObject({ lanes: 1, up: null, down: 'dotted' })
+    expect(bottom).toMatchObject({ up: 'dotted', down: null })
+    expect(rails([11])[0]).toMatchObject({ up: 'stub', down: 'stub' })
+  })
+
+  it('carries lanes past a page nested under a pull request', () => {
+    const drawn = drawStacks([key(21), key(20), key(12), key(11)], stacks)
+    expect(drawn[2]!.passing).toMatchObject({ lane: null, through: [{ lane: 0, line: 'solid' }, { lane: 1, line: 'solid' }] })
+    expect(drawn[2]!.note).toBe('Based on #11')
+    expect(drawn[3]!.note).toBe('Based on #10, which is not open here')
+  })
+
+  it('leaves rows that are not in a stack alone, and starts a new rail after one', () => {
+    const drawn = drawStacks([key(12), null, key(11)], stacks)
+    expect(drawn[1]).toBeNull()
+    expect(drawn[0]!.rail.down).toBe('stub')
+    expect(drawn[2]!.rail.up).toBe('stub')
+  })
+
+  it('orders a stack top first in the sidebar and draws its rail', () => {
+    const tabs = [10, 12, 11].map((number, index) => tab(index + 1, `https://github.com/acme/app/pull/${number}`))
+    const nodes = build(tabs, snapshot(prs)).nodes
+    expect(outline(nodes)).toEqual(['group:Ungrouped', '  #12', '  #11', '  #10'])
+    expect(nodes.flatMap((node) => (node.kind === 'tab' ? [[node.rail?.up, node.rail?.down]] : []))).toEqual([[null, 'solid'], ['solid', 'solid'], ['solid', null]])
   })
 })
 

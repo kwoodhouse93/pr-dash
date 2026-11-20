@@ -128,11 +128,35 @@ function stripTab(tab) {
   return node
 }
 
-function tabRow({ depth, row }) {
-  const node = el('div', classes('row', `d${depth}`, row.id === state.activeId && 'active', row.loading && 'loading'))
-  node.title = row.number === null ? row.title : `#${row.number} ${row.title}`
+function railBox(rail, dot) {
+  const box = el('span', 'rails')
+  box.style.setProperty('--lanes', rail.lanes)
+  const segment = (kind, lane, line, span) => {
+    const seg = el('span', `seg ${kind} ${line}`)
+    seg.style.setProperty('--lane', lane)
+    if (span) seg.style.setProperty('--span', span)
+    box.append(seg)
+  }
+  for (const pass of rail.through) segment('through', pass.lane, pass.line)
+  if (rail.lane === null) return box
+  if (rail.up) segment('up', rail.lane, rail.up)
+  if (rail.down) segment('down', rail.lane, rail.down)
+  for (const join of rail.joins) segment('join', rail.lane, join.line, join.lane - rail.lane)
+  dot.style.setProperty('--lane', rail.lane)
+  box.append(dot)
+  return box
+}
+
+function tabRow({ depth, row, rail }) {
+  const nested = rail && rail.lane === null
+  const node = el('div', classes('row', `d${depth}`, nested && 'nested', row.id === state.activeId && 'active', row.loading && 'loading'))
+  node.title = [row.number === null ? row.title : `#${row.number} ${row.title}`, row.note].filter(Boolean).join('\n')
   selectable(node, row.id)
-  node.append(row.ci ? el('span', `ci ${row.ci}`) : favicon(row.favicon), el('span', 'title', row.title))
+  const dot = row.ci ? el('span', `ci ${row.ci}`) : favicon(row.favicon)
+  if (!rail) node.append(dot)
+  else if (nested) node.append(railBox(rail), dot)
+  else node.append(railBox(rail, dot))
+  node.append(el('span', 'title', row.title))
   if (row.agent) {
     const spin = el('span', 'spin')
     spin.title = 'A Cursor agent is working on this pull request'

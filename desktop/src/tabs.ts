@@ -1,7 +1,7 @@
 import { clipboard, ipcMain, Menu, shell, WebContentsView, type BaseWindow, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import type { Snapshot } from '../../src/shared/types.ts'
+import type { Snapshot, Sort } from '../../src/shared/types.ts'
 import {
   buildSidebar,
   GROUPINGS,
@@ -279,8 +279,12 @@ export class Tabs {
     if (contents.isDestroyed() || contents.isLoading()) return
     const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
     if (typeof raw !== 'string') return
-    const views = (JSON.parse(raw) as { views?: Record<string, { byIssue?: boolean } | undefined> }).views
-    this.prefs = { mineByIssue: views?.mine?.byIssue !== false, reviewByIssue: views?.review?.byIssue !== false }
+    const { views, sort } = JSON.parse(raw) as { views?: Record<string, { byIssue?: boolean } | undefined>; sort?: Partial<Sort> }
+    this.prefs = {
+      mineByIssue: views?.mine?.byIssue !== false,
+      reviewByIssue: views?.review?.byIssue !== false,
+      sort: typeof sort?.key === 'string' && (sort.dir === 'asc' || sort.dir === 'desc') ? { key: sort.key, dir: sort.dir } : undefined,
+    }
   }
 
   private saveAgentState(next: AgentState) {

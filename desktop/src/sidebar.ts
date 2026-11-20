@@ -1,7 +1,9 @@
 import { agentKindLabel } from '../../src/shared/agents.ts'
 import { cursorLinks, cursorSessionActive } from '../../src/shared/cursor.ts'
-import { buildStacks } from '../../src/shared/stacks.ts'
-import type { CiLevel, CursorSession, PullRequest, Snapshot } from '../../src/shared/types.ts'
+import { layoutRails } from '../../src/shared/rails.ts'
+import { buildStacks, type Stack } from '../../src/shared/stacks.ts'
+import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type CursorSession, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
+import { buildOutline } from '../../src/shared/view.ts'
 
 // What the sidebar and the tab strip show, worked out from the open tabs and
 // the dashboard's snapshot. Nothing here touches Electron.
@@ -35,7 +37,7 @@ export type TabInfo = {
 }
 
 /** Whether each dashboard list groups pull requests under their Linear issue. */
-export type DashboardPrefs = { mineByIssue: boolean; reviewByIssue: boolean }
+export type DashboardPrefs = { mineByIssue: boolean; reviewByIssue: boolean; sort?: Sort }
 
 export type AgentState = {
   /** Agents that finished before this are not news. */
@@ -56,13 +58,32 @@ export type TabRow = {
   needs: number
   /** A Cursor agent is running on this pull request. */
   agent: boolean
+  /** What the pull request is based on, for the row's tooltip. */
+  note?: string
+}
+
+export type Line = 'solid' | 'dotted'
+export type LaneLine = { lane: number; line: Line }
+
+/** One row's part of a stack's rail. Lane 0 is the leftmost; a branch runs in a lane to its right. */
+export type RowRail = {
+  /** Lanes the whole stack needs here, so every title in it starts at the same place. */
+  lanes: number
+  /** The lane the row's status dot sits on. Null on a page nested under a pull request, which lanes only pass. */
+  lane: number | null
+  /** A stub is a short dotted end: the stack goes on, to pull requests that are not open here. */
+  up: Line | 'stub' | null
+  down: Line | 'stub' | null
+  /** Branches that end at this row. */
+  joins: LaneLine[]
+  through: LaneLine[]
 }
 
 export type SidebarNode =
   | { kind: 'group'; id: string; title: string; count: number; open: boolean }
   | { kind: 'issue'; title: string }
   | { kind: 'label'; title: string }
-  | { kind: 'tab'; depth: number; row: TabRow }
+  | { kind: 'tab'; depth: number; row: TabRow; rail?: RowRail }
 
 export type AgentMark = 'running' | 'unread' | 'failed' | 'read'
 
@@ -211,16 +232,95 @@ function issueTitle(issue: { identifier: string; title: string | null }): string
   return issue.title ? `${issue.identifier} · ${issue.title}` : issue.identifier
 }
 
-function stackSteps(data: Snapshot | null): Map<string, Step> {
-  const steps = new Map<string, Step>()
-  for (const prs of [data?.pullRequests ?? [], data?.reviewPullRequests ?? []]) {
+type Layout = { rank: Map<string, number>; stacks: Map<string, Stack> }
+let layoutCache: { data: Snapshot | null; prefs: string; layout: Layout } | null = null
+
+/** Where the dashboard lists each pull request, and the stack each one is in. A pull request on its own has no stack. */
+function dashboardLayout(data: Snapshot | null, prefs: DashboardPrefs): Layout {
+  const key = JSON.stringify(prefs)
+  if (layoutCache && layoutCache.data === data && layoutCache.prefs === key) return layoutCache.layout
+  const rank = new Map<string, number>()
+  const stacks = new Map<string, Stack>()
+  for (const [prs, attention, byIssue] of [
+    [data?.pullRequests ?? [], 'author', prefs.mineByIssue],
+    [data?.reviewPullRequests ?? [], 'reviewer', prefs.reviewByIssue],
+  ] as const) {
     for (const stack of buildStacks(prs)) {
-      const bottom = stack.prs.at(-1)
-      if (stack.prs.length < 2 || !bottom) continue
-      for (const pr of stack.prs) if (!steps.has(pr.key)) steps.set(pr.key, { id: `stack:${stack.id}`, title: bottom.title })
+      if (stack.prs.length < 2) continue
+      for (const pr of stack.prs) if (!stacks.has(pr.key)) stacks.set(pr.key, stack)
+    }
+    const outline = buildOutline(prs, data?.initiatives ?? [], DEFAULT_FILTERS, prefs.sort ?? DEFAULT_SORT, attention, byIssue, data?.viewer ?? null)
+    const buckets = [...outline.projects.flatMap((project) => project.issues), ...outline.initiatives, ...outline.looseIssues, ...(outline.unassigned ? [outline.unassigned] : [])]
+    for (const bucket of buckets) {
+      for (const block of [...bucket.stacks, ...bucket.singles]) {
+        for (const row of block.rows) {
+          for (const pr of row.type === 'pr' ? [row.pr.key] : row.keys) if (!rank.has(pr)) rank.set(pr, rank.size)
+        }
+      }
     }
   }
-  return steps
+  const layout = { rank, stacks }
+  layoutCache = { data, prefs: key, layout }
+  return layout
+}
+
+type Drawn = { rail: RowRail; passing: RowRail; note: string }
+
+/**
+ * The rail for a run of rows, top to bottom. Each entry is the pull request the row stands for, or null.
+ * Rows of one stack that sit together share a rail; a line is dotted where pull requests between two rows are not open.
+ */
+export function drawStacks(keys: (string | null)[], stacks: Map<string, Stack>): (Drawn | null)[] {
+  const drawn: (Drawn | null)[] = keys.map(() => null)
+  let start = 0
+  while (start < keys.length) {
+    const stack = keys[start] ? stacks.get(keys[start]!) : undefined
+    let end = start + 1
+    if (!stack) {
+      start = end
+      continue
+    }
+    const run = [keys[start]!]
+    while (end < keys.length && keys[end] && stacks.get(keys[end]!) === stack && !run.includes(keys[end]!)) run.push(keys[end++]!)
+
+    // What each row is based on among the rows here, and how many pull requests the line to it skips.
+    const based = run.map((key, index) => {
+      let skipped = 0
+      for (let parent = stack.parents[key] ?? null; parent; parent = stack.parents[parent] ?? null) {
+        if (run.indexOf(parent) > index) return { parent, skipped }
+        skipped += 1
+      }
+      return null
+    })
+    const { rails, lanes } = layoutRails(run.map((key, index) => ({ id: key, parent: based[index]?.parent ?? null })))
+    const lineOf = (index: number): Line => (based[index]!.skipped > 0 ? 'dotted' : 'solid')
+    // The line coming down a lane to a row started at the nearest row above on that lane.
+    const arriving = (lane: number, index: number): LaneLine => {
+      for (let above = index - 1; above >= 0; above -= 1) if (rails[above]!.lane === lane && rails[above]!.down) return { lane, line: lineOf(above) }
+      return { lane, line: 'solid' }
+    }
+    for (const [index, key] of run.entries()) {
+      const rail = rails[index]!
+      const parent = stack.parents[key] ?? null
+      const through = rail.through.map((lane) => arriving(lane, index))
+      const hasChild = Object.values(stack.parents).includes(key)
+      const number = (pr: string) => stack.prs.find((item) => item.key === pr)?.number
+      drawn[start + index] = {
+        rail: {
+          lanes,
+          lane: rail.lane,
+          up: rail.up ? arriving(rail.lane, index).line : hasChild ? 'stub' : null,
+          down: rail.down ? lineOf(index) : parent ? 'stub' : null,
+          joins: rail.joins.map((lane) => arriving(lane, index)),
+          through,
+        },
+        passing: { lanes, lane: null, up: null, down: null, joins: [], through: rail.down ? [...through, { lane: rail.lane, line: lineOf(index) }] : through },
+        note: !parent ? 'Bottom of its stack' : run.includes(parent) ? `Based on #${number(parent)}` : `Based on #${number(parent)}, which is not open here`,
+      }
+    }
+    start = end
+  }
+  return drawn
 }
 
 function pathOf(
@@ -345,19 +445,41 @@ export function buildSidebar(input: {
   const nodes: SidebarNode[] = []
   const order: number[] = agents.concat(earlier).flatMap((row) => (row.tabId === null ? [] : [row.tabId]))
   const crumbs = new Map<number, string[]>()
-  const push = (tab: TabInfo, depth: number, visible: boolean, path: string[]) => {
+  const push = (tab: TabInfo, depth: number, visible: boolean, path: string[], drawn?: Drawn) => {
     for (const [index, item] of [tab, ...(children.get(tab.id) ?? [])].entries()) {
       if (!order.includes(item.id)) order.push(item.id)
       crumbs.set(item.id, path)
-      if (visible) nodes.push({ kind: 'tab', depth: index === 0 ? depth : depth + 1, row: rowOf(item) })
+      if (!visible) continue
+      const row = rowOf(item)
+      if (!drawn) nodes.push({ kind: 'tab', depth: index === 0 ? depth : depth + 1, row })
+      else if (index === 0) nodes.push({ kind: 'tab', depth, row: { ...row, note: drawn.note }, rail: drawn.rail })
+      else nodes.push({ kind: 'tab', depth, row, rail: drawn.passing })
     }
   }
 
   if (grouping === 'none') {
     for (const tab of top) push(tab, 0, true, [])
   } else {
+    const { rank, stacks } = dashboardLayout(data, prefs)
+    const rankOf = (tab: TabInfo) => rank.get(lookup(tab.placedUrl)?.pr.key ?? '') ?? Number.MAX_SAFE_INTEGER
+    const sorted = (rows: TabInfo[]) => rows.slice().sort((a, b) => rankOf(a) - rankOf(b))
+    const first = (rows: TabInfo[]) => Math.min(Number.MAX_SAFE_INTEGER, ...rows.map(rankOf))
+    // The pull request a row stands for in its stack. A tab that has left its pull request is not part of one.
+    const stackKey = (tab: TabInfo) => {
+      const placed = lookup(tab.placedUrl)?.pr.key
+      return placed && placed === lookup(tab.url)?.pr.key && stacks.has(placed) ? placed : null
+    }
+    const pushAll = (rows: TabInfo[], visible: boolean, path: string[]) => {
+      const list = sorted(rows)
+      const drawn = drawStacks(list.map(stackKey), stacks)
+      for (const [index, tab] of list.entries()) push(tab, 1, visible, path, drawn[index] ?? undefined)
+    }
+
     const initiatives = new Map((data?.initiatives ?? []).map((initiative) => [initiative.id, initiative.name]))
-    const stacks = grouping === 'stack' ? stackSteps(data) : new Map<string, Step>()
+    const steps = new Map<string, Step>()
+    if (grouping === 'stack') {
+      for (const [key, stack] of stacks) steps.set(key, { id: `stack:${stack.id}`, title: stack.prs.at(-1)!.title })
+    }
     const branches = new Map<string, Branch>()
     const other: TabInfo[] = []
     for (const tab of top) {
@@ -366,9 +488,9 @@ export function buildSidebar(input: {
         other.push(tab)
         continue
       }
-      const [first, second] = pathOf(placed, grouping, prefs, initiatives, stacks)
-      const branch: Branch = branches.get(first!.id) ?? { step: first!, rows: [], subs: new Map() }
-      branches.set(first!.id, branch)
+      const [head, second] = pathOf(placed, grouping, prefs, initiatives, steps)
+      const branch: Branch = branches.get(head!.id) ?? { step: head!, rows: [], subs: new Map() }
+      branches.set(head!.id, branch)
       if (!second) branch.rows.push(tab)
       else {
         const sub = branch.subs.get(second.id) ?? { step: second, rows: [] }
@@ -376,15 +498,16 @@ export function buildSidebar(input: {
         sub.rows.push(tab)
       }
     }
-    const ordered = [...branches.values()].sort((a, b) => Number(a.step.last ?? false) - Number(b.step.last ?? false))
+    // Groups, and the pull requests in them, come in the dashboard's order.
+    const all = (branch: Branch) => [...branch.rows, ...[...branch.subs.values()].flatMap((sub) => sub.rows)]
+    const ordered = [...branches.values()].sort((a, b) => Number(a.step.last ?? false) - Number(b.step.last ?? false) || first(all(a)) - first(all(b)))
     for (const branch of ordered) {
       const open = !input.collapsed.includes(branch.step.id)
-      const count = branch.rows.length + [...branch.subs.values()].reduce((sum, sub) => sum + sub.rows.length, 0)
-      nodes.push({ kind: 'group', id: branch.step.id, title: branch.step.title, count, open })
-      for (const tab of branch.rows) push(tab, 1, open, [branch.step.title])
-      for (const sub of branch.subs.values()) {
+      nodes.push({ kind: 'group', id: branch.step.id, title: branch.step.title, count: all(branch).length, open })
+      pushAll(branch.rows, open, [branch.step.title])
+      for (const sub of [...branch.subs.values()].sort((a, b) => first(a.rows) - first(b.rows))) {
         if (open) nodes.push({ kind: 'issue', title: sub.step.title })
-        for (const tab of sub.rows) push(tab, 1, open, [branch.step.title, sub.step.title])
+        pushAll(sub.rows, open, [branch.step.title, sub.step.title])
       }
     }
     if (other.length) {
