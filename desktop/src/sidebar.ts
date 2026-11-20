@@ -138,6 +138,54 @@ export function prRef(url: string): PrRef | null {
   return null
 }
 
+export type LinearRef = { issue: string | null; project: string | null }
+
+/** The Linear page an address shows: its issue, or its project's part of the address, when it has one. */
+export function linearRef(url: string): LinearRef | null {
+  const match = /^https:\/\/linear\.app(?:\/([^?#]*))?/.exec(url)
+  if (!match) return null
+  const [, kind, name] = (match[1] ?? '').split('/')
+  return { issue: kind === 'issue' && name ? name.toUpperCase() : null, project: kind === 'project' && name ? name.toLowerCase() : null }
+}
+
+/** Linear only bounces a link to its desktop app when the address lacks this. */
+const STAY = 'noRedirect'
+
+/** The address that keeps a Linear page in this window, or null when it already does or is not Linear's. */
+export function linearStayUrl(url: string): string | null {
+  if (!linearRef(url)) return null
+  const next = new URL(url)
+  if (next.searchParams.has(STAY)) return null
+  next.searchParams.set(STAY, '1')
+  return next.href
+}
+
+/** A tab's address as it should leave the app, without what was added to keep Linear here. */
+export function shareUrl(url: string): string {
+  if (!linearRef(url)) return url
+  const next = new URL(url)
+  if (!next.searchParams.has(STAY)) return url
+  next.searchParams.delete(STAY)
+  return next.href
+}
+
+function slug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+/** The project a Linear page belongs to, as far as the pull requests on the dashboard tell. */
+function linearProject(ref: LinearRef, known: Map<string, Known>): string | null {
+  for (const { pr } of known.values()) {
+    for (const issue of pr.linearIssues) {
+      if (!issue.projectName) continue
+      if (ref.issue === issue.identifier.toUpperCase()) return issue.projectName
+      // A project's address is its name and then an id.
+      if (ref.project && ref.project.replace(/-[0-9a-f]+$/, '') === slug(issue.projectName)) return issue.projectName
+    }
+  }
+  return null
+}
+
 type Known = { pr: PullRequest; list: 'mine' | 'review' }
 type Run = { key: string; session: CursorSession; pr: PullRequest }
 type Step = { id: string; title: string; last?: boolean }
@@ -365,6 +413,8 @@ export function buildSidebar(input: {
   grouping: Grouping
   prefs: DashboardPrefs
   collapsed: string[]
+  /** Linear pages go under their project inside the Linear section. */
+  linearByProject?: boolean
   agentState: AgentState
   /** Runs read in the tab being looked at. They keep their row until another tab takes over. */
   held?: string[]
@@ -422,7 +472,7 @@ export function buildSidebar(input: {
   const top: TabInfo[] = []
   for (const tab of plain) {
     const parent = tab.parent === null ? null : byId.get(tab.parent)
-    const nests = !lookup(tab.placedUrl) && parent && !parent.pinned && !runOfTab.has(parent.id) && lookup(parent.placedUrl)
+    const nests = !lookup(tab.placedUrl) && !linearRef(tab.placedUrl) && parent && !parent.pinned && !runOfTab.has(parent.id) && lookup(parent.placedUrl)
     if (nests) children.set(parent.id, [...(children.get(parent.id) ?? []), tab])
     else top.push(tab)
   }
@@ -481,11 +531,12 @@ export function buildSidebar(input: {
       for (const [key, stack] of stacks) steps.set(key, { id: `stack:${stack.id}`, title: stack.prs.at(-1)!.title })
     }
     const branches = new Map<string, Branch>()
+    const linear: TabInfo[] = []
     const other: TabInfo[] = []
     for (const tab of top) {
       const placed = lookup(tab.placedUrl)
       if (!placed) {
-        other.push(tab)
+        ;(linearRef(tab.placedUrl) ? linear : other).push(tab)
         continue
       }
       const [head, second] = pathOf(placed, grouping, prefs, initiatives, steps)
@@ -510,8 +561,27 @@ export function buildSidebar(input: {
         pushAll(sub.rows, open, [branch.step.title, sub.step.title])
       }
     }
+    if (linear.length) {
+      nodes.push({ kind: 'label', title: 'Linear' })
+      if (!input.linearByProject) for (const tab of linear) push(tab, 0, true, ['Linear'])
+      else {
+        const projects = new Map<string, TabInfo[]>()
+        for (const tab of linear) {
+          const name = linearProject(linearRef(tab.placedUrl)!, known) ?? ''
+          projects.set(name, [...(projects.get(name) ?? []), tab])
+        }
+        // Projects in the order their first tab was opened, and pages with no known project last.
+        for (const [name, rows] of [...projects].sort(([a], [b]) => Number(a === '') - Number(b === ''))) {
+          const id = name ? `linear:project:${name}` : 'linear:none'
+          const title = name || 'No project'
+          const open = !input.collapsed.includes(id)
+          nodes.push({ kind: 'group', id, title, count: rows.length, open })
+          for (const tab of rows) push(tab, 1, open, ['Linear', title])
+        }
+      }
+    }
     if (other.length) {
-      if (ordered.length) nodes.push({ kind: 'label', title: 'Other' })
+      if (ordered.length || linear.length) nodes.push({ kind: 'label', title: 'Other' })
       for (const tab of other) push(tab, 0, true, [])
     }
   }

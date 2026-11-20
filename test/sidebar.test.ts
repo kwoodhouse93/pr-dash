@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSidebar, drawStacks, prRef, pruneAgentState, runsShownAt, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
+import { buildSidebar, drawStacks, linearRef, linearStayUrl, prRef, pruneAgentState, runsShownAt, shareUrl, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
 import type { CursorSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
 
@@ -72,7 +72,7 @@ function tab(id: number, url: string, over: Partial<TabInfo> = {}): TabInfo {
 const HOME = tab(0, 'http://127.0.0.1:4318/', { pinned: true, title: 'Pull requests' })
 const QUIET: AgentState = { since: '2026-11-01T00:00:00Z', seen: {}, dismissed: [] }
 
-function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; activeId?: number; collapsed?: string[]; agentState?: AgentState; byIssue?: boolean; held?: string[] } = {}) {
+function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; activeId?: number; collapsed?: string[]; agentState?: AgentState; byIssue?: boolean; held?: string[]; linearByProject?: boolean } = {}) {
   return buildSidebar({
     tabs: [HOME, ...tabs],
     activeId: over.activeId ?? 0,
@@ -80,6 +80,7 @@ function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; act
     grouping: over.grouping ?? 'match',
     prefs: { mineByIssue: over.byIssue ?? true, reviewByIssue: over.byIssue ?? true },
     collapsed: over.collapsed ?? [],
+    linearByProject: over.linearByProject,
     agentState: over.agentState ?? QUIET,
     held: over.held,
     now: NOW,
@@ -107,6 +108,49 @@ describe('prRef', () => {
   })
 })
 
+describe('Linear pages', () => {
+  it('reads the issue or project an address shows', () => {
+    expect(linearRef('https://linear.app/acme/issue/eng-12/some-title')).toEqual({ issue: 'ENG-12', project: null })
+    expect(linearRef('https://linear.app/acme/project/Billing-0a1b2c3d4e5f/overview')).toEqual({ issue: null, project: 'billing-0a1b2c3d4e5f' })
+    expect(linearRef('https://linear.app/acme/inbox')).toEqual({ issue: null, project: null })
+    expect(linearRef('https://github.com/acme/app/pull/12')).toBeNull()
+  })
+
+  it('marks an address so Linear stays in the window, once, and takes the mark off again', () => {
+    const stay = linearStayUrl('https://linear.app/acme/issue/ENG-12/title?a=1#comment')
+    expect(stay).toBe('https://linear.app/acme/issue/ENG-12/title?a=1&noRedirect=1#comment')
+    expect(linearStayUrl(stay!)).toBeNull()
+    expect(linearStayUrl('https://github.com/acme/app/pull/12')).toBeNull()
+    expect(shareUrl(stay!)).toBe('https://linear.app/acme/issue/ENG-12/title?a=1#comment')
+    expect(shareUrl('https://github.com/acme/app/pull/12?noRedirect=1')).toBe('https://github.com/acme/app/pull/12?noRedirect=1')
+  })
+
+  const data = snapshot([pr(1, { linearIssues: [issue('ENG-1', 'Billing')] })])
+  const tabs = [
+    tab(1, 'https://github.com/acme/app/pull/1'),
+    tab(2, 'https://linear.app/acme/issue/ENG-9/unknown?noRedirect=1', { parent: 1 }),
+    tab(3, 'https://example.com/'),
+    tab(4, 'https://linear.app/acme/issue/ENG-1/known'),
+    tab(5, 'https://linear.app/acme/project/billing-0a1b2c3d4e5f/overview'),
+  ]
+
+  it('lists them in their own section, wherever they were opened from', () => {
+    const model = build(tabs, data, { activeId: 2 })
+    expect(outline(model.nodes).slice(-7)).toEqual(['  #1', 'label:Linear', 'Page 2', 'Page 4', 'Page 5', 'label:Other', 'Page 3'])
+    expect(model.crumb).toEqual(['Linear', 'Page 2'])
+  })
+
+  it('groups them by project when asked, with the unknown ones last', () => {
+    const model = build(tabs, data, { linearByProject: true, activeId: 5, collapsed: ['linear:none'] })
+    expect(outline(model.nodes).slice(-7)).toEqual(['label:Linear', 'group:Billing', '  Page 4', '  Page 5', 'group:No project', 'label:Other', 'Page 3'])
+    expect(model.crumb).toEqual(['Linear', 'Billing', 'Page 5'])
+  })
+
+  it('leaves them in the flat list when nothing is grouped', () => {
+    expect(outline(build(tabs, data, { grouping: 'none' }).nodes)).toEqual(['#1', 'Page 2', 'Page 3', 'Page 4', 'Page 5'])
+  })
+})
+
 describe('sidebar tabs', () => {
   const data = snapshot([
     pr(1, { linearIssues: [issue('ENG-1', 'Invitations')], ci: 'red', awaitingYouCount: 2 }),
@@ -118,7 +162,7 @@ describe('sidebar tabs', () => {
     tab(1, 'https://github.com/acme/app/pull/4'),
     tab(2, 'https://app.graphite.com/github/pr/acme/app/1'),
     tab(3, 'https://github.com/acme/app/actions/runs/9', { parent: 2, title: 'CI run' }),
-    tab(4, 'https://linear.app/acme/issue/ENG-1', { title: 'ENG-1' }),
+    tab(4, 'https://example.com/notes', { title: 'ENG-1' }),
     tab(5, 'https://github.com/acme/app/pull/3'),
     tab(6, 'https://github.com/acme/app/pull/2/files'),
   ]

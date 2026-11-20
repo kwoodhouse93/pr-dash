@@ -6,9 +6,11 @@ import {
   buildSidebar,
   GROUPINGS,
   isGrouping,
+  linearStayUrl,
   prRef,
   pruneAgentState,
   runsShownAt,
+  shareUrl,
   unreadRuns,
   type AgentState,
   type DashboardPrefs,
@@ -44,7 +46,7 @@ type Tab = {
 /** `parents` holds, for each address, the index of the tab it was opened from. */
 export type SavedTabs = { urls: string[]; active: number; parents?: (number | null)[] }
 
-export type SidebarState = { open: boolean; width: number; grouping: Grouping; collapsed: string[]; earlierOpen: boolean }
+export type SidebarState = { open: boolean; width: number; grouping: Grouping; collapsed: string[]; earlierOpen: boolean; linearByProject: boolean }
 
 /** A page of the dashboard the sidebar links to. `list` is whichever list was open last. */
 type DashboardPage = 'list' | 'queue' | 'settings'
@@ -55,9 +57,9 @@ function isWebUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
 }
 
-/** Where a tab is now, or where it is headed while its first page loads. */
+/** Where a tab is now, or where it is headed while its first page loads, as an address to hand on. */
 function linkOf(tab: Tab): string {
-  return tab.view.webContents.getURL() || tab.url
+  return shareUrl(tab.view.webContents.getURL() || tab.url)
 }
 
 // One window: the tab strip on top, the active tab's page below. The first
@@ -96,6 +98,7 @@ export class Tabs {
       grouping: isGrouping(options.sidebar?.grouping) ? options.sidebar.grouping : 'match',
       collapsed: Array.isArray(options.sidebar?.collapsed) ? options.sidebar.collapsed.filter((id) => typeof id === 'string') : [],
       earlierOpen: options.sidebar?.earlierOpen === true,
+      linearByProject: options.sidebar?.linearByProject === true,
     }
     this.agentFile = options.agentFile
     this.agentState = readAgentState(options.agentFile)
@@ -145,8 +148,14 @@ export class Tabs {
     // The local API can merge pull requests and has no login. Only the
     // dashboard tab may call it; a page in another tab may not.
     const apiOrigin = new URL(dashboardUrl).origin
-    session.webRequest.onBeforeRequest({ urls: [`${apiOrigin}/*`] }, (details, done) => {
-      done({ cancel: details.webContentsId !== dashboard.view.webContents.id })
+    // A session takes one listener here, so it also keeps Linear in the window.
+    // Linear's page hands a link to its desktop app, through a server that app
+    // runs on this machine, unless the address says not to.
+    session.webRequest.onBeforeRequest({ urls: [`${apiOrigin}/*`, 'https://linear.app/*', 'http://127.0.0.1/linear/*', 'http://localhost/linear/*'] }, (details, done) => {
+      if (details.url.startsWith(`${apiOrigin}/`)) return done({ cancel: details.webContentsId !== dashboard.view.webContents.id })
+      if (!details.url.startsWith('https://linear.app/')) return done({ cancel: true })
+      const stay = details.resourceType === 'mainFrame' && details.method === 'GET' ? linearStayUrl(details.url) : null
+      done(stay ? { redirectURL: stay } : {})
     })
     // The dashboard reads the snapshot again whenever something changes, and
     // writes when the user acts. Either is the moment to read it here too.
@@ -205,14 +214,22 @@ export class Tabs {
   }
 
   private groupingMenu() {
-    Menu.buildFromTemplate(
-      GROUPINGS.map(({ value, label }) => ({
+    Menu.buildFromTemplate([
+      ...GROUPINGS.map(({ value, label }) => ({
         label,
         type: 'radio' as const,
         checked: this.sidebar.grouping === value,
         click: () => this.setSidebar({ grouping: value }),
       })),
-    ).popup({ window: this.win })
+      { type: 'separator' },
+      {
+        label: 'Linear Tabs by Project',
+        type: 'checkbox',
+        checked: this.sidebar.linearByProject,
+        enabled: this.sidebar.grouping !== 'none',
+        click: () => this.setSidebar({ linearByProject: !this.sidebar.linearByProject }),
+      },
+    ]).popup({ window: this.win })
   }
 
   // A menu drawn by the strip has to sit over the page, so the strip's view
@@ -232,6 +249,7 @@ export class Tabs {
       grouping: this.sidebar.grouping,
       prefs: this.prefs,
       collapsed: this.sidebar.collapsed,
+      linearByProject: this.sidebar.linearByProject,
       agentState: this.agentState,
       held: this.held,
       now: Date.now(),
@@ -394,7 +412,7 @@ export class Tabs {
       return index < 0 ? null : index
     })
     return {
-      urls: kept.map((tab) => tab.view.webContents.getURL()),
+      urls: kept.map((tab) => shareUrl(tab.view.webContents.getURL())),
       active: this.tabs.indexOf(this.active),
       parents,
     }
@@ -441,7 +459,7 @@ export class Tabs {
   }
 
   openExternal() {
-    void shell.openExternal(this.active.view.webContents.getURL())
+    void shell.openExternal(linkOf(this.active))
   }
 
   copyLink() {
@@ -564,8 +582,8 @@ export class Tabs {
       { label: 'Forward', enabled: contents.navigationHistory.canGoForward(), click: () => contents.navigationHistory.goForward() },
       { label: 'Reload', click: () => contents.reload() },
       { type: 'separator' },
-      { label: 'Open Page in Browser', click: () => void shell.openExternal(contents.getURL()) },
-      { label: 'Copy Page Link', click: () => clipboard.writeText(contents.getURL()) },
+      { label: 'Open Page in Browser', click: () => void shell.openExternal(shareUrl(contents.getURL())) },
+      { label: 'Copy Page Link', click: () => clipboard.writeText(shareUrl(contents.getURL())) },
       { type: 'separator' },
       { label: 'Inspect Element', click: () => contents.inspectElement(params.x, params.y) },
     )
@@ -593,7 +611,7 @@ export class Tabs {
     const tab = this.tabs[index]
     if (!tab || tab.pinned) return
     const url = tab.view.webContents.getURL()
-    if (isWebUrl(url)) this.closed.push(url)
+    if (isWebUrl(url)) this.closed.push(shareUrl(url))
     this.tabs.splice(index, 1)
     for (const other of this.tabs) if (other.parent === id) other.parent = null
     this.visited.splice(0, this.visited.length, ...this.visited.filter((item) => item !== id))
