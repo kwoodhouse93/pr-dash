@@ -11,6 +11,7 @@ import { rollup, SEGMENT_LABEL, segmentState, type SegmentState } from '../share
 import { RepoIcon } from './repo-mark.tsx'
 import type { Check, CursorSession, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
 import { blockRails, type Bucket, type Outline, type ProjectGroup, type StackBlock } from '../shared/view.ts'
+import { AgentDrawer, AgentList } from './agents.tsx'
 import { AgentProvider, launchTag, useAgentLaunch, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
 import { ageHeat, copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
@@ -18,7 +19,6 @@ import { usePrHref } from './pr-links.tsx'
 import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
-import { Markdown } from './markdown.tsx'
 import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
 import { toastError, toastSuccess } from './toasts.tsx'
 
@@ -1220,6 +1220,8 @@ function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
     .flatMap((pr) => (pr.cursorSessions ?? []).map((session) => ({ pr, session })))
     .sort((left, right) => right.session.createdAt.localeCompare(left.session.createdAt))
   const { locked } = useStackLock()
+  const closeMenu = useMenuClose()
+  const [drawer, setDrawer] = useState<{ focus: string | null } | null>(null)
   if (sessions.length === 0) {
     return (
       <td className="agents">
@@ -1233,21 +1235,38 @@ function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
   const spoken = only
     ? `Cursor agent, ${agentKindLabel(only.kind)}, ${cursorStatusLabel(only.status)}`
     : `${sessions.length} Cursor agents, ${active} active`
+  const label = (
+    <>
+      <span className="sr">{spoken}</span>
+      <span aria-hidden="true">{sessions.length}</span>
+    </>
+  )
+  function open(focus: string | null) {
+    closeMenu()
+    setDrawer({ focus })
+  }
   return (
     <td className="agents">
-      <ClickCard
-        id={id}
-        disabled={locked}
-        className={`cursor-chip ${lead}`}
-        label={
-          <>
-            <span className="sr">{spoken}</span>
-            <span aria-hidden="true">{sessions.length}</span>
-          </>
-        }
-      >
-        <AgentSessions sessions={sessions} showPr={prs.length > 1} />
-      </ClickCard>
+      {only ? (
+        <button
+          type="button"
+          className={`cursor-chip ${lead}`}
+          disabled={locked}
+          aria-haspopup="dialog"
+          aria-expanded={drawer !== null}
+          onClick={(event) => {
+            event.stopPropagation()
+            open(only.agentId)
+          }}
+        >
+          {label}
+        </button>
+      ) : (
+        <ClickCard id={id} disabled={locked} className={`cursor-chip ${lead}`} panelClassName="agent-panel" closable={false} label={label}>
+          <AgentList items={sessions} showPr={prs.length > 1} onOpen={open} />
+        </ClickCard>
+      )}
+      {drawer ? <AgentDrawer prs={prs} items={sessions} focus={drawer.focus} onClose={() => setDrawer(null)} /> : null}
     </td>
   )
 }
@@ -1356,74 +1375,6 @@ function rebaseCopy(target: PullRequest, above: PullRequest[]): string {
   const list =
     names.length === 1 ? names[0]! : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
   return `Rebase #${target.number} onto ${onto}. ${list} ${above.length === 1 ? 'is' : 'are'} restacked with it.`
-}
-
-function AgentSessions({ sessions, showPr }: { sessions: { pr: PullRequest; session: CursorSession }[]; showPr: boolean }) {
-  const single = sessions.length === 1
-  return (
-    <>
-      {single ? null : <h3>Cursor agents</h3>}
-      {sessions.map(({ pr, session }) => {
-        const links = cursorLinks(session.agentId)
-        return (
-          <div key={session.agentId} className="cursor-session">
-            <h3>
-              {showPr ? `#${pr.number} · ` : ''}
-              {agentKindLabel(session.kind)} · <span className={`agent-status ${session.status}`}>{cursorStatusLabel(session.status)}</span>
-            </h3>
-            {session.prompt ? <p className="agent-prompt">{session.prompt}</p> : null}
-            <p>
-              {cursorStatusDetail(session)}{' '}
-              <span className="faint" title={formatExact(session.createdAt)}>
-                Started {startedWhen(session.createdAt)}.
-              </span>
-            </p>
-            {session.branch ? <p>Pushed to {session.branch}.</p> : null}
-            {session.result ? (
-              single ? (
-                <Markdown className="cursor-result" text={session.result} />
-              ) : (
-                <details className="md-details">
-                  <summary>Final reply</summary>
-                  <div className="md-details-body">
-                    <Markdown className="cursor-result" text={session.result} />
-                  </div>
-                </details>
-              )
-            ) : null}
-            <div className="cursor-links">
-              <a className="external" href={links.desktopUrl}>Open in Cursor</a>
-              <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
-                Open on the web
-              </a>
-            </div>
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
-function startedWhen(iso: string): string {
-  const when = formatWhen(iso)
-  return /^\d+[mhd]$/.test(when) ? `${when} ago` : when
-}
-
-function cursorStatusDetail(session: CursorSession): string {
-  switch (session.status) {
-    case 'creating':
-      return 'Cursor is starting a cloud agent.'
-    case 'running':
-      return agentWork(session.kind)
-    case 'finished':
-      return 'Cursor finished this run.'
-    case 'failed':
-      return 'Cursor reported a failed run.'
-    case 'cancelled':
-      return 'This Cursor run was cancelled.'
-    case 'expired':
-      return 'This Cursor run expired.'
-  }
 }
 
 type RowMenuProps = {

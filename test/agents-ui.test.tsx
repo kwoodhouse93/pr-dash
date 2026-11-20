@@ -199,7 +199,7 @@ describe('agents', () => {
     return [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes(text))
   }
 
-  it('shows a single session as a count colored by its status', async () => {
+  it('shows a single session as a count colored by its status, and opens the sidebar on it', async () => {
     await render(pull({ conflict: true, cursorSessions: [session({ result: 'Merged main in.' })] }))
     const chip = document.querySelector('td.agents .cursor-chip')
     expect(chip?.querySelector('[aria-hidden]')?.textContent).toBe('1')
@@ -207,28 +207,75 @@ describe('agents', () => {
     expect(chip?.className).toContain('running')
     expect(document.querySelector('td.conflict .cursor-chip')).toBeNull()
     await click(chip)
-    expect(document.querySelector('.popover')?.textContent).toContain('Merge conflict · Running')
-    expect(document.querySelector('.popover')?.textContent).toContain('Merged main in.')
+    expect(document.querySelector('.popover')).toBeNull()
+    const drawer = document.querySelector('.agent-drawer')
+    expect(drawer?.querySelector('.drawer-pr')?.textContent).toBe('#7 Ship the queue')
+    expect(drawer?.querySelector('.agent-tally')).toBeNull()
+    expect(drawer?.querySelector('.agent-title')?.textContent).toBe('Merge conflict · Running')
+    expect(drawer?.querySelector('.agent-reply')?.textContent).toBe('Merged main in.')
+    await click(drawer?.querySelector('.popover-close'))
+    expect(document.querySelector('.agent-drawer')).toBeNull()
   })
 
-  it('counts several sessions and lists each one', async () => {
-    await render(
-      pull({
-        cursorSessions: [
-          session({ agentId: 'bc-3', kind: 'prompt', prompt: 'Rename the helper', createdAt: '2026-10-20T14:00:00Z' }),
-          session({ agentId: 'bc-2', kind: 'ci', status: 'finished', result: 'Fixed lint.', createdAt: '2026-10-20T13:00:00Z' }),
-          session({ agentId: 'bc-1', status: 'failed' }),
-        ],
-      }),
-    )
+  const several = () =>
+    pull({
+      cursorSessions: [
+        session({ agentId: 'bc-3', kind: 'prompt', prompt: 'Rename the helper\nand its callers', createdAt: '2026-10-20T14:00:00Z' }),
+        session({
+          agentId: 'bc-2',
+          kind: 'ci',
+          status: 'finished',
+          result: '## Fixed **lint**\n\n- Removed an import in `sidebar.ts`',
+          branch: 'cursor/fix-lint',
+          createdAt: '2026-10-20T13:00:00Z',
+        }),
+        session({ agentId: 'bc-1', status: 'failed' }),
+      ],
+    })
+
+  it('lists several sessions as one line each', async () => {
+    await render(several())
     const chip = document.querySelector('td.agents .cursor-chip')
     expect(chip?.querySelector('[aria-hidden]')?.textContent).toBe('3')
     expect(chip?.className).toContain('running')
     await click(chip)
-    const headings = [...document.querySelectorAll('.popover .cursor-session h3')].map((item) => item.textContent)
-    expect(headings).toEqual(['Prompt · Running', 'CI failure · Finished', 'Merge conflict · Failed'])
-    expect(document.querySelector('.popover .agent-prompt')?.textContent).toBe('Rename the helper')
-    expect(document.querySelector('.popover details summary')?.textContent).toBe('Final reply')
+    const rows = [...document.querySelectorAll('.popover .agent-row')]
+    expect(rows.map((row) => row.querySelector('.agent-title')?.textContent)).toEqual(['Prompt · Running', 'CI failure · Finished', 'Merge conflict · Failed'])
+    expect(rows.map((row) => row.querySelector('.agent-gist')?.textContent)).toEqual([
+      'Rename the helper',
+      'Fixed lint',
+      'Cursor reported a failed run.',
+    ])
+    expect(document.querySelector('.popover .agent-reply')).toBeNull()
+    expect(document.querySelector('.agent-drawer')).toBeNull()
+  })
+
+  it('opens the sidebar at the session that was clicked', async () => {
+    await render(several())
+    await click(document.querySelector('td.agents .cursor-chip'))
+    await click(document.querySelectorAll('.popover .agent-row')[1])
+    expect(document.querySelector('.popover')).toBeNull()
+    const drawer = document.querySelector('.agent-drawer')
+    expect(drawer?.querySelector('.agent-tally')?.textContent).toBe('1 running1 finished1 failed')
+    const sections = [...(drawer?.querySelectorAll('.agent-section') ?? [])]
+    expect(sections.map((section) => section.querySelector('.agent-row')?.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'false'])
+    expect(sections[1]?.querySelector('.agent-reply h2')?.textContent).toBe('Fixed lint')
+    expect(sections[1]?.querySelector('.agent-meta')?.textContent).toContain('Pushed to cursor/fix-lint.')
+    expect(sections[1]?.querySelector('.agent-links a')?.getAttribute('href')).toContain('bc-2')
+    await click(sections[0]?.querySelector('.agent-row'))
+    expect(drawer?.querySelector('.agent-prompt')?.textContent).toBe('Rename the helper\nand its callers')
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(document.querySelector('.agent-drawer')).toBeNull()
+  })
+
+  it('opens the active sessions when the sidebar is opened for all of them', async () => {
+    await render(several())
+    await click(document.querySelector('td.agents .cursor-chip'))
+    await click(button('Open all'))
+    const expanded = [...document.querySelectorAll('.agent-drawer .agent-row')].map((row) => row.getAttribute('aria-expanded'))
+    expect(expanded).toEqual(['true', 'false', 'false'])
   })
 
   it('starts an agent from a prompt in the row menu', async () => {
