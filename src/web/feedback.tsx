@@ -20,7 +20,7 @@ import { api } from './api.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { linkHostName, noteAnchor, prHref, threadAnchor, usePrHref, usePrLinkHost } from './pr-links.tsx'
-import { useClosing } from './motion.tsx'
+import { Fold, useClosing } from './motion.tsx'
 
 export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'all' | 'comments'
 
@@ -508,7 +508,7 @@ function ThreadCard({
           </span>
         )}
       </div>
-      <div hidden={!open}>
+      <Fold open={open} keep>
       {thread.diffHunk ? <DiffHunk hunk={thread.diffHunk} /> : null}
       {thread.commentsTruncated ? <p className="faint">Earlier replies are hidden.</p> : null}
       <div className="thread-comments">
@@ -545,7 +545,7 @@ function ThreadCard({
           </>
         }
       />
-      </div>
+      </Fold>
     </article>
   )
 }

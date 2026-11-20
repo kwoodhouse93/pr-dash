@@ -1753,10 +1753,9 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
   cursor: pointer;
 }
-.thread-card.collapsed .thread-file { margin-bottom: 0; }
+.thread-card > .fold-box { padding-top: 8px; }
 .thread-toggle {
   flex: none;
   display: inline-grid;
@@ -2124,6 +2123,9 @@ tr.held .seg.q-done { background: var(--green); }
   60% { transform: none; background: var(--green); width: 10px; margin-right: 0; opacity: 1; }
   100% { background: var(--green); width: 0; margin-right: -2px; opacity: 0; }
 }
+
+/* A section that folds. Its own box holds its children's margins, so its height is the same shut as moving. */
+.fold-box { display: flow-root; }
 
 /* A stack opening: the rail draws down and each pull request lands on it in turn. */
 tbody tr.unfold { animation: unfold 320ms var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }

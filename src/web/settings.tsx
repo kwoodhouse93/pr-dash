@@ -4,6 +4,7 @@ import { AgentSettingsPanel } from './agent-settings.tsx'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatAgo, formatExact, formatTime } from './format.ts'
 import { Icon } from './icons.tsx'
+import { Fold } from './motion.tsx'
 import type { PrLinkHost } from './pr-links.tsx'
 import { RepoIcon, RepoMarkPicker } from './repo-mark.tsx'
 import type { RepoMark, Snapshot } from '../shared/types.ts'
@@ -249,7 +250,7 @@ export function SettingsPage({
               </button>
             </div>
           ) : null}
-          {showStored && stored.length > 0 ? (
+          <Fold open={showStored && stored.length > 0}>
             <ul aria-label="Unselected repositories with saved data">
               {stored.map((row) => (
                 <li key={row.name} className="panel-row">
@@ -263,7 +264,7 @@ export function SettingsPage({
                 </li>
               ))}
             </ul>
-          ) : null}
+          </Fold>
         </section>
         {onAgents ? <AgentSettingsPanel repos={repos} onSnapshot={onAgents} t3Origin={t3Origin} onT3Origin={onT3Origin} pairPrompt={t3PairPrompt} /> : null}
         {initiatives ? <section className="panel initiatives">{initiatives}</section> : null}

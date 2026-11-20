@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 /** True when the user has asked the system for less motion, and wherever there is no way to ask. */
 export function reducedMotion(): boolean {
@@ -24,6 +24,43 @@ export function useClosing(onClose: () => void, ms = 150): [closing: boolean, cl
   return [closing, close]
 }
 
+const FOLD_MS = 200
+
+/**
+ * A section that grows open and draws shut instead of switching. Shut, it is taken out of the page; with
+ * `keep` it stays there hidden, so what was typed in it is still there when it opens again.
+ */
+export function Fold({ open, keep = false, children }: { open: boolean; keep?: boolean; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null)
+  const was = useRef(open)
+  const [closing, setClosing] = useState(false)
+  // True in the render where `open` turned, before the effect below has marked the section as closing.
+  const turned = was.current !== open
+  useLayoutEffect(() => {
+    if (was.current === open) return
+    was.current = open
+    const element = box.current
+    if (!element || reducedMotion() || typeof element.animate !== 'function') return setClosing(false)
+    const shut = { height: '0px', paddingTop: '0px', paddingBottom: '0px', opacity: 0, overflow: 'hidden' }
+    const full = { height: `${element.offsetHeight}px`, opacity: 1, overflow: 'hidden' }
+    const run = element.animate(open ? [shut, full] : [full, shut], { duration: FOLD_MS, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: open ? 'none' : 'forwards' })
+    setClosing(!open)
+    if (open) return () => run.cancel()
+    const timer = window.setTimeout(() => setClosing(false), FOLD_MS)
+    return () => {
+      window.clearTimeout(timer)
+      run.cancel()
+    }
+  }, [open])
+  const shown = open || closing || (turned && !reducedMotion())
+  if (!shown && !keep) return null
+  return (
+    <div ref={box} className="fold-box" hidden={!shown}>
+      {children}
+    </div>
+  )
+}
+
 /** A count that rolls to its next value instead of switching. */
 export function Roll({ value, className }: { value: number | string; className?: string }) {
   const [shown, setShown] = useState({ from: value, to: value })
@@ -43,7 +80,7 @@ export function Roll({ value, className }: { value: number | string; className?:
   )
 }
 
-/** Rows further than this from where they were are moved without a slide, so nothing flies across the page. */
+/** In a list that was put in a new order, rows further than this from where they were are moved without a slide, so nothing flies across the page. */
 const FAR = 480
 
 /**
@@ -63,13 +100,27 @@ export function useSlidingRows(body: RefObject<HTMLElement | null>) {
     if (before.size === 0 || reducedMotion() || typeof root.animate !== 'function') return
     const view = root.closest('.scroll')
     const top = view?.scrollTop ?? 0
-    const bottom = top + (view?.clientHeight ?? window.innerHeight)
+    const height = view?.clientHeight ?? window.innerHeight
+    const bottom = top + height
+    // When rows only came or went, the rest keep their order and move together, however far: closing a
+    // long stack brings the rows under it up from off the page. Only a new order sends rows past each other.
+    let sameOrder = true
+    let last = -Infinity
+    for (const row of rows) {
+      const was = before.get(row.dataset.flip!)
+      if (was === undefined) continue
+      if (was < last) sameOrder = false
+      last = was
+    }
     for (const row of rows) {
       const now = next.get(row.dataset.flip!)!
       const was = before.get(row.dataset.flip!)
-      if (was === undefined || was === now || Math.abs(was - now) > FAR) continue
+      if (was === undefined || was === now) continue
+      if (!sameOrder && Math.abs(was - now) > FAR) continue
       if (now > bottom + FAR || now < top - FAR) continue
-      row.animate([{ transform: `translateY(${was - now}px)` }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' })
+      // A row from further than a screen away starts a screen away, which looks the same and takes no longer.
+      const from = Math.max(-height, Math.min(height, was - now))
+      row.animate([{ transform: `translateY(${from}px)` }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' })
     }
   })
 }

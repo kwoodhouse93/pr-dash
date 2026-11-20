@@ -4,6 +4,7 @@ import { pullKeyRepo } from '../shared/repos.ts'
 import { RepoIcon } from './repo-mark.tsx'
 import { formatClock, formatDuration, formatExact, formatWhen } from './format.ts'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
+import { Fold } from './motion.tsx'
 
 export type QueuePull = { number: number; title: string; url: string }
 
@@ -225,13 +226,13 @@ function EntryRow({ entry, lead, trail }: { entry: MergeEntry; lead: ReactNode; 
         )}
         {trail}
       </div>
-      {open ? (
+      <Fold open={open}>
         <div className="queue-row-detail">
           {entry.error ? <p className="queue-error">{entry.error}</p> : null}
           <StepRail steps={entry.steps} error={entry.error} />
           {entry.logs.length > 0 ? <QueueLogs logs={entry.logs} /> : null}
         </div>
-      ) : null}
+      </Fold>
     </li>
   )
 }
@@ -320,7 +321,9 @@ function QueueLogs({ logs, latest = false }: { logs: MergeLog[]; latest?: boolea
           <span className="count">{count}</span>
         </button>
       </div>
-      {open ? <pre className="queue-log">{logs.map(logLine).join('\n')}</pre> : null}
+      <Fold open={open}>
+        <pre className="queue-log">{logs.map(logLine).join('\n')}</pre>
+      </Fold>
     </div>
   )
 }

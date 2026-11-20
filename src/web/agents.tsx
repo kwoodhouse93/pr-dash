@@ -7,7 +7,7 @@ import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 import { toastError, toastSuccess } from './toasts.tsx'
-import { useClosing } from './motion.tsx'
+import { Fold, useClosing } from './motion.tsx'
 
 export type AgentItem = { pr: PullRequest; session: AgentSession }
 
@@ -211,7 +211,7 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
       <button type="button" className="agent-row" aria-expanded={open} aria-controls={bodyId} onClick={onToggle}>
         <Summary item={item} showPr={showPr} />
       </button>
-      {open ? (
+      <Fold open={open}>
         <div className="agent-detail" id={bodyId}>
           {session.prompt ? <p className="agent-prompt">{session.prompt}</p> : null}
           <p className="agent-meta">
@@ -248,7 +248,7 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
             ) : null}
           </div>
         </div>
-      ) : null}
+      </Fold>
     </section>
   )
 }
