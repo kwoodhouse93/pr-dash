@@ -8,6 +8,7 @@ let earlierAll = false
 let resizing = false
 let pendingWidth = null
 let copiedTimer = null
+let queueDrawn = ''
 
 $('back').onclick = () => send('back')
 $('forward').onclick = () => send('forward')
@@ -295,7 +296,12 @@ function render() {
     const queued = state.queue !== null && state.queue.count > 0
     $('queue-link').title = state.queue ? state.queue.label : ''
     $('queue-status').hidden = !queued
-    $('queue-status').replaceChildren(...(queued ? queueStatus(state.queue) : []))
+    // A new spinner starts its turn again, so the status is only redrawn when it reads differently.
+    const drawn = queued ? `${state.queue.state} ${state.queue.held} ${state.queue.count}` : ''
+    if (drawn !== queueDrawn) {
+      queueDrawn = drawn
+      $('queue-status').replaceChildren(...(queued ? queueStatus(state.queue) : []))
+    }
     $('settings-link').className = classes('row', onDashboard && state.dashboard === 'settings' && 'active')
     $('agents-section').hidden = !anyAgents
     $('agents-note').textContent = agentNote()
