@@ -138,8 +138,8 @@ describe('app links', () => {
 
 describe('prRef', () => {
   it('reads the same pull request from GitHub and Graphite', () => {
-    expect(prRef('https://github.com/Acme/App/pull/12')).toEqual({ key: 'acme/app#12', bare: true })
-    expect(prRef('https://app.graphite.com/github/pr/acme/app/12')).toEqual({ key: 'acme/app#12', bare: true })
+    expect(prRef('https://github.com/Acme/App/pull/12')).toEqual({ key: 'acme/app#12', site: 'github', bare: true })
+    expect(prRef('https://app.graphite.com/github/pr/acme/app/12')).toEqual({ key: 'acme/app#12', site: 'graphite', bare: true })
   })
 
   it('tells a place inside the pull request from the pull request itself', () => {

@@ -516,10 +516,16 @@ export class Tabs {
     else this.changed()
   }
 
-  /** The tab already on this pull request or Cursor agent, when there is one. */
+  /** The tab already on this pull request, on the same site, or on this Cursor agent, when there is one. */
   private showing(url: string): Tab | null {
     const ref = prRef(url)
-    if (ref) return this.tabs.find((tab) => !tab.pinned && prRef(tab.url)?.key === ref.key) ?? null
+    if (ref)
+      return (
+        this.tabs.find((tab) => {
+          const other = tab.pinned ? null : prRef(tab.url)
+          return other?.key === ref.key && other.site === ref.site
+        }) ?? null
+      )
     const agent = /^https:\/\/cursor\.com\/agents\/([\w-]+)$/.exec(url)?.[1]
     return agent ? (this.tabs.find((tab) => !tab.pinned && tab.url.startsWith('https://cursor.com/') && tab.url.includes(agent)) ?? null) : null
   }

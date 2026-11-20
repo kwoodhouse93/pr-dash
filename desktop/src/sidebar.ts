@@ -131,20 +131,21 @@ export type SidebarModel = {
   crumb: string[]
 }
 
-export type PrRef = { key: string; bare: boolean }
+export type PrSite = 'github' | 'graphite'
+export type PrRef = { key: string; site: PrSite; bare: boolean }
 
-const PR_URLS = [
-  /^https:\/\/github\.com\/([^/?#]+\/[^/?#]+)\/pull\/(\d+)([/?#].*)?$/,
-  /^https:\/\/app\.graphite\.com\/github\/pr\/([^/?#]+\/[^/?#]+)\/(\d+)([/?#].*)?$/,
+const PR_URLS: [PrSite, RegExp][] = [
+  ['github', /^https:\/\/github\.com\/([^/?#]+\/[^/?#]+)\/pull\/(\d+)([/?#].*)?$/],
+  ['graphite', /^https:\/\/app\.graphite\.com\/github\/pr\/([^/?#]+\/[^/?#]+)\/(\d+)([/?#].*)?$/],
 ]
 
 /** The pull request an address shows, on GitHub or Graphite. `bare` is false when the address points at a place inside it. */
 export function prRef(url: string): PrRef | null {
-  for (const pattern of PR_URLS) {
+  for (const [site, pattern] of PR_URLS) {
     const match = pattern.exec(url)
     if (!match) continue
     const rest = match[3] ?? ''
-    return { key: `${match[1]!.toLowerCase()}#${Number(match[2])}`, bare: rest === '' || rest === '/' }
+    return { key: `${match[1]!.toLowerCase()}#${Number(match[2])}`, site, bare: rest === '' || rest === '/' }
   }
   return null
 }
