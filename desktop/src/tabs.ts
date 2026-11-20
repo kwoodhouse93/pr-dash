@@ -6,6 +6,7 @@ import type { Snapshot, Sort } from '../../src/shared/types.ts'
 import {
   buildSidebar,
   GROUPINGS,
+  isAppLink,
   isGrouping,
   linearStayUrl,
   prRef,
@@ -395,6 +396,7 @@ export class Tabs {
   }
 
   open(url: string, options: { background?: boolean; after?: Tab; reuse?: boolean } = {}) {
+    if (isAppLink(url)) return void shell.openExternal(url)
     if (!isWebUrl(url)) return
     const from = options.after ?? this.active
     const existing = options.reuse ? this.showing(url) : null
@@ -561,6 +563,12 @@ export class Tabs {
         this.open(event.url, { after: tab, reuse: true })
       })
     } else {
+      // A page handing off to T3 Code or Cursor. A tab cannot load such a link, so the system opens it.
+      contents.on('will-navigate', (event) => {
+        if (!isAppLink(event.url)) return
+        event.preventDefault()
+        void shell.openExternal(event.url)
+      })
       contents.on('page-title-updated', (_event, title) => {
         tab.title = title
         this.publish()

@@ -201,6 +201,14 @@ function indexPrs(data: Snapshot | null): Map<string, Known> {
   return known
 }
 
+/**
+ * A link that belongs to another app on this machine, which the system opens there.
+ * Only the apps agents run in: a page cannot use this to launch anything else.
+ */
+export function isAppLink(url: string): boolean {
+  return /^(t3code|cursor):/i.test(url)
+}
+
 export function runKey(session: AgentSession): string {
   return `${session.agentId}:${session.runId}`
 }

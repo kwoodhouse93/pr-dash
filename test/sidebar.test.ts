@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSidebar, drawStacks, linearRef, linearStayUrl, prRef, pruneAgentState, runsShownAt, shareUrl, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
+import { buildSidebar, drawStacks, isAppLink, linearRef, linearStayUrl, prRef, pruneAgentState, runsShownAt, shareUrl, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
 import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
 
@@ -94,6 +94,16 @@ function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; act
 function outline(nodes: SidebarNode[]): string[] {
   return nodes.map((node) => (node.kind === 'tab' ? `${'  '.repeat(node.depth)}${node.row.number === null ? node.row.title : `#${node.row.number}`}` : `${node.kind}:${node.title}`))
 }
+
+describe('app links', () => {
+  it('hands T3 Code and Cursor links to the system, and nothing else', () => {
+    expect(isAppLink('t3code://threads/env-1/thread-1')).toBe(true)
+    expect(isAppLink('cursor://anysphere.cursor-deeplink/background-agent?bcId=bc-1')).toBe(true)
+    expect(isAppLink('https://app.t3.codes/threads/env-1/thread-1')).toBe(false)
+    expect(isAppLink('linear://issue/ENG-1')).toBe(false)
+    expect(isAppLink('file:///etc/hosts')).toBe(false)
+  })
+})
 
 describe('prRef', () => {
   it('reads the same pull request from GitHub and Graphite', () => {
