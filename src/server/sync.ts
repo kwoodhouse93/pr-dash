@@ -16,6 +16,7 @@ import {
   assertGraphql,
   fetchAuthoredPullRequests,
   fetchOnePull,
+  fetchPullOutcomes,
   fetchPullState,
   fetchRepoRules,
   fetchReviewPullRequests,
@@ -320,6 +321,7 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean, sign
     }
     if (failed) throw new Error(failed)
     if (signal.aborted) throw new SyncCancelled()
+    await resolveDepartures(db, token)
     note('Checking agents')
     const selected = new Set(db.watchedRepos())
     const sessions = db.agentSessions().filter(({ prKey }) => {
@@ -429,6 +431,20 @@ async function confirmLandedMerges(db: DashboardDb, token: string, pullRequests:
   }
 }
 
+/** Asks GitHub what became of the pull requests that left the lists. A failure waits for the next refresh. */
+async function resolveDepartures(db: DashboardDb, token: string): Promise<void> {
+  const pending = db.pendingDepartures()
+  if (pending.length === 0) return
+  try {
+    const outcomes = await fetchPullOutcomes(token, pending)
+    for (const [key, outcome] of outcomes) {
+      db.resolveDeparture(key, outcome.state === 'MERGED' ? 'merged' : outcome.state === 'CLOSED' ? 'closed' : 'open', outcome.at)
+    }
+  } catch {
+    // Still pending.
+  }
+}
+
 async function withLinear(db: DashboardDb, pullRequests: PullRequest[], warning: string | null): Promise<string | null> {
   applyRememberedLinks(db, pullRequests)
   const linearKey = process.env.LINEAR_API_KEY
@@ -502,7 +518,11 @@ async function readOne(db: DashboardDb, key: string, signal: AbortSignal): Promi
     const token = loadGithubToken()
     const viewerState = await viewerFor(token)
     const loaded = await fetchOnePull(token, current.id)
-    if (!loaded || !loaded.open) return dropPull(db, key)
+    if (!loaded || !loaded.open) {
+      dropPull(db, key)
+      await resolveDepartures(db, token)
+      return db.snapshot()
+    }
     const rules = await rulesFor(db, token, [current.repo], false, (message) => {
       note(message)
     })

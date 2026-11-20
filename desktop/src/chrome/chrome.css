@@ -15,6 +15,7 @@
   --yellow: #e2b34a;
   --red: #e36a58;
   --blue: #7eb0d4;
+  --purple: #a993d6;
   --chip: #24251f;
   --rail: #5e5f55;
   --sidebar: 264px;
@@ -103,6 +104,9 @@ img.fav, .dot { flex: none; width: 14px; height: 14px; border-radius: 3px; }
 .ci.yellow { background: var(--yellow); }
 .ci.pending { box-shadow: inset 0 0 0 2px var(--yellow); }
 .ci.none { box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+/* Gone from the dashboard: merged, or closed without merging. */
+.ci.merged { background: var(--purple); }
+.ci.closed { background: var(--faint); }
 /* A stack's rail. The status dot is the node; a branch runs in a lane to the right. */
 .rails { position: relative; flex: none; align-self: stretch; margin: 0 2px; width: calc(9px + (var(--lanes, 1) - 1) * 10px); }
 .rails .ci { position: absolute; left: calc(var(--lane, 0) * 10px); top: calc(50% - 4.5px); margin: 0; z-index: 1; }

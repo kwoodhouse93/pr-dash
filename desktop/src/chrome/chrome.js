@@ -135,10 +135,16 @@ function stripTab(tab) {
   const node = el('div', classes('tab', tab.id === state.activeId && 'active', tab.pinned && 'pinned', tab.loading && 'loading'))
   node.title = tab.title
   selectable(node, tab.id)
-  if (!tab.pinned) node.append(tab.agent ? agentMark(tab.agent) : tab.ci ? el('span', `ci ${tab.ci}`) : favicon(tab.favicon))
+  if (!tab.pinned) node.append(tab.agent ? agentMark(tab.agent) : tab.gone ? goneMark(tab.gone) : tab.ci ? el('span', `ci ${tab.ci}`) : favicon(tab.favicon))
   node.append(el('span', 'title', tab.title))
   if (!tab.pinned) node.append(closeButton('Close tab', () => send('close', tab.id)))
   return node
+}
+
+function goneMark(gone) {
+  const mark = el('span', `ci ${gone}`)
+  mark.title = gone === 'merged' ? 'Merged' : 'Closed'
+  return mark
 }
 
 function railBox(rail, dot) {
@@ -165,7 +171,7 @@ function tabRow({ depth, row, rail }) {
   const node = el('div', classes('row', `d${depth}`, nested && 'nested', row.id === state.activeId && 'active', row.loading && 'loading'))
   node.title = [row.number === null ? row.title : `#${row.number} ${row.title}`, row.note].filter(Boolean).join('\n')
   selectable(node, row.id)
-  const dot = row.ci ? el('span', `ci ${row.ci}`) : favicon(row.favicon)
+  const dot = row.gone ? goneMark(row.gone) : row.ci ? el('span', `ci ${row.ci}`) : favicon(row.favicon)
   if (!rail) node.append(dot)
   else if (nested) node.append(railBox(rail), dot)
   else node.append(railBox(rail, dot))

@@ -859,6 +859,28 @@ export async function fetchPullState(token: string, repo: string, number: number
   return 'unknown'
 }
 
+export type PullOutcome = { state: 'OPEN' | 'CLOSED' | 'MERGED'; at: string | null }
+
+/** What became of each pull request, in one request for every 40. One GitHub cannot find is left out. */
+export async function fetchPullOutcomes(token: string, refs: { key: string; repo: string; number: number }[]): Promise<Map<string, PullOutcome>> {
+  const found = new Map<string, PullOutcome>()
+  const valid = refs.filter((ref) => /^[\w.-]+\/[\w.-]+$/.test(ref.repo) && Number.isInteger(ref.number))
+  for (let start = 0; start < valid.length; start += 40) {
+    const chunk = valid.slice(start, start + 40)
+    const fields = chunk.map((ref, index) => {
+      const [owner, name] = ref.repo.split('/')
+      return `p${index}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${ref.number}) { state mergedAt closedAt } }`
+    })
+    type Row = { pullRequest: { state: PullOutcome['state']; mergedAt: string | null; closedAt: string | null } | null } | null
+    const data = await graphql<Record<string, Row>>(token, `query PullOutcomes { ${fields.join(' ')} }`, undefined, true)
+    for (const [index, ref] of chunk.entries()) {
+      const pull = data[`p${index}`]?.pullRequest
+      if (pull) found.set(ref.key, { state: pull.state, at: pull.state === 'MERGED' ? pull.mergedAt : pull.closedAt })
+    }
+  }
+  return found
+}
+
 const LIVE_QUERY = `
   query Live($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {

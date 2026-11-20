@@ -376,3 +376,30 @@ describe('sidebar agents', () => {
     expect(pruneAgentState(state, data)).toEqual({ ...QUIET, seen: { 'bc-done:run-1': 'x' }, dismissed: ['bc-run:run-1'] })
   })
 })
+
+describe('pull requests that merged or closed', () => {
+  const old = session('bc-old', { status: 'finished', updatedAt: '2026-10-01T00:00:00Z' })
+  const gone = (number: number, outcome: 'merged' | 'closed', over: Partial<PullRequest> = {}) => {
+    const last = pr(number, over)
+    return { key: last.key, repo: last.repo, repoName: last.repoName, number, title: last.title, url: last.url, author: 'me', list: 'mine' as const, outcome, at: '2026-11-19T11:00:00Z', linearIssues: last.linearIssues, initiativeIds: last.initiativeIds, agentSessions: last.agentSessions ?? [] }
+  }
+  const data: Snapshot = {
+    ...snapshot([pr(1, { linearIssues: [issue('ENG-1', 'Deals')] })]),
+    departed: [gone(2, 'merged', { linearIssues: [issue('ENG-1', 'Deals')], agentSessions: [old] }), gone(3, 'closed')],
+  }
+  const tabs = [tab(1, 'https://github.com/acme/app/pull/2'), tab(2, 'https://github.com/acme/app/pull/1'), tab(3, 'https://github.com/acme/app/pull/3'), tab(4, 'https://example.com/')]
+
+  it('keeps their tabs where they were, after the open ones, with a mark in place of checks', () => {
+    const model = build(tabs, data)
+    expect(outline(model.nodes)).toEqual(['group:Deals', 'issue:ENG-1 · Title ENG-1', '  #1', '  #2', 'group:Ungrouped', '  #3', 'label:Other', 'Page 4'])
+    const rows = model.nodes.flatMap((node) => (node.kind === 'tab' ? [node.row] : []))
+    expect(rows.map((row) => [row.number, row.gone, row.ci])).toEqual([[1, null, 'green'], [2, 'merged', null], [3, 'closed', null], [null, null, null]])
+    expect(model.strip.map((item) => item.gone)).toEqual([null, 'merged', null, 'closed', null])
+  })
+
+  it('keeps their agents under earlier, and what was read about them', () => {
+    expect(build([], data).earlier.map((row) => [row.key, row.number])).toEqual([['bc-old:run-1', 2]])
+    const state: AgentState = { ...QUIET, seen: { 'bc-old:run-1': 'x' } }
+    expect(pruneAgentState(state, data)).toEqual(state)
+  })
+})

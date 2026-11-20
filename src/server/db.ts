@@ -6,7 +6,7 @@ import type { FeedbackCounts } from '../shared/feedback.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
-import type { AgentProviderId, AgentRouting, AgentSession, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
+import type { AgentProviderId, AgentRouting, AgentSession, DepartedPull, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
 export type CachedRules = {
@@ -51,6 +51,10 @@ export type DashboardDb = {
   /** What each repository has set for agents. A repository with nothing set is left out. */
   repoAgents(): Map<string, RepoAgent>
   setRepoAgent(repo: string, agent: RepoAgent): void
+  /** Pull requests that left the lists and are not yet known to have merged or closed. */
+  pendingDepartures(): { key: string; repo: string; number: number }[]
+  /** Records what GitHub says became of one. Open means it left the lists for another reason, so it is forgotten. */
+  resolveDeparture(key: string, outcome: 'merged' | 'closed' | 'open', at: string | null): void
   queue: QueueStore
 }
 
@@ -62,6 +66,13 @@ export type RepoAgent = {
   /** The repository's folder in that environment. */
   checkout: string | null
 }
+
+type StoredDeparture = Pick<DepartedPull, 'key' | 'repo' | 'repoName' | 'number' | 'title' | 'url' | 'author' | 'linearIssues'>
+type Lists = { mine: PullRequest[]; review: PullRequest[] }
+
+/** How far back the snapshot carries merged and closed pull requests. The table keeps them all. */
+const DEPARTED_SHOWN_MS = 30 * 24 * 60 * 60 * 1000
+const PENDING_KEPT_MS = 7 * 24 * 60 * 60 * 1000
 
 type SnapshotRow = {
   viewer: string | null
@@ -140,6 +151,13 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       environment_id TEXT,
       checkout TEXT
     );
+    CREATE TABLE IF NOT EXISTS departed_pulls (
+      pr_key TEXT PRIMARY KEY,
+      list TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      at TEXT NOT NULL,
+      pull_request TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS linear_links (
       pr_key TEXT NOT NULL,
       identifier TEXT NOT NULL,
@@ -184,9 +202,25 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     db.exec('ALTER TABLE snapshot ADD COLUMN review_synced_at TEXT')
   }
 
-  const queue = attachQueue(db)
+  const queue = attachQueue(db, {
+    // The merge queue knows a merge landed before a refresh notices the pull request has gone.
+    onMerged(prKey) {
+      const row = readSnapshotRow.get() as SnapshotRow | undefined
+      for (const [list, raw] of [['mine', row?.pull_requests], ['review', row?.review_pull_requests]] as const) {
+        const pr = parseList(raw).find((item) => item.key === prKey)
+        if (!pr) continue
+        writeDeparture.run(prKey, list, 'merged', new Date().toISOString(), JSON.stringify(slimDeparted(pr)))
+        return
+      }
+    },
+  })
   const readSnapshotRow = db.prepare(
     'SELECT viewer, synced_at, mine_synced_at, review_synced_at, linear_configured, warning, pull_requests, review_pull_requests FROM snapshot WHERE id = 1',
+  )
+  // A merge the queue made is certain, so it replaces a guess; nothing replaces a merge.
+  const writeDeparture = db.prepare(
+    `INSERT INTO departed_pulls (pr_key, list, outcome, at, pull_request) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(pr_key) DO UPDATE SET outcome = excluded.outcome, at = excluded.at WHERE departed_pulls.outcome <> 'merged'`,
   )
   const readInitiatives = db.prepare('SELECT id, name, created_at, updated_at FROM initiatives ORDER BY created_at ASC')
   const readAssignments = db.prepare('SELECT initiative_id, pr_key FROM initiative_pull_requests')
@@ -320,6 +354,46 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     })
   }
 
+  function slimDeparted(pr: PullRequest): StoredDeparture {
+    return { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, author: pr.author, linearIssues: pr.linearIssues }
+  }
+
+  /**
+   * A pull request that was on a list and is not on either now has gone somewhere. It waits as pending
+   * until GitHub says whether it merged, since leaving a list can also mean it closed or stopped asking for a review.
+   */
+  function noteDepartures(before: Lists, after: Lists) {
+    const still = new Set([...after.mine, ...after.review].map((pr) => pr.key))
+    const watched = new Set(watchedRepos())
+    const now = new Date().toISOString()
+    const add = db.prepare(`INSERT OR IGNORE INTO departed_pulls (pr_key, list, outcome, at, pull_request) VALUES (?, ?, 'pending', ?, ?)`)
+    for (const [list, prs] of [['mine', before.mine], ['review', before.review]] as const) {
+      for (const pr of prs) {
+        if (!still.has(pr.key) && watched.has(pr.repo)) add.run(pr.key, list, now, JSON.stringify(slimDeparted(pr)))
+      }
+    }
+    // One that is listed again is open again. A merge the queue made stays listed until a refresh drops it.
+    const held = queue.heldKeys()
+    for (const row of db.prepare('SELECT pr_key FROM departed_pulls').all() as { pr_key: string }[]) {
+      if (still.has(row.pr_key) && !held.has(row.pr_key)) db.prepare('DELETE FROM departed_pulls WHERE pr_key = ?').run(row.pr_key)
+    }
+  }
+
+  function departed(tags: Map<string, string[]>, sessions: Map<string, AgentSession[]>): DepartedPull[] {
+    const since = new Date(Date.now() - DEPARTED_SHOWN_MS).toISOString()
+    const rows = db
+      .prepare(`SELECT pr_key, list, outcome, at, pull_request FROM departed_pulls WHERE outcome <> 'pending' AND at >= ? ORDER BY at DESC`)
+      .all(since) as { pr_key: string; list: 'mine' | 'review'; outcome: 'merged' | 'closed'; at: string; pull_request: string }[]
+    return rows.map((row) => ({
+      ...(JSON.parse(row.pull_request) as StoredDeparture),
+      list: row.list,
+      outcome: row.outcome,
+      at: row.at,
+      initiativeIds: tags.get(row.pr_key) ?? [],
+      agentSessions: sessions.get(row.pr_key) ?? [],
+    }))
+  }
+
   function parseList(raw: string | null | undefined): PullRequest[] {
     if (!raw) return []
     return JSON.parse(raw) as PullRequest[]
@@ -342,6 +416,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       agents: agentRouting(),
       pullRequests: row ? visible(decorate(parseList(row.pull_requests), tags, sessions, links)) : [],
       reviewPullRequests: row ? visible(decorate(parseList(row.review_pull_requests), tags, sessions, links)) : [],
+      departed: departed(tags, sessions),
       initiatives: initiatives(),
       linearConfigured: row ? row.linear_configured === 1 : Boolean(process.env.LINEAR_API_KEY),
       warning: row?.warning ?? null,
@@ -391,6 +466,10 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       const keep = (list: PullRequest[]) => list.map((pr) => mergeLinkedIssues(pr, links.get(pr.key) ?? []))
       const existing = readSnapshotRow.get() as SnapshotRow | undefined
       const review = input.reviewPullRequests ?? parseList(existing?.review_pull_requests)
+      noteDepartures(
+        { mine: parseList(existing?.pull_requests), review: parseList(existing?.review_pull_requests) },
+        { mine: input.pullRequests, review },
+      )
       const mineSyncedAt = input.mineSyncedAt === undefined ? (existing?.mine_synced_at ?? null) : input.mineSyncedAt
       const reviewSyncedAt = input.reviewSyncedAt === undefined ? (existing?.review_synced_at ?? null) : input.reviewSyncedAt
       db.prepare(
@@ -473,6 +552,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.prepare(`DELETE FROM agent_sessions WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM initiative_pull_requests WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM linear_links WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+        db.prepare(`DELETE FROM departed_pulls WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare('DELETE FROM watched_repos WHERE repo = ?').run(repo)
         db.prepare('DELETE FROM repo_marks WHERE repo = ?').run(repo)
         db.prepare('DELETE FROM repo_agents WHERE repo = ?').run(repo)
@@ -535,6 +615,19 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.exec('ROLLBACK')
         throw error
       }
+    },
+    pendingDepartures() {
+      // One GitHub never answered for is not worth asking about for ever.
+      db.prepare(`DELETE FROM departed_pulls WHERE outcome = 'pending' AND at < ?`).run(new Date(Date.now() - PENDING_KEPT_MS).toISOString())
+      const rows = db.prepare(`SELECT pr_key, pull_request FROM departed_pulls WHERE outcome = 'pending'`).all() as { pr_key: string; pull_request: string }[]
+      return rows.map((row) => {
+        const pr = JSON.parse(row.pull_request) as StoredDeparture
+        return { key: row.pr_key, repo: pr.repo, number: pr.number }
+      })
+    },
+    resolveDeparture(key, outcome, at) {
+      if (outcome === 'open') db.prepare(`DELETE FROM departed_pulls WHERE pr_key = ? AND outcome = 'pending'`).run(key)
+      else db.prepare(`UPDATE departed_pulls SET outcome = ?, at = ? WHERE pr_key = ? AND outcome = 'pending'`).run(outcome, at ?? new Date().toISOString(), key)
     },
     agentSessions,
     saveAgentSession(prKey, session) {

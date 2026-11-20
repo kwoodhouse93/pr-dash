@@ -1,7 +1,7 @@
 import { agentKindLabel, sessionActive, sessionLinks } from '../../src/shared/agents.ts'
 import { layoutRails } from '../../src/shared/rails.ts'
 import { buildStacks, type Stack } from '../../src/shared/stacks.ts'
-import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
+import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type DepartedPull, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
 import { buildOutline } from '../../src/shared/view.ts'
 
 // What the sidebar and the tab strip show, worked out from the open tabs and
@@ -61,6 +61,8 @@ export type TabRow = {
   loading: boolean
   number: number | null
   ci: CiLevel | null
+  /** Set when the pull request has merged or closed. It keeps its place, with a mark of its own in place of its checks. */
+  gone: 'merged' | 'closed' | null
   /** Comments and threads waiting on the user. */
   needs: number
   /** A Cursor agent is running on this pull request. */
@@ -112,6 +114,7 @@ export type StripTab = {
   favicon: string | null
   loading: boolean
   ci: CiLevel | null
+  gone: 'merged' | 'closed' | null
   agent: AgentMark | null
 }
 
@@ -194,8 +197,9 @@ function linearProject(ref: LinearRef, known: Map<string, Known>): string | null
   return null
 }
 
-type Known = { pr: PullRequest; list: 'mine' | 'review' }
-type Run = { key: string; session: AgentSession; pr: PullRequest }
+/** A pull request on the dashboard, or one that merged or closed and is shown as it last looked. */
+type Known = { pr: PullRequest; list: 'mine' | 'review'; gone: null } | { pr: DepartedPull; list: 'mine' | 'review'; gone: 'merged' | 'closed' }
+type Run = { key: string; session: AgentSession; pr: { key: string; number: number } }
 type Step = { id: string; title: string; last?: boolean }
 
 function indexPrs(data: Snapshot | null): Map<string, Known> {
@@ -203,8 +207,13 @@ function indexPrs(data: Snapshot | null): Map<string, Known> {
   for (const [list, prs] of [['mine', data?.pullRequests ?? []], ['review', data?.reviewPullRequests ?? []]] as const) {
     for (const pr of prs) {
       const key = `${pr.repo.toLowerCase()}#${pr.number}`
-      if (!known.has(key)) known.set(key, { pr, list })
+      if (!known.has(key)) known.set(key, { pr, list, gone: null })
     }
+  }
+  // A tab or an agent of a pull request that has merged or closed stays where it was.
+  for (const pr of data?.departed ?? []) {
+    const key = `${pr.repo.toLowerCase()}#${pr.number}`
+    if (!known.has(key)) known.set(key, { pr, list: pr.list, gone: pr.outcome })
   }
   return known
 }
@@ -290,12 +299,13 @@ export function pruneAgentState(state: AgentState, data: Snapshot): AgentState {
   }
 }
 
-function needs({ pr, list }: Known): number {
+function needs({ pr, list, gone }: Known): number {
+  if (gone) return 0
   if (list === 'review') return (pr.unreadCount ?? 0) + (pr.reviewCommentAwaitingCount ?? 0)
   return (pr.awaitingYouCount ?? 0) + (pr.commentAwaitingCount ?? 0)
 }
 
-function prTitle(pr: PullRequest): string {
+function prTitle(pr: { number: number; title: string }): string {
   return `#${pr.number} ${pr.title}`
 }
 
@@ -509,7 +519,8 @@ export function buildSidebar(input: {
       favicon: tab.favicon,
       loading: tab.loading,
       number: shown ? shown.pr.number : null,
-      ci: shown ? shown.pr.ci : null,
+      ci: shown && !shown.gone ? shown.pr.ci : null,
+      gone: shown?.gone ?? null,
       needs: shown ? needs(shown) : 0,
       agent: shown ? activeRuns.has(shown.pr.key) : false,
     }
@@ -618,7 +629,8 @@ export function buildSidebar(input: {
       title: run ? agentLabel(run.session) : shown ? prTitle(shown.pr) : tab.title,
       favicon: tab.favicon,
       loading: tab.loading,
-      ci: shown ? shown.pr.ci : null,
+      ci: shown && !shown.gone ? shown.pr.ci : null,
+      gone: shown?.gone ?? null,
       agent: run ? markOf(run) : null,
     }
   })

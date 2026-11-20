@@ -166,6 +166,26 @@ export type Initiative = {
   updatedAt: string
 }
 
+/** A pull request that left the lists because it merged or was closed, as it last looked on them. */
+export type DepartedPull = {
+  key: string
+  repo: string
+  repoName: string
+  number: number
+  title: string
+  url: string
+  author: string
+  /** The list it was last on. */
+  list: 'mine' | 'review'
+  outcome: 'merged' | 'closed'
+  /** When it merged or closed. */
+  at: string
+  linearIssues: LinearIssue[]
+  initiativeIds: string[]
+  /** Newest first. */
+  agentSessions: AgentSession[]
+}
+
 export type Snapshot = {
   viewer: string | null
   syncedAt: string | null
@@ -179,6 +199,8 @@ export type Snapshot = {
   agents?: AgentRouting
   pullRequests: PullRequest[]
   reviewPullRequests: PullRequest[]
+  /** Pull requests that merged or closed in the last 30 days, newest first. Absent on a snapshot from a server that does not keep them. */
+  departed?: DepartedPull[]
   initiatives: Initiative[]
   linearConfigured: boolean
   warning: string | null

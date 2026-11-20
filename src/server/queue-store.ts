@@ -57,7 +57,7 @@ const OPEN = `status IN ('queued', 'active', 'failed') AND archived = 0`
 
 export type QueueStore = ReturnType<typeof attachQueue>
 
-export function attachQueue(db: DatabaseSync) {
+export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string) => void } = {}) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS merge_entries (
       id TEXT PRIMARY KEY,
@@ -392,6 +392,7 @@ export function attachQueue(db: DatabaseSync) {
       if (status === 'merged') {
         const row = db.prepare('SELECT pr_key FROM merge_steps WHERE id = ?').get(id) as { pr_key: string } | undefined
         if (row) clearHoldRelease(row.pr_key)
+        if (row) hooks.onMerged?.(row.pr_key)
       }
       db.prepare('UPDATE merge_steps SET status = ?, detail = ?, updated_at = ? WHERE id = ?').run(
         status,
