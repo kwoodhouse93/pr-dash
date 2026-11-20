@@ -199,10 +199,12 @@ describe('agents', () => {
     return [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes(text))
   }
 
-  it('shows the status of a single session in the Agents column', async () => {
+  it('shows a single session as a count colored by its status', async () => {
     await render(pull({ conflict: true, cursorSessions: [session({ result: 'Merged main in.' })] }))
     const chip = document.querySelector('td.agents .cursor-chip')
-    expect(chip?.textContent).toContain('Running')
+    expect(chip?.querySelector('[aria-hidden]')?.textContent).toBe('1')
+    expect(chip?.querySelector('.sr')?.textContent).toBe('Cursor agent, Merge conflict, Running')
+    expect(chip?.className).toContain('running')
     expect(document.querySelector('td.conflict .cursor-chip')).toBeNull()
     await click(chip)
     expect(document.querySelector('.popover')?.textContent).toContain('Merge conflict · Running')
@@ -220,7 +222,7 @@ describe('agents', () => {
       }),
     )
     const chip = document.querySelector('td.agents .cursor-chip')
-    expect(chip?.textContent).toContain('3 agents')
+    expect(chip?.querySelector('[aria-hidden]')?.textContent).toBe('3')
     expect(chip?.className).toContain('running')
     await click(chip)
     const headings = [...document.querySelectorAll('.popover .cursor-session h3')].map((item) => item.textContent)

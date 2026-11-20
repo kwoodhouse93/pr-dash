@@ -1216,7 +1216,6 @@ function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
   const lead = leadingCursorStatus(sessions.map((item) => item.session.status)) ?? 'running'
   const active = sessions.filter((item) => cursorSessionActive(item.session.status)).length
   const only = sessions.length === 1 ? sessions[0]!.session : null
-  const label = only ? cursorStatusLabel(only.status) : `${sessions.length} agents`
   const spoken = only
     ? `Cursor agent, ${agentKindLabel(only.kind)}, ${cursorStatusLabel(only.status)}`
     : `${sessions.length} Cursor agents, ${active} active`
@@ -1229,7 +1228,7 @@ function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
         label={
           <>
             <span className="sr">{spoken}</span>
-            <span aria-hidden="true">{label}</span>
+            <span aria-hidden="true">{sessions.length}</span>
           </>
         }
       >
