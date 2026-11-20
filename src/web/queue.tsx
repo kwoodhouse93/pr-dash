@@ -191,15 +191,29 @@ function NowCard({ entry, onCancel, onRetry }: { entry: MergeEntry; onCancel: Ca
 
 function EntryRow({ entry, lead, trail }: { entry: MergeEntry; lead: ReactNode; trail: ReactNode }) {
   const [open, setOpen] = useState(false)
+  const host = usePrLinkHost()
   const only = entry.kind === 'pr' ? entry.steps[0] : undefined
+  const toggle = () => setOpen((value) => !value)
   return (
     <li>
       <div className="queue-row">
         {lead}
-        <button type="button" className="queue-row-main" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          <span className="queue-row-title">{entry.title}</span>
-          {only ? <span className="queue-num">#{only.number}</span> : <Segments steps={entry.steps} />}
-        </button>
+        {only ? (
+          // The title is the pull request's link, so it can be opened and copied. The rest of the row opens the detail.
+          <>
+            <a className="queue-row-title" href={prHref(only.url, host)} target="_blank" rel="noreferrer">
+              {entry.title}
+            </a>
+            <button type="button" className="queue-row-main rest" aria-expanded={open} aria-label={`Details for #${only.number}`} onClick={toggle}>
+              <span className="queue-num">#{only.number}</span>
+            </button>
+          </>
+        ) : (
+          <button type="button" className="queue-row-main" aria-expanded={open} onClick={toggle}>
+            <span className="queue-row-title">{entry.title}</span>
+            <Segments steps={entry.steps} />
+          </button>
+        )}
         {trail}
       </div>
       {open ? (

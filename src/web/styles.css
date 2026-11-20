@@ -771,6 +771,8 @@ button.pill.queue { cursor: help; }
   text-align: left;
 }
 .queue-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row-main.rest { flex: 1 0 auto; }
+.queue-row .queue-dot ~ .queue-row-title,
 .queue-row .queue-dot ~ .queue-row-main .queue-row-title,
 .queue-row.watch .queue-row-title { color: var(--muted); }
 .queue-repo, .queue-took, .queue-why { color: var(--faint); font-size: 14px; white-space: nowrap; }
