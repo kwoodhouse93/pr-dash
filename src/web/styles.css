@@ -2080,6 +2080,8 @@ tbody td { transition: background-color 110ms; }
 
 /* Merges that landed today: a tick for each, then the count. */
 .tally { display: inline-flex; align-items: center; gap: 8px; margin-right: 10px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.tally-part { display: inline-flex; align-items: center; gap: 6px; }
+.tally-part.reviewed .ticks i { background: var(--blue); }
 .ticks { display: inline-flex; gap: 2px; }
 .ticks i { width: 3px; height: 11px; border-radius: 2px; background: var(--green); opacity: 0.8; animation: tick 500ms var(--ease) both; }
 @keyframes tick { from { transform: scaleY(0) translateY(6px); opacity: 0; } 60% { transform: scaleY(1.5); opacity: 1; } }

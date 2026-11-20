@@ -300,6 +300,7 @@ export function mapPullRequest(
     humanApproval: reviews.humanApproval,
     changesRequested: reviews.changesRequested,
     reviewers: reviews.reviewers,
+    viewerReviewedAt: lastReviewBy((node.reviews.nodes ?? []).filter(present), extras.viewer),
     conflict: node.mergeable === 'CONFLICTING' || node.mergeStateStatus === 'DIRTY',
     behind: isBehindBase(node.mergeStateStatus, extras.behindBy),
     checks,
@@ -400,6 +401,14 @@ function threadsFrom(
       })),
     }
   })
+}
+
+/** The latest review the viewer submitted, of any kind. One still being written does not count. */
+function lastReviewBy(reviews: { state: string; submittedAt: string | null; author: { login: string } | null }[], viewer: string): string | null {
+  const login = viewer.toLowerCase()
+  if (!login) return null
+  const times = reviews.filter((review) => review.state !== 'PENDING' && review.submittedAt && review.author?.login.toLowerCase() === login).map((review) => review.submittedAt!)
+  return times.sort().at(-1) ?? null
 }
 
 function conversationNotes(node: { latestComments?: GitHubPull['latestComments']; reviews: GitHubPull['reviews'] }): Note[] {

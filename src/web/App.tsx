@@ -17,7 +17,7 @@ import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
-import { Roll, useLingering } from './motion.tsx'
+import { Roll, reducedMotion, useLingering } from './motion.tsx'
 import { PrTable, SkeletonTable } from './table.tsx'
 import { Toasts, clearActionError, toastError, toastHeld, toastLanded, toastLinearHint, toastRerun, toastSyncWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
@@ -394,7 +394,7 @@ export function App() {
       frame = (frame + 1) % ICON_FRAMES
     }
     draw()
-    if (!icon.merging) return
+    if (!icon.merging || reducedMotion()) return
     const timer = window.setInterval(draw, 450)
     return () => window.clearInterval(timer)
   }, [iconKey])
@@ -451,13 +451,25 @@ export function App() {
     const at = merged.get(pr.key)?.at
     return at != null && Date.now() - Date.parse(at) < LANDED_NEWS_MS
   }
-  const mineShown = useLingering(mine, justMerged, LANDING_MS)
-  const reviewShown = useLingering(review, justMerged, LANDING_MS)
+  // With reduced motion there is nothing to play, so the row goes at once.
+  const landingMs = reducedMotion() ? 0 : LANDING_MS
+  const mineShown = useLingering(mine, justMerged, landingMs)
+  const reviewShown = useLingering(review, justMerged, landingMs)
   const { list: prs, leaving } = page === 'review' ? reviewShown : mineShown
   const mergedToday = useMemo(() => {
     const midnight = new Date(now).setHours(0, 0, 0, 0)
     return [...merged.values()].filter((pr) => pr.list === 'mine' && Date.parse(pr.at) >= midnight)
   }, [merged, now])
+  // Pull requests you reviewed today, whether they are still open or have since merged or closed.
+  const reviewedToday = useMemo(() => {
+    const midnight = new Date(now).setHours(0, 0, 0, 0)
+    const gone = (data?.departed ?? []).filter((pr) => pr.list === 'review')
+    const numbers = new Map<string, number>()
+    for (const pr of [...review, ...gone]) {
+      if (pr.viewerReviewedAt && Date.parse(pr.viewerReviewedAt) >= midnight) numbers.set(pr.key, pr.number)
+    }
+    return [...numbers.values()]
+  }, [review, data?.departed, now])
   // Say so when one of yours lands. The first snapshot is where this starts from, so old merges are not announced.
   const announced = useRef<Set<string> | null>(null)
   useEffect(() => {
@@ -569,16 +581,33 @@ export function App() {
             </button>
           </nav>
           <div className="top-tools">
-            {listPage && mergedToday.length > 0 ? (
-              <span className="tally" title={`Your pull requests merged today: ${mergedToday.map((pr) => `#${pr.number}`).join(', ')}`}>
-                <span className="ticks" aria-hidden="true">
-                  {mergedToday.slice(0, TICKS_SHOWN).map((pr) => (
-                    <i key={pr.key} />
-                  ))}
-                </span>
-                <span>
-                  <Roll value={mergedToday.length} /> merged today
-                </span>
+            {listPage && mergedToday.length + reviewedToday.length > 0 ? (
+              <span className="tally">
+                {mergedToday.length > 0 ? (
+                  <span className="tally-part" title={`Your pull requests merged today: ${mergedToday.map((pr) => `#${pr.number}`).join(', ')}`}>
+                    <span className="ticks" aria-hidden="true">
+                      {mergedToday.slice(0, TICKS_SHOWN).map((pr) => (
+                        <i key={pr.key} />
+                      ))}
+                    </span>
+                    <span>
+                      <Roll value={mergedToday.length} /> merged
+                    </span>
+                  </span>
+                ) : null}
+                {reviewedToday.length > 0 ? (
+                  <span className="tally-part reviewed" title={`Pull requests you reviewed today: ${reviewedToday.map((number) => `#${number}`).join(', ')}`}>
+                    <span className="ticks" aria-hidden="true">
+                      {reviewedToday.slice(0, TICKS_SHOWN).map((number) => (
+                        <i key={number} />
+                      ))}
+                    </span>
+                    <span>
+                      <Roll value={reviewedToday.length} /> reviewed
+                    </span>
+                  </span>
+                ) : null}
+                <span>today</span>
               </span>
             ) : null}
             {page === 'settings' ? null : (

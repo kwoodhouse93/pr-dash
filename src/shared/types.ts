@@ -97,6 +97,8 @@ export type PullRequest = {
   humanApproval: boolean
   changesRequested: boolean
   reviewers: Reviewer[]
+  /** When the signed-in viewer last submitted a review of any kind: an approval, a request for changes or comments. Missing on snapshots saved before this was read. */
+  viewerReviewedAt?: string | null
   conflict: boolean
   behind: boolean
   checks: Check[]
@@ -180,6 +182,8 @@ export type DepartedPull = {
   outcome: 'merged' | 'closed'
   /** When it merged or closed. */
   at: string
+  /** When the viewer last reviewed it, so a review still counts after the pull request has gone. */
+  viewerReviewedAt?: string | null
   linearIssues: LinearIssue[]
   initiativeIds: string[]
   /** Newest first. */

@@ -67,7 +67,7 @@ export type RepoAgent = {
   checkout: string | null
 }
 
-type StoredDeparture = Pick<DepartedPull, 'key' | 'repo' | 'repoName' | 'number' | 'title' | 'url' | 'author' | 'linearIssues'>
+type StoredDeparture = Pick<DepartedPull, 'key' | 'repo' | 'repoName' | 'number' | 'title' | 'url' | 'author' | 'linearIssues' | 'viewerReviewedAt'>
 type Lists = { mine: PullRequest[]; review: PullRequest[] }
 
 /** How far back the snapshot carries merged and closed pull requests. The table keeps them all. */
@@ -355,7 +355,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   }
 
   function slimDeparted(pr: PullRequest): StoredDeparture {
-    return { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, author: pr.author, linearIssues: pr.linearIssues }
+    return { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, author: pr.author, linearIssues: pr.linearIssues, viewerReviewedAt: pr.viewerReviewedAt ?? null }
   }
 
   /**

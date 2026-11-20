@@ -1,4 +1,4 @@
-import { app, nativeImage, type NativeImage } from 'electron'
+import { app, nativeImage, systemPreferences, type NativeImage } from 'electron'
 import { ICON_FRAMES, iconSvg, type IconState } from '../../src/shared/icon.ts'
 
 const FRAME_MS = 450
@@ -24,7 +24,8 @@ export class DockIcon {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
     void this.draw(state, key)
-    if (!state.merging) return
+    // With reduced motion the bars hold the first step of the ripple, which still reads as merging.
+    if (!state.merging || systemPreferences.getAnimationSettings().prefersReducedMotion) return
     this.timer = setInterval(() => {
       this.frame = (this.frame + 1) % ICON_FRAMES
       void this.draw(state, key)

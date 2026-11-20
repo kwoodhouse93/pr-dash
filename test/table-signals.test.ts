@@ -189,3 +189,27 @@ describe('where a pull request stands', () => {
     expect(rollup(['ready', 'ready', 'you', 'waiting', 'draft', 'broken'])).toEqual({ ready: 2, you: 1, broken: 1 })
   })
 })
+
+describe('when the viewer last reviewed a pull request', () => {
+  const review = (login: string, state: string, submittedAt: string | null) => ({ state, submittedAt, body: '', author: { __typename: 'User', login, avatarUrl: null } })
+
+  it('is their latest review of any kind, and no one else’s', () => {
+    const viewer = extras.viewer
+    const pull = githubPull({
+      reviews: {
+        nodes: [
+          review(viewer, 'APPROVED', '2026-10-03T09:00:00Z'),
+          review(viewer.toUpperCase(), 'COMMENTED', '2026-10-05T09:00:00Z'),
+          review('someone-else', 'APPROVED', '2026-10-08T09:00:00Z'),
+          // One still being written has not been submitted.
+          review(viewer, 'PENDING', null),
+        ],
+      } as GitHubPull['reviews'],
+    })
+    expect(mapPullRequest(pull, extras).viewerReviewedAt).toBe('2026-10-05T09:00:00Z')
+  })
+
+  it('is empty when they have not reviewed it', () => {
+    expect(mapPullRequest(githubPull(), extras).viewerReviewedAt).toBeNull()
+  })
+})
