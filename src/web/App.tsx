@@ -639,6 +639,7 @@ export function App() {
               onAgents={(snap) => setData(adopt(snap))}
               t3Origin={prefs.t3Origin}
               onT3Origin={(t3Origin) => setPrefs((current) => ({ ...current, t3Origin }))}
+              t3PairPrompt={prefs.t3PairPrompt}
             />
           ) : null}
           {page === 'queue' ? (

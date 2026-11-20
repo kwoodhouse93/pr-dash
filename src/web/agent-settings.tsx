@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AGENT_PROVIDERS, providerLabel, type AgentHealth, type AgentSettings } from '../shared/agents.ts'
 import type { AgentProviderId, Snapshot } from '../shared/types.ts'
 import { api } from './api.ts'
+import { Icon } from './icons.tsx'
 
 type Row = AgentSettings['repos'][number]
 
@@ -24,12 +25,15 @@ export function AgentSettingsPanel({
   onSnapshot,
   t3Origin = null,
   onT3Origin = () => {},
+  pairPrompt = true,
 }: {
   repos: string[]
   onSnapshot: (snapshot: Snapshot) => void
   /** The T3 Code this browser is paired with, or null. */
   t3Origin?: string | null
   onT3Origin?: (origin: string | null) => void
+  /** False once the user chose not to be asked to pair, so being unpaired is not flagged. */
+  pairPrompt?: boolean
 }) {
   const [settings, setSettings] = useState<AgentSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -78,18 +82,23 @@ export function AgentSettingsPanel({
   }
 
   const usesT3 = (row: Row) => (row.provider ?? settings?.defaultProvider) === 't3'
+  const running = settings?.t3Origin ?? null
+  // T3 Code moved to another address since pairing: the pairing was with the old one.
+  const stale = t3Origin !== null && running !== null && t3Origin !== running
+  const pairing: Pairing = stale ? 'stale' : t3Origin ? 'paired' : 'unpaired'
+  const flagged = pairing === 'stale' || (pairing === 'unpaired' && pairPrompt)
 
   return (
     <section className="panel agent-settings">
       <header className="panel-head">
         <h2>Agents</h2>
         <span className="panel-note">Where an agent runs when you start one from a pull request</span>
+        <button type="button" className="icon-btn" aria-label="Check again" title="Check again" disabled={busy} onClick={() => void check()}>
+          <Icon name="refresh" />
+        </button>
       </header>
       <div className="panel-row setting">
-        <div>
-          <h3>Start agents with</h3>
-          <p className="panel-note">{AGENT_PROVIDERS.find((provider) => provider.id === settings?.defaultProvider)?.where ?? ' '}</p>
-        </div>
+        <h3>Start agents with</h3>
         <div className="segmented" role="group" aria-label="Default agent provider">
           {AGENT_PROVIDERS.map((provider) => (
             <button
@@ -105,44 +114,67 @@ export function AgentSettingsPanel({
         </div>
       </div>
       {settings?.providers.map(({ id, health }) => (
-        <div key={id} className="panel-row agent-health" data-state={health.state}>
-          <i className="agent-health-dot" aria-hidden="true" />
-          <span className="repo-name">{providerLabel(id)}</span>
-          <span className="agent-health-state">{healthLabel(health)}</span>
-          {health.detail ? <span className="panel-note">{health.detail}</span> : null}
+        <div key={id} className="agent-provider" data-state={health.state} data-flagged={id === 't3' && flagged ? '' : undefined}>
+          <div className="agent-health">
+            <i className="agent-health-dot" aria-hidden="true" />
+            <span className="agent-health-name">
+              {providerLabel(id)}
+              {health.detail && health.state === 'ready' ? <span className="panel-note">{health.detail}</span> : null}
+            </span>
+            <span className="agent-health-state">{healthLabel(health)}</span>
+          </div>
+          {health.detail && health.state !== 'ready' ? <p className="agent-provider-line panel-note">{health.detail}</p> : null}
+          {id === 't3' ? <T3Pairing running={running} paired={t3Origin} pairing={pairing} flagged={flagged} onPaired={onT3Origin} /> : null}
         </div>
       ))}
-      {settings ? (
-        <div className="panel-row agent-check">
-          <button type="button" className="text-btn" disabled={busy} onClick={() => void check()}>
-            {busy ? 'Checking…' : 'Check again'}
-          </button>
-        </div>
-      ) : null}
       {error ? <p className="panel-row repo-error">{error}</p> : null}
-      {settings ? <T3Pairing running={settings.t3Origin} paired={t3Origin} onPaired={onT3Origin} /> : null}
       {settings && settings.repos.length > 0 ? (
-        <ul className="agent-repos" aria-label="Agent provider for each repository">
-          {settings.repos.map((row) => (
-            <RepoRow
-              key={row.repo}
-              row={row}
-              needsCheckout={usesT3(row)}
-              busy={busy}
-              onSave={(agent) => save(() => api.setRepoAgent(row.repo, agent))}
-            />
-          ))}
-        </ul>
+        <>
+          <div className="panel-row agent-repos-head">
+            <h3>Repositories</h3>
+            <span className="panel-note">Override defaults per repo</span>
+          </div>
+          <div className="agent-cols" aria-hidden="true">
+            <span>Repository</span>
+            <span>Agent</span>
+            <span>T3 Code folder</span>
+          </div>
+          <ul className="agent-repos" aria-label="Agent provider for each repository">
+            {settings.repos.map((row) => (
+              <RepoRow
+                key={row.repo}
+                row={row}
+                needsCheckout={usesT3(row)}
+                busy={busy}
+                onSave={(agent) => save(() => api.setRepoAgent(row.repo, agent))}
+              />
+            ))}
+          </ul>
+        </>
       ) : null}
     </section>
   )
 }
 
+type Pairing = 'paired' | 'stale' | 'unpaired'
+
 /**
  * Pairs this browser with the T3 Code on this machine, so a thread opens in a tab here
  * instead of handing off to the T3 Code app. `running` is where that T3 Code answers now.
  */
-function T3Pairing({ running, paired, onPaired }: { running: string | null; paired: string | null; onPaired: (origin: string | null) => void }) {
+function T3Pairing({
+  running,
+  paired,
+  pairing,
+  flagged,
+  onPaired,
+}: {
+  running: string | null
+  paired: string | null
+  pairing: Pairing
+  flagged: boolean
+  onPaired: (origin: string | null) => void
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [manual, setManual] = useState(false)
@@ -180,38 +212,12 @@ function T3Pairing({ running, paired, onPaired }: { running: string | null; pair
     setError(null)
   }
 
-  // T3 Code moved to another address since pairing: the pairing was with the old one.
-  const stale = paired !== null && running !== null && paired !== running
+  const stopped = running ? undefined : 'T3 Code is not running on this machine'
   return (
     <>
-      <div className="panel-row setting">
-        <div>
-          <h3>Show T3 Code threads here</h3>
-          <p className="panel-note">
-            {paired && !stale
-              ? `This browser is paired with T3 Code at ${paired.replace(/^https?:\/\//, '')}. A thread opens in a tab, where you can read it and reply. T3 Code keeps a pairing for 30 days.`
-              : stale
-                ? 'T3 Code has moved since this browser was paired with it. Pair again to open threads in a tab.'
-                : 'Pair this browser with T3 Code to open a thread in a tab. Until then, a thread’s link hands off to the T3 Code app.'}
-          </p>
-        </div>
-        <button type="button" className="ghost" disabled={busy} onClick={() => void pair()}>
-          {busy ? 'Pairing…' : paired ? 'Pair again' : 'Pair'}
-        </button>
-        {paired ? (
-          <button type="button" className="text-btn" disabled={busy} title="Stops opening threads here. To end the pairing itself, revoke PR Dash in T3 Code." onClick={() => onPaired(null)}>
-            Forget
-          </button>
-        ) : (
-          <button type="button" className="text-btn" disabled={busy} onClick={() => setManual((current) => !current)}>
-            Enter a code
-          </button>
-        )}
-      </div>
-      {error ? <p className="panel-row repo-error">{error}</p> : null}
       {manual && !paired ? (
         <form
-          className="panel-row agent-checkout"
+          className="agent-provider-line"
           onSubmit={(event) => {
             event.preventDefault()
             pairWithCode()
@@ -221,17 +227,51 @@ function T3Pairing({ running, paired, onPaired }: { running: string | null; pair
             className="search"
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            placeholder="Pairing code, from `t3 pair` or T3 Code’s settings"
+            placeholder="Pairing code"
+            title={stopped ?? 'From `t3 pair` or T3 Code’s settings'}
             aria-label="T3 Code pairing code"
             spellCheck={false}
+            autoFocus
             disabled={!running}
           />
           <button type="submit" className="text-btn" disabled={!running || !code.trim()}>
-            Pair with code
+            Pair
           </button>
-          {!running ? <p className="agent-problem">T3 Code is not running on this machine, so there is nothing to pair with.</p> : null}
+          <button type="button" className="text-btn" onClick={() => setManual(false)}>
+            Cancel
+          </button>
         </form>
-      ) : null}
+      ) : (
+        <div className="agent-provider-line">
+          <span
+            className="agent-pairing"
+            data-flagged={flagged ? '' : undefined}
+            data-state={pairing}
+            title={
+              pairing === 'stale'
+                ? 'T3 Code has moved since this browser was paired with it. Pair again to open threads in a tab here.'
+                : pairing === 'unpaired'
+                  ? 'Pair to open T3 Code threads in a tab here.'
+                  : undefined
+            }
+          >
+            {pairing === 'stale' ? 'Pairing out of date' : paired ? `Paired with ${paired.replace(/^https?:\/\//, '')}` : 'Not paired'}
+          </span>
+          <button type="button" className="ghost" disabled={busy || !running} title={stopped} onClick={() => void pair()}>
+            {busy ? 'Pairing…' : paired ? 'Pair again' : 'Pair'}
+          </button>
+          {paired ? (
+            <button type="button" className="text-btn" disabled={busy} title="Stops opening threads here. To end the pairing itself, revoke PR Dash in T3 Code." onClick={() => onPaired(null)}>
+              Forget
+            </button>
+          ) : (
+            <button type="button" className="text-btn" disabled={busy || !running} title={stopped} onClick={() => setManual(true)}>
+              Enter a code
+            </button>
+          )}
+        </div>
+      )}
+      {error ? <p className="agent-provider-line repo-error">{error}</p> : null}
     </>
   )
 }
@@ -248,15 +288,24 @@ function RepoRow({
   busy: boolean
   onSave: (agent: { provider: AgentProviderId | null; checkout: string | null }) => Promise<void>
 }) {
-  const [draft, setDraft] = useState(row.checkout ?? '')
+  // The folder in use: the one set here, or else the folder of T3 Code's own project.
+  const current = row.checkout ?? row.project?.folder ?? ''
+  const [draft, setDraft] = useState(current)
   const [editing, setEditing] = useState(false)
-  useEffect(() => setDraft(row.checkout ?? ''), [row.checkout])
-  const changed = draft.trim() !== (row.checkout ?? '')
-  // T3 Code's own project is enough. The folder box is for a repository without one, or to work somewhere else.
-  const typing = editing || row.checkout != null || (needsCheckout && !row.project)
-  const problem =
-    row.checkoutProblem ??
-    (needsCheckout && !row.checkout && !row.project ? 'T3 Code has no project for this repository. Add its folder as a project in T3 Code, or give the folder here.' : null)
+  useEffect(() => setDraft(current), [current])
+
+  function cancel() {
+    setDraft(current)
+    setEditing(false)
+  }
+
+  function submit() {
+    const typed = draft.trim()
+    // Empty, or T3 Code's own project folder, means no folder set here.
+    const next = typed && typed !== row.project?.folder ? typed : null
+    setEditing(false)
+    if (next !== row.checkout) void onSave({ provider: row.provider, checkout: next })
+  }
 
   return (
     <li className="panel-row agent-repo">
@@ -275,45 +324,66 @@ function RepoRow({
           </option>
         ))}
       </select>
-      {typing ? (
+      {!needsCheckout ? null : editing ? (
         <form
-          className="agent-checkout"
+          className="agent-folder-form"
           onSubmit={(event) => {
             event.preventDefault()
-            setEditing(false)
-            if (changed) void onSave({ provider: row.provider, checkout: draft.trim() || null })
+            submit()
           }}
         >
           <input
             className="search"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={row.project ? `Leave empty to use ${row.project.folder}` : 'Folder for T3 Code, such as ~/code/app'}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') cancel()
+            }}
+            placeholder="Folder for T3 Code, such as ~/code/app"
             aria-label={`Folder T3 Code works in for ${row.repo}`}
             spellCheck={false}
+            autoFocus
             disabled={busy}
           />
-          {changed ? (
+          <span className="agent-folder-actions">
             <button type="submit" className="text-btn" disabled={busy}>
               Save
             </button>
-          ) : null}
+            <button type="button" className="text-btn" onClick={cancel}>
+              Cancel
+            </button>
+          </span>
         </form>
       ) : (
-        <p className="agent-checkout agent-project">
-          {row.project ? (
-            <>
-              <span className="panel-note" title={row.project.folder}>
-                T3 Code project {row.project.title} · {row.project.folder}
-              </span>
-              <button type="button" className="text-btn" disabled={busy} onClick={() => setEditing(true)}>
-                Use another folder
+        <>
+          {current ? (
+            <span className="agent-folder" data-set={row.checkout ? '' : undefined} title={current}>
+              <bdi>{current}</bdi>
+            </span>
+          ) : (
+            <span className="agent-folder" data-missing="" title="Add this repository’s folder as a project in T3 Code, or set the folder here.">
+              No T3 Code project
+            </span>
+          )}
+          <span className="agent-folder-actions">
+            <button type="button" className="text-btn" disabled={busy} onClick={() => setEditing(true)}>
+              {current ? 'Change' : 'Set folder'}
+            </button>
+            {row.checkout && row.project ? (
+              <button
+                type="button"
+                className="text-btn"
+                disabled={busy}
+                title={`Back to T3 Code’s project folder, ${row.project.folder}`}
+                onClick={() => void onSave({ provider: row.provider, checkout: null })}
+              >
+                Reset
               </button>
-            </>
-          ) : null}
-        </p>
+            ) : null}
+          </span>
+        </>
       )}
-      {problem && !changed ? <p className="agent-problem">{problem}</p> : null}
+      {needsCheckout && row.checkoutProblem && !editing ? <p className="agent-problem">{row.checkoutProblem}</p> : null}
     </li>
   )
 }

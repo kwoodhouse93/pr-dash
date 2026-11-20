@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Initiative, PullRequest } from '../shared/types.ts'
+import { Icon } from './icons.tsx'
 import { useMenuClose } from './menus.tsx'
 
 export function TagEditor({
@@ -153,7 +154,9 @@ export function ManageInitiatives({
           {counts ? <span className="repo-meta">{prCount(counts.get(initiative.id) ?? 0)}</span> : null}
           <button
             type="button"
-            className="text-btn"
+            className={confirmId === initiative.id ? 'text-btn delete' : 'icon-btn delete'}
+            aria-label={`Delete ${initiative.name}`}
+            title={confirmId === initiative.id ? undefined : 'Delete'}
             onClick={async () => {
               if (confirmId !== initiative.id) {
                 setConfirmId(initiative.id)
@@ -167,7 +170,7 @@ export function ManageInitiatives({
               }
             }}
           >
-            {confirmId === initiative.id ? 'Confirm' : 'Delete'}
+            {confirmId === initiative.id ? 'Confirm' : <Icon name="trash" />}
           </button>
         </form>
       ))}

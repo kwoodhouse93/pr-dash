@@ -61,19 +61,79 @@ describe('agent settings and launch', () => {
   it('shows each provider with its health, and what T3 Code still needs for a repository', async () => {
     vi.mocked(api.agentSettings).mockResolvedValue(settings())
     await render(<AgentSettingsPanel repos={['acme/app', 'acme/web']} onSnapshot={() => {}} />)
-    const health = [...document.querySelectorAll('.agent-health')].map((row) => [row.getAttribute('data-state'), row.textContent])
+    const health = [...document.querySelectorAll('.agent-provider')].map((row) => [row.getAttribute('data-state'), row.querySelector('.agent-health')?.textContent])
     expect(health).toEqual([
-      ['unconfigured', 'CursorNot set upSet CURSOR_API_KEY on the server to start Cursor agents.'],
-      ['ready', 'T3 CodeReadyt3 v0.1.10'],
+      ['unconfigured', 'CursorNot set up'],
+      ['ready', 'T3 Codet3 v0.1.10Ready'],
     ])
+    expect(document.querySelector('.agent-provider p')?.textContent).toBe('Set CURSOR_API_KEY on the server to start Cursor agents.')
     const rows = [...document.querySelectorAll('.agent-repo')]
     // acme/app follows the default, Cursor, so it needs no folder.
     expect(rows[0]?.querySelector('.agent-problem')).toBeNull()
     expect(rows[1]?.querySelector('.agent-problem')?.textContent).toBe('T3 Code has no project for ~/code/web.')
+    expect(rows[0]?.querySelector('.agent-folder')).toBeNull()
+    // acme/web has a folder set here, which can be put back only to a T3 Code project it does not have.
+    expect(rows[1]?.querySelector('.agent-folder')?.hasAttribute('data-set')).toBe(true)
+    expect([...(rows[1]?.querySelectorAll('button') ?? [])].map((button) => button.textContent)).toEqual(['Change'])
     // acme/api has a T3 Code project, so it shows that and asks for nothing.
-    expect(rows[2]?.querySelector('.agent-project')?.textContent).toContain('T3 Code project api · ~/code/api')
+    expect(rows[2]?.querySelector('.agent-folder')?.textContent).toBe('~/code/api')
     expect(rows[2]?.querySelector('input')).toBeNull()
     expect(rows[2]?.querySelector('.agent-problem')).toBeNull()
+  })
+
+  const button = (within: ParentNode | null | undefined, label: string) => [...(within?.querySelectorAll('button') ?? [])].find((found) => found.textContent === label) as HTMLElement
+  const type = (input: HTMLInputElement, value: string) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('changes a folder starting from the one in use, and cancels without saving', async () => {
+    vi.mocked(api.agentSettings).mockResolvedValue(settings())
+    vi.mocked(api.setRepoAgent).mockResolvedValue({ settings: settings(), snapshot: {} as Snapshot })
+    await render(<AgentSettingsPanel repos={['acme/api']} onSnapshot={() => {}} />)
+    const row = document.querySelectorAll('.agent-repo')[2]
+    await act(async () => button(row, 'Change').click())
+    const input = row?.querySelector('input') as HTMLInputElement
+    expect(input.value).toBe('~/code/api')
+    await act(async () => type(input, '~/elsewhere'))
+    await act(async () => button(row, 'Cancel').click())
+    expect(row?.querySelector('input')).toBeNull()
+    expect(row?.querySelector('.agent-folder')?.textContent).toBe('~/code/api')
+    expect(api.setRepoAgent).not.toHaveBeenCalled()
+
+    await act(async () => button(row, 'Change').click())
+    await act(async () => type(row?.querySelector('input') as HTMLInputElement, ' ~/elsewhere '))
+    await act(async () => button(row, 'Save').click())
+    expect(api.setRepoAgent).toHaveBeenCalledWith('acme/api', { provider: 't3', checkout: '~/elsewhere' })
+  })
+
+  it('resets a folder set here to the folder of the T3 Code project', async () => {
+    const overridden = settings({ repos: [{ repo: 'acme/api', provider: 't3', project: { title: 'api', folder: '~/code/api' }, checkout: '~/elsewhere', checkoutProblem: null }] })
+    vi.mocked(api.agentSettings).mockResolvedValue(overridden)
+    vi.mocked(api.setRepoAgent).mockResolvedValue({ settings: settings(), snapshot: {} as Snapshot })
+    await render(<AgentSettingsPanel repos={['acme/api']} onSnapshot={() => {}} />)
+    expect(document.querySelector('.agent-folder')?.textContent).toBe('~/elsewhere')
+    await act(async () => button(document, 'Reset').click())
+    expect(api.setRepoAgent).toHaveBeenCalledWith('acme/api', { provider: 't3', checkout: null })
+  })
+
+  it('flags T3 Code when this browser is not paired, unless the user chose not to be asked', async () => {
+    vi.mocked(api.agentSettings).mockResolvedValue(settings())
+    const t3 = () => document.querySelectorAll('.agent-provider')[1]
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} />)
+    expect(t3()?.hasAttribute('data-flagged')).toBe(true)
+    expect(t3()?.querySelector('.agent-pairing')?.textContent).toBe('Not paired')
+    act(() => root?.unmount())
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} pairPrompt={false} />)
+    expect(t3()?.hasAttribute('data-flagged')).toBe(false)
+    act(() => root?.unmount())
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} t3Origin="http://127.0.0.1:3773" />)
+    expect(t3()?.hasAttribute('data-flagged')).toBe(false)
+    act(() => root?.unmount())
+    // T3 Code now answers somewhere else, so the pairing is flagged even when not asking to pair.
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} t3Origin="http://127.0.0.1:4000" pairPrompt={false} />)
+    expect(t3()?.hasAttribute('data-flagged')).toBe(true)
+    expect(t3()?.querySelector('.agent-pairing')?.textContent).toBe('Pairing out of date')
   })
 
   it('saves the default provider, passes the snapshot on, and then asks for the folder T3 Code needs', async () => {
@@ -87,7 +147,7 @@ describe('agent settings and launch', () => {
     expect(api.setDefaultAgent).toHaveBeenCalledWith('t3')
     expect(seen).toEqual([snapshot])
     expect(t3.getAttribute('aria-pressed')).toBe('true')
-    expect(document.querySelector('.agent-repo .agent-problem')?.textContent).toMatch(/has no project for this repository/)
+    expect(document.querySelector('.agent-repo .agent-folder')?.textContent).toBe('No T3 Code project')
   })
 
   it('pairs this browser with T3 Code: opens the pairing link in a tab and remembers where T3 Code is', async () => {
@@ -136,7 +196,7 @@ describe('agent settings and launch', () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, ' XYZ 1 ')
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    await act(async () => ([...document.querySelectorAll('button')].find((button) => button.textContent === 'Pair with code') as HTMLElement).click())
+    await act(async () => ([...document.querySelectorAll('button')].find((button) => button.textContent === 'Pair') as HTMLElement).click())
     expect(open).toHaveBeenLastCalledWith('http://127.0.0.1:3773/pair#token=XYZ%201', '_blank')
     expect(paired).toEqual(['http://127.0.0.1:3773'])
   })
@@ -145,7 +205,7 @@ describe('agent settings and launch', () => {
     vi.mocked(api.agentSettings).mockResolvedValue(settings())
     const paired: (string | null)[] = []
     await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} t3Origin="http://127.0.0.1:3773" onT3Origin={(origin) => paired.push(origin)} />)
-    expect(document.body.textContent).toContain('paired with T3 Code at 127.0.0.1:3773')
+    expect(document.body.textContent).toContain('Paired with 127.0.0.1:3773')
     await act(async () => ([...document.querySelectorAll('button')].find((button) => button.textContent === 'Forget') as HTMLElement).click())
     expect(paired).toEqual([null])
   })

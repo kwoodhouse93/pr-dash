@@ -2,9 +2,9 @@ import { checkPhase, selectChecks } from './ci.ts'
 import { cursorLinks } from './cursor.ts'
 import type { AgentKind, AgentProviderId, AgentRouting, AgentSession, AgentSessionStatus, Check, PullRequest } from './types.ts'
 
-export const AGENT_PROVIDERS: { id: AgentProviderId; label: string; where: string }[] = [
-  { id: 'cursor', label: 'Cursor', where: 'Cursor Cloud Agents, billed by Cursor.' },
-  { id: 't3', label: 'T3 Code', where: 'Threads in T3 Code on this machine, under the coding agent you are signed in to there.' },
+export const AGENT_PROVIDERS: { id: AgentProviderId; label: string }[] = [
+  { id: 'cursor', label: 'Cursor' },
+  { id: 't3', label: 'T3 Code' },
 ]
 
 export const DEFAULT_ROUTING: AgentRouting = { defaultProvider: 'cursor', repos: {} }

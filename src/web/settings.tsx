@@ -3,6 +3,7 @@ import { parseRepoName, removalWarning, type RepoCatalog, type RepoChoice } from
 import { AgentSettingsPanel } from './agent-settings.tsx'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatAgo, formatExact, formatTime } from './format.ts'
+import { Icon } from './icons.tsx'
 import type { PrLinkHost } from './pr-links.tsx'
 import { RepoIcon, RepoMarkPicker } from './repo-mark.tsx'
 import type { RepoMark, Snapshot } from '../shared/types.ts'
@@ -25,6 +26,7 @@ export function SettingsPage({
   onAgents,
   t3Origin = null,
   onT3Origin = () => {},
+  t3PairPrompt = true,
   initiatives,
   prLinks = 'github',
   onPrLinks = () => {},
@@ -44,6 +46,8 @@ export function SettingsPage({
   /** The T3 Code this browser is paired with, or null. */
   t3Origin?: string | null
   onT3Origin?: (origin: string | null) => void
+  /** False once the user chose not to be asked to pair with T3 Code. */
+  t3PairPrompt?: boolean
   /** The initiatives editor. Left out, the section is not shown. */
   initiatives?: ReactNode
   prLinks?: PrLinkHost
@@ -229,7 +233,7 @@ export function SettingsPage({
                     disabled={removing || busyName === row.name}
                     onClick={() => setPending(row)}
                   >
-                    ✕
+                    <Icon name="x" />
                   </button>
                 </li>
               )
@@ -261,14 +265,11 @@ export function SettingsPage({
             </ul>
           ) : null}
         </section>
-        {onAgents ? <AgentSettingsPanel repos={repos} onSnapshot={onAgents} t3Origin={t3Origin} onT3Origin={onT3Origin} /> : null}
+        {onAgents ? <AgentSettingsPanel repos={repos} onSnapshot={onAgents} t3Origin={t3Origin} onT3Origin={onT3Origin} pairPrompt={t3PairPrompt} /> : null}
         {initiatives ? <section className="panel initiatives">{initiatives}</section> : null}
         <section className="panel">
           <div className="panel-row setting">
-            <div>
-              <h3>Open pull requests in</h3>
-              <p className="panel-note">Titles, the merge queue and feedback open here. The Open column keeps both.</p>
-            </div>
+            <h3>Open pull requests in</h3>
             <div className="segmented" role="group" aria-label="Default pull request links">
               <button type="button" aria-pressed={prLinks === 'github'} onClick={() => onPrLinks('github')}>
                 GitHub
