@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { sessionNote, type AgentHealth } from '../shared/agents.ts'
 import type { AgentSession, AgentSessionStatus } from '../shared/types.ts'
 import { AgentUnavailable, newSession, type AgentProvider, type AgentStart } from './agent-provider.ts'
@@ -49,7 +50,7 @@ async function startT3Thread({ pr, request, task, target }: AgentStart): Promise
     throw new AgentUnavailable('unconfigured', 'T3 Code can only start threads on this machine so far.')
   }
   if (!target.checkout) {
-    throw new AgentUnavailable('unconfigured', `Set the folder T3 Code works in for ${pr.repo}, under Agents in Settings.`)
+    throw new AgentUnavailable('unconfigured', `T3 Code has no project for ${pr.repo}. Add its folder as a project in T3 Code, or set a folder under Agents in Settings.`)
   }
   const problem = await checkoutProblem(pr.repo, target.checkout)
   if (problem) throw new AgentUnavailable('unconfigured', problem)
@@ -174,6 +175,58 @@ export async function checkoutProblem(repo: string, folder: string): Promise<str
     return messageOf(error)
   }
   return null
+}
+
+export type T3Project = { id: string; title: string; root: string }
+
+/**
+ * The projects T3 Code has on this machine, most recently used first. They come from
+ * T3 Code's own state file, since its command has no way to list them. That file can
+ * change shape between versions, so anything unexpected reads as no projects, and a
+ * folder set by hand still works.
+ */
+export function t3Projects(home = process.env.T3CODE_HOME || path.join(homedir(), '.t3')): T3Project[] {
+  const file = path.join(home, 'userdata', 'statev2.sqlite')
+  if (!existsSync(file)) return []
+  let db: DatabaseSync | null = null
+  try {
+    db = new DatabaseSync(file, { readOnly: true })
+    const rows = db
+      .prepare('SELECT project_id, title, workspace_root FROM projection_projects WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC')
+      .all() as { project_id: unknown; title: unknown; workspace_root: unknown }[]
+    return rows.flatMap((row) =>
+      typeof row.project_id === 'string' && typeof row.workspace_root === 'string' && path.isAbsolute(row.workspace_root)
+        ? [{ id: row.project_id, title: typeof row.title === 'string' ? row.title : path.basename(row.workspace_root), root: row.workspace_root }]
+        : [],
+    )
+  } catch {
+    return []
+  } finally {
+    db?.close()
+  }
+}
+
+/** The T3 Code project for each repository, by the GitHub repository its folder is a checkout of. Keys are lower case. */
+export async function t3ProjectsByRepo(projects = t3Projects()): Promise<Map<string, T3Project>> {
+  const found = new Map<string, T3Project>()
+  const repos = await Promise.all(
+    projects.map(async (project) => {
+      if (!existsSync(project.root)) return null
+      const origin = await run('git', ['-C', project.root, 'remote', 'get-url', 'origin'], { timeoutMs: 10_000 }).catch(() => '')
+      return originRepo(origin)
+    }),
+  )
+  projects.forEach((project, index) => {
+    const repo = repos[index]?.toLowerCase()
+    if (repo && !found.has(repo)) found.set(repo, project)
+  })
+  return found
+}
+
+/** A folder as the user would write it, with their home folder as `~`. */
+export function shortFolder(folder: string): string {
+  const home = homedir()
+  return folder === home ? '~' : folder.startsWith(`${home}${path.sep}`) ? `~${folder.slice(home.length)}` : folder
 }
 
 /** `owner/name` from a GitHub remote address, or null for anything else. */

@@ -922,6 +922,7 @@ button.pill.queue { cursor: help; }
 .agent-repo .repo-name { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .agent-checkout { display: flex; align-items: center; gap: 6px; flex: 2 1 260px; min-width: 0; }
 .agent-checkout input { flex: 1; min-width: 0; font-family: "Source Code Pro", ui-monospace, monospace; font-size: 13px; }
+.agent-project .panel-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel .agent-problem { flex: 1 0 100%; color: var(--yellow); font-size: 14px; }
 .agent-unreachable { color: var(--yellow); }
 .repo-error { color: var(--red); }

@@ -134,9 +134,14 @@ function RepoRow({
   onSave: (agent: { provider: AgentProviderId | null; checkout: string | null }) => Promise<void>
 }) {
   const [draft, setDraft] = useState(row.checkout ?? '')
+  const [editing, setEditing] = useState(false)
   useEffect(() => setDraft(row.checkout ?? ''), [row.checkout])
   const changed = draft.trim() !== (row.checkout ?? '')
-  const problem = row.checkoutProblem ?? (needsCheckout && !row.checkout ? 'T3 Code needs this folder before it can start an agent here.' : null)
+  // T3 Code's own project is enough. The folder box is for a repository without one, or to work somewhere else.
+  const typing = editing || row.checkout != null || (needsCheckout && !row.project)
+  const problem =
+    row.checkoutProblem ??
+    (needsCheckout && !row.checkout && !row.project ? 'T3 Code has no project for this repository. Add its folder as a project in T3 Code, or give the folder here.' : null)
 
   return (
     <li className="panel-row agent-repo">
@@ -155,28 +160,44 @@ function RepoRow({
           </option>
         ))}
       </select>
-      <form
-        className="agent-checkout"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (changed) void onSave({ provider: row.provider, checkout: draft.trim() || null })
-        }}
-      >
-        <input
-          className="search"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Folder for T3 Code, such as ~/code/app"
-          aria-label={`Folder T3 Code works in for ${row.repo}`}
-          spellCheck={false}
-          disabled={busy}
-        />
-        {changed ? (
-          <button type="submit" className="text-btn" disabled={busy}>
-            Save
-          </button>
-        ) : null}
-      </form>
+      {typing ? (
+        <form
+          className="agent-checkout"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setEditing(false)
+            if (changed) void onSave({ provider: row.provider, checkout: draft.trim() || null })
+          }}
+        >
+          <input
+            className="search"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={row.project ? `Leave empty to use ${row.project.folder}` : 'Folder for T3 Code, such as ~/code/app'}
+            aria-label={`Folder T3 Code works in for ${row.repo}`}
+            spellCheck={false}
+            disabled={busy}
+          />
+          {changed ? (
+            <button type="submit" className="text-btn" disabled={busy}>
+              Save
+            </button>
+          ) : null}
+        </form>
+      ) : (
+        <p className="agent-checkout agent-project">
+          {row.project ? (
+            <>
+              <span className="panel-note" title={row.project.folder}>
+                T3 Code project {row.project.title} · {row.project.folder}
+              </span>
+              <button type="button" className="text-btn" disabled={busy} onClick={() => setEditing(true)}>
+                Use another folder
+              </button>
+            </>
+          ) : null}
+        </p>
+      )}
       {problem && !changed ? <p className="agent-problem">{problem}</p> : null}
     </li>
   )

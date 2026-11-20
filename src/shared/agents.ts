@@ -38,7 +38,9 @@ export type AgentSettings = {
     repo: string
     /** Null follows the default. */
     provider: AgentProviderId | null
-    /** The folder T3 Code works in for this repository. */
+    /** The project T3 Code already has for this repository, used when no folder is set. */
+    project: { title: string; folder: string } | null
+    /** A folder set by hand for T3 Code to work in, instead of that project. */
     checkout: string | null
     /** Why T3 Code cannot use that folder, or null. */
     checkoutProblem: string | null

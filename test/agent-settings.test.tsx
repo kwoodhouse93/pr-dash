@@ -29,8 +29,9 @@ function settings(patch: Partial<AgentSettings> = {}): AgentSettings {
       { id: 't3', health: { state: 'ready', detail: 't3 v0.1.10' } },
     ],
     repos: [
-      { repo: 'acme/app', provider: null, checkout: null, checkoutProblem: null },
-      { repo: 'acme/web', provider: 't3', checkout: '~/code/web', checkoutProblem: 'T3 Code has no project for ~/code/web.' },
+      { repo: 'acme/app', provider: null, project: null, checkout: null, checkoutProblem: null },
+      { repo: 'acme/web', provider: 't3', project: null, checkout: '~/code/web', checkoutProblem: 'T3 Code has no project for ~/code/web.' },
+      { repo: 'acme/api', provider: 't3', project: { title: 'api', folder: '~/code/api' }, checkout: null, checkoutProblem: null },
     ],
     ...patch,
   }
@@ -68,6 +69,10 @@ describe('agent settings and launch', () => {
     // acme/app follows the default, Cursor, so it needs no folder.
     expect(rows[0]?.querySelector('.agent-problem')).toBeNull()
     expect(rows[1]?.querySelector('.agent-problem')?.textContent).toBe('T3 Code has no project for ~/code/web.')
+    // acme/api has a T3 Code project, so it shows that and asks for nothing.
+    expect(rows[2]?.querySelector('.agent-project')?.textContent).toContain('T3 Code project api · ~/code/api')
+    expect(rows[2]?.querySelector('input')).toBeNull()
+    expect(rows[2]?.querySelector('.agent-problem')).toBeNull()
   })
 
   it('saves the default provider, passes the snapshot on, and then asks for the folder T3 Code needs', async () => {
@@ -81,7 +86,7 @@ describe('agent settings and launch', () => {
     expect(api.setDefaultAgent).toHaveBeenCalledWith('t3')
     expect(seen).toEqual([snapshot])
     expect(t3.getAttribute('aria-pressed')).toBe('true')
-    expect(document.querySelector('.agent-repo .agent-problem')?.textContent).toMatch(/needs this folder/)
+    expect(document.querySelector('.agent-repo .agent-problem')?.textContent).toMatch(/has no project for this repository/)
   })
 
   function Launcher({ repo }: { repo: string }) {

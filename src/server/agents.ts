@@ -4,7 +4,7 @@ import { AgentUnavailable, type AgentProvider } from './agent-provider.ts'
 import { agentTask } from './agent-tasks.ts'
 import { cursorProvider } from './cursor.ts'
 import type { DashboardDb } from './db.ts'
-import { checkoutProblem, t3Provider } from './t3.ts'
+import { checkoutProblem, shortFolder, t3Provider, t3ProjectsByRepo } from './t3.ts'
 
 export const agentProviders: Record<AgentProviderId, AgentProvider> = {
   cursor: cursorProvider,
@@ -32,11 +32,13 @@ export async function launchAgent(db: DashboardDb, pr: PullRequest, request: Age
   const id = override ?? providerFor(db.agentRouting(), pr.repo)
   const repo = db.repoAgents().get(pr.repo)
   try {
+    // A folder set by hand wins. Without one, T3 Code's own project for the repository is used.
+    const checkout = repo?.checkout ?? (id === 't3' ? ((await t3ProjectsByRepo()).get(pr.repo.toLowerCase())?.root ?? null) : null)
     const session = await agentProviders[id].start({
       pr,
       request,
       task: agentTask(pr, request),
-      target: { environmentId: repo?.environmentId ?? null, checkout: repo?.checkout ?? null },
+      target: { environmentId: repo?.environmentId ?? null, checkout },
     })
     db.saveAgentSession(pr.key, session)
     return session
@@ -58,6 +60,7 @@ async function readyOtherThan(id: AgentProviderId): Promise<AgentProviderId | nu
 export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
   const routing = db.agentRouting()
   const agents = db.repoAgents()
+  const projects = await t3ProjectsByRepo().catch(() => new Map())
   const [providers, repos] = await Promise.all([
     Promise.all(
       AGENT_PROVIDERS.map(async ({ id }) => ({
@@ -69,9 +72,11 @@ export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
       db.watchedRepos().map(async (repo) => {
         const agent = agents.get(repo)
         const checkout = agent?.checkout ?? null
+        const project = projects.get(repo.toLowerCase())
         return {
           repo,
           provider: agent?.provider ?? null,
+          project: project ? { title: project.title, folder: shortFolder(project.root) } : null,
           checkout,
           checkoutProblem: checkout ? await checkoutProblem(repo, checkout).catch(() => null) : null,
         }

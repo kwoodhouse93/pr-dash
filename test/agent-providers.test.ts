@@ -1,12 +1,13 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { providerFor, sessionActive, sessionLinks, leadingStatus } from '../src/shared/agents.ts'
 import type { AgentSession } from '../src/shared/types.ts'
 import { AgentUnavailable, refreshSessions, type AgentProvider } from '../src/server/agent-provider.ts'
 import { openDatabase } from '../src/server/db.ts'
-import { originRepo, t3Session, worktreeNote } from '../src/server/t3.ts'
+import { originRepo, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
 
 function session(patch: Partial<AgentSession> = {}): AgentSession {
   return {
@@ -178,5 +179,34 @@ describe('T3 Code threads', () => {
 
   it('tells the agent to push its new branch onto the pull request branch', () => {
     expect(worktreeNote('feat/login')).toContain('git push origin HEAD:feat/login')
+  })
+
+  it('lists the projects T3 Code has, newest first, without deleted or archived ones', () => {
+    const home = mkdtempSync(path.join(tmpdir(), 'pr-dash-t3-'))
+    mkdirSync(path.join(home, 'userdata'))
+    const state = new DatabaseSync(path.join(home, 'userdata', 'statev2.sqlite'))
+    state.exec(`
+      CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, title TEXT NOT NULL, workspace_root TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT, archived_at TEXT);
+      INSERT INTO projection_projects VALUES
+        ('p1', 'app', '/code/app', '2026-11-01', NULL, NULL),
+        ('p2', 'web', '/code/web', '2026-11-02', NULL, NULL),
+        ('p3', 'gone', '/code/gone', '2026-11-03', '2026-11-04', NULL),
+        ('p4', 'shelved', '/code/shelved', '2026-11-03', NULL, '2026-11-04');
+    `)
+    state.close()
+    expect(t3Projects(home)).toEqual([
+      { id: 'p2', title: 'web', root: '/code/web' },
+      { id: 'p1', title: 'app', root: '/code/app' },
+    ])
+  })
+
+  it('reads no projects when T3 Code has no state, or its state is not the shape expected', () => {
+    const home = mkdtempSync(path.join(tmpdir(), 'pr-dash-t3-'))
+    expect(t3Projects(home)).toEqual([])
+    mkdirSync(path.join(home, 'userdata'))
+    const state = new DatabaseSync(path.join(home, 'userdata', 'statev2.sqlite'))
+    state.exec('CREATE TABLE something_else (id TEXT)')
+    state.close()
+    expect(t3Projects(home)).toEqual([])
   })
 })
