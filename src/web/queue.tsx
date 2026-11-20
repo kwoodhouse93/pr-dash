@@ -38,9 +38,18 @@ export function MergeQueuePage({
   return (
     <div className="queue-page">
       {repos.length === 0 ? (
-        <div className="empty">
-          <h2>Nothing queued</h2>
-          <p>Merge a pull request or a stack and it will show up here. Each repository runs its own line.</p>
+        <div className="empty queue-clear">
+          <svg viewBox="0 0 96 60" aria-hidden="true">
+            <path d="M6 44h84" />
+            <rect className="slot" x="8" y="20" width="22" height="16" rx="4" />
+            <rect className="slot" x="37" y="20" width="22" height="16" rx="4" />
+            <rect className="slot" x="66" y="20" width="22" height="16" rx="4" />
+            <circle className="runner" cx="10" cy="44" r="3.4" />
+          </svg>
+          <div>
+            <h2>The line is clear</h2>
+            <p>Merge a pull request or stack to keep it busy.</p>
+          </div>
         </div>
       ) : null}
       {repos.map((group) => (

@@ -7,6 +7,7 @@ import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 import { toastError, toastSuccess } from './toasts.tsx'
+import { useClosing } from './motion.tsx'
 
 export type AgentItem = { pr: PullRequest; session: AgentSession }
 
@@ -118,16 +119,17 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
   const titleId = useId()
   const host = usePrLinkHost()
   const single = prs.length === 1 ? prs[0]! : null
+  const [closing, close] = useClosing(onClose, 170)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.stopPropagation()
-      onClose()
+      close()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [close])
 
   function toggle(agentId: string) {
     setOpen((current) => {
@@ -142,14 +144,14 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
   )
   return createPortal(
     <div
-      className="drawer-back"
+      className={`drawer-back${closing ? ' closing' : ''}`}
       onMouseDown={(event) => {
         event.stopPropagation()
         scrimPress.current = event.target === event.currentTarget
       }}
       onClick={(event) => {
         event.stopPropagation()
-        if (scrimPress.current && event.target === event.currentTarget) onClose()
+        if (scrimPress.current && event.target === event.currentTarget) close()
       }}
     >
       <aside className="drawer agent-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
@@ -173,7 +175,7 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
               </p>
             ) : null}
           </div>
-          <button type="button" className="popover-close" aria-label="Close" onClick={onClose}>
+          <button type="button" className="popover-close" aria-label="Close" onClick={close}>
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>

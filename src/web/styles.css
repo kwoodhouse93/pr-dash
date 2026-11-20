@@ -2022,3 +2022,181 @@ kbd {
 .notice-actions .primary { border: 0; }
 .notice-actions .ghost { background: transparent; color: var(--text); }
 html [data-sonner-toast][data-styled='true'] [data-content] { min-width: 0; flex: 1; }
+
+/* Motion. Short, and only where something happened: a panel opened, work is running, a row changed or left. */
+@property --wash { syntax: '<number>'; inherits: true; initial-value: 0; }
+:root { --ease: cubic-bezier(0.2, 0.8, 0.2, 1); --purple: #a993d6; }
+
+.popover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 36px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  transform-origin: 20px 0;
+  animation: pop-in 110ms var(--ease);
+}
+@keyframes pop-in { from { opacity: 0; transform: translateY(-3px) scale(0.97); } }
+.modal-back, .drawer-back { animation: scrim-in 160ms ease-out; }
+.modal { animation: modal-in 160ms var(--ease); }
+.drawer { animation: drawer-in 200ms var(--ease); }
+.drawer-back.closing { animation: scrim-out 170ms ease-in forwards; }
+.drawer-back.closing .drawer { animation: drawer-out 170ms ease-in forwards; }
+@keyframes scrim-in { from { background-color: rgba(0, 0, 0, 0); } }
+@keyframes scrim-out { to { background-color: rgba(0, 0, 0, 0); } }
+@keyframes modal-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+@keyframes drawer-in { from { opacity: 0; transform: translateX(48px); } }
+@keyframes drawer-out { to { transform: translateX(100%); } }
+
+.primary, .ghost, .text-btn, .chip, .tool-btn, .icon-btn, .menu-item, .section-toggle {
+  transition: background-color 120ms, color 120ms, border-color 120ms, transform 120ms var(--ease), box-shadow 160ms, filter 120ms;
+}
+.primary:hover:not(:disabled) { filter: brightness(1.07); }
+.primary.merge:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(224, 161, 90, 0.28); }
+.primary:active:not(:disabled) { transform: scale(0.97); box-shadow: none; }
+tbody td { transition: background-color 110ms; }
+
+/* Work that is running breathes, so it reads as live without being looked at twice. */
+.ci.pending { display: inline-flex; align-items: center; gap: 6px; }
+.ci.pending::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ping 1.8s ease-out infinite;
+}
+.cursor-chip.creating, .cursor-chip.running, .agent-dot.creating, .agent-dot.running, .queue-dot.live { animation: ping 2s ease-out infinite; }
+.agent-dot.creating, .agent-dot.running { box-shadow: none; }
+@keyframes ping {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  to { box-shadow: 0 0 0 6px transparent; }
+}
+.agent-dot.creating, .agent-dot.running { color: var(--blue); }
+.queue-dot.live { color: var(--accent); }
+
+/* A count that rolls to its next value. */
+.roll { display: inline-grid; height: 1.25em; line-height: 1.25; overflow: hidden; vertical-align: bottom; }
+.roll > span { display: block; }
+.roll.rolling > span { animation: roll-up 380ms var(--ease) forwards; }
+@keyframes roll-up { to { transform: translateY(-100%); } }
+
+/* Merges that landed today: a tick for each, then the count. */
+.tally { display: inline-flex; align-items: center; gap: 8px; margin-right: 10px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.ticks { display: inline-flex; gap: 2px; }
+.ticks i { width: 3px; height: 11px; border-radius: 2px; background: var(--green); opacity: 0.8; animation: tick 500ms var(--ease) both; }
+@keyframes tick { from { transform: scaleY(0) translateY(6px); opacity: 0; } 60% { transform: scaleY(1.5); opacity: 1; } }
+.landed-pile { display: grid; gap: 3px; width: 22px; margin-top: 2px; }
+.landed-pile i { height: 4px; border-radius: 2px; background: var(--green); animation: drop 400ms var(--ease) both; }
+.landed-pile i:nth-child(1) { animation-delay: 300ms; }
+.landed-pile i:nth-child(2) { width: 78%; animation-delay: 150ms; }
+.landed-pile i:nth-child(3) { width: 56%; }
+@keyframes drop { from { opacity: 0; transform: translateY(-12px); } }
+
+/* A row whose state changed is washed warm and cools. */
+tbody tr.fresh-a { animation: fresh-a 5s ease-out; }
+tbody tr.fresh-b { animation: fresh-b 5s ease-out; }
+tbody tr.fresh-a > td, tbody tr.fresh-b > td {
+  background-image: linear-gradient(rgba(224, 161, 90, calc(var(--wash) * 0.16)), rgba(224, 161, 90, calc(var(--wash) * 0.16)));
+}
+@keyframes fresh-a { from { --wash: 1; } to { --wash: 0; } }
+@keyframes fresh-b { from { --wash: 1; } to { --wash: 0; } }
+
+/* A merge that landed: the row turns green, then goes, and the rows under it slide up. */
+tbody tr.landing { animation: land 1500ms var(--ease) forwards; pointer-events: none; }
+tbody tr.landing > td {
+  background-image: linear-gradient(rgba(143, 191, 115, calc(var(--wash) * 0.2)), rgba(143, 191, 115, calc(var(--wash) * 0.2)));
+}
+tbody tr.landing .seg { background: var(--green); box-shadow: none; }
+tbody tr.landing td.merge .merge-action { display: none; }
+@keyframes land {
+  0% { --wash: 0; opacity: 1; }
+  25%, 70% { --wash: 1; opacity: 1; }
+  100% { --wash: 0.4; opacity: 0; }
+}
+/* In a collapsed stack the segment that merged lights up and closes up, bottom of the stack first. */
+tr.held .seg.q-live { background: var(--accent); animation: seg-wait 800ms ease-in-out infinite alternate; }
+tr.held .seg.q-done { background: var(--green); }
+.seg.leaving { animation: seg-land 1500ms var(--ease) forwards; }
+@keyframes seg-wait { to { opacity: 0.35; } }
+@keyframes seg-land {
+  0% { background: var(--green); }
+  25% { transform: scale(1.7); background: #c9f0ad; box-shadow: 0 0 10px rgba(143, 191, 115, 0.8); }
+  60% { transform: none; background: var(--green); width: 10px; margin-right: 0; opacity: 1; }
+  100% { background: var(--green); width: 0; margin-right: -2px; opacity: 0; }
+}
+
+/* A stack opening: the rail draws down and each pull request lands on it in turn. */
+tbody tr.unfold { animation: unfold 320ms var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes unfold { from { opacity: 0; transform: translateY(-8px); } }
+tr.unfold td.grip::before, tr.unfold-top td.grip::before, tr.unfold .rail:not(.node), tr.unfold-top .rail:not(.node) {
+  transform-origin: top;
+  animation: rail-draw 260ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+tr.unfold td.grip::after, tr.unfold-top td.grip::after, tr.unfold .rail.node, tr.unfold-top .rail.node {
+  animation: node-pop 380ms cubic-bezier(0.3, 1.8, 0.5, 1) both;
+  animation-delay: calc(var(--i, 0) * 45ms + 60ms);
+}
+@keyframes rail-draw { from { transform: scaleY(0); } }
+@keyframes node-pop { from { transform: scale(0); } }
+
+/* Loading: the table's own columns, with bars where the words will be. */
+.sk {
+  display: inline-block;
+  height: 9px;
+  border-radius: 5px;
+  vertical-align: middle;
+  background: linear-gradient(90deg, var(--chip) 0 35%, #34352d 50%, var(--chip) 65%) 0 0 / 300% 100%;
+  animation: shimmer 1.6s linear infinite;
+  animation-delay: calc(var(--i, 0) * 110ms);
+}
+.sk.amber { background-image: linear-gradient(90deg, #3a2c19 0 35%, #6b4d2b 50%, #3a2c19 65%); }
+.sk.green { background-image: linear-gradient(90deg, #233420 0 35%, #45613a 50%, #233420 65%); }
+.sk.block { display: block; }
+.sk.round { border-radius: 999px; }
+.sk.square { width: 16px; height: 16px; border-radius: 4px; }
+.sk + .sk { margin-left: 4px; }
+.sk.block + .sk.block { margin: 8px 0 0; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+table.prs.skeleton tbody tr { animation: rise 500ms var(--ease) both; animation-delay: calc(var(--i, 0) * 60ms); }
+table.prs.skeleton tbody tr:hover td { background: transparent; }
+table.prs.skeleton td { height: 53px; }
+.skeleton-note { padding: 14px 22px; color: var(--faint); font-size: 14px; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+/* Age as a ring that fills over two days. The time itself is a hover or a click away. */
+td.when.age { position: relative; min-width: 46px; text-align: center; }
+th.when:has(+ th.when) { text-align: center; }
+.age-ring {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+}
+.age-ring:hover { background: var(--chip); }
+.age-ring svg { display: block; width: 16px; height: 16px; transform: rotate(-90deg); fill: none; stroke-width: 2.2; stroke-linecap: round; }
+.age-ring .track { stroke: var(--line-strong); }
+.age-ring .arc { stroke: currentColor; transition: stroke-dashoffset 600ms var(--ease); }
+.age-ring.draft .track { stroke-dasharray: 2 2.6; stroke-linecap: butt; }
+.popover p.age-line { color: var(--text); }
+/* Left long enough, a pull request gathers a cobweb: a wisp past five days, more past two weeks, the lot past a month. */
+.cobweb { position: absolute; left: 0; top: 0; pointer-events: none; fill: none; stroke: var(--faint); stroke-width: 0.9; stroke-linecap: round; }
+.cobweb.tier-1 { width: 12px; height: 12px; opacity: 0.6; }
+.cobweb.tier-2 { width: 18px; height: 18px; opacity: 0.85; }
+.cobweb.tier-3 { width: 26px; height: 26px; stroke: var(--muted); stroke-width: 1; }
+.cobweb .spider { fill: var(--muted); stroke: none; }
+tr.draft .cobweb { opacity: 0.5; }
+
+/* The queue with nothing in it. */
+.queue-clear { display: flex; align-items: center; gap: 20px; padding: 28px 0; }
+.queue-clear svg { flex: none; width: 96px; height: 60px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.queue-clear .slot { stroke: var(--line-strong); stroke-dasharray: 3 3; }
+.queue-clear .runner { fill: var(--accent); stroke: none; animation: run 2.8s var(--ease) infinite; }
+@keyframes run { from { transform: translateX(0); opacity: 0; } 15%, 80% { opacity: 1; } to { transform: translateX(76px); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

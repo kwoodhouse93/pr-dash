@@ -20,6 +20,7 @@ import { api } from './api.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { linkHostName, noteAnchor, prHref, threadAnchor, usePrHref, usePrLinkHost } from './pr-links.tsx'
+import { useClosing } from './motion.tsx'
 
 export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'all' | 'comments'
 
@@ -240,16 +241,17 @@ function FeedbackDrawer({
   const filterNow = useRef(filter)
   const scrimPress = useRef(false)
   const key = targets.map((target) => target.key).join('\n')
+  const [closing, close] = useClosing(onClose, 170)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.stopPropagation()
-      onClose()
+      close()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [close])
 
   useEffect(() => {
     let cancel = false
@@ -307,14 +309,14 @@ function FeedbackDrawer({
   const host = usePrLinkHost()
   return createPortal(
     <div
-      className="drawer-back"
+      className={`drawer-back${closing ? ' closing' : ''}`}
       onMouseDown={(event) => {
         event.stopPropagation()
         scrimPress.current = event.target === event.currentTarget
       }}
       onClick={(event) => {
         event.stopPropagation()
-        if (scrimPress.current && event.target === event.currentTarget) onClose()
+        if (scrimPress.current && event.target === event.currentTarget) close()
       }}
     >
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
@@ -329,7 +331,7 @@ function FeedbackDrawer({
               <p className="drawer-pr">{targets.length} pull requests</p>
             )}
           </div>
-          <button type="button" className="popover-close" aria-label="Close" onClick={onClose}>
+          <button type="button" className="popover-close" aria-label="Close" onClick={close}>
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>

@@ -145,6 +145,28 @@ export function toastSuccess(message: string) {
   toast.success(message, { duration: BRIEF })
 }
 
+/** Merges that just landed: the pull request, or how many, then the day's count so far. */
+export function toastLanded(landed: { number: number; title: string }[], today: number) {
+  if (landed.length === 0) return
+  const only = landed.length === 1 ? landed[0]! : null
+  toast.success(only ? `Landed #${only.number}` : `Landed ${landed.length} pull requests`, {
+    duration: READABLE,
+    icon: (
+      <span className="landed-pile" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+    ),
+    description: (
+      <div className="notice-toast">
+        <p className="notice-line">{only ? only.title : landed.map((pr) => `#${pr.number}`).join(', ')}</p>
+        <p className="notice-more">{today === 1 ? 'First merge today' : `${today} merged today`}</p>
+      </div>
+    ),
+  })
+}
+
 const HELD_ID = 'queue-held'
 /** More held merges than this are counted, not listed. */
 const HELD_LISTED = 3

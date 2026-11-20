@@ -16,8 +16,9 @@ import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
-import { PrTable } from './table.tsx'
-import { Toasts, clearActionError, toastError, toastHeld, toastLinearHint, toastRerun, toastSyncWarning } from './toasts.tsx'
+import { Roll, useLingering } from './motion.tsx'
+import { PrTable, SkeletonTable } from './table.tsx'
+import { Toasts, clearActionError, toastError, toastHeld, toastLanded, toastLinearHint, toastRerun, toastSyncWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
 
 /** Skip another GitHub pull when the saved list is newer than this. The server refreshes the list more often. */
@@ -27,6 +28,12 @@ const LINEAR_HINT_HIDDEN = 'pr-dash:linear-hint-hidden'
 const SNAPSHOT_POLL_MS = 4_000
 const FRESH_MS = 10 * 60 * 1000
 const STALE_MS = 30 * 60 * 1000
+/** How long a row stays after its pull request merged, while the merge plays out on it. */
+const LANDING_MS = 1500
+/** A merge older than this when it is first seen is not news: the dashboard was closed when it landed. */
+const LANDED_NEWS_MS = 10 * 60 * 1000
+/** The header draws a tick for each merge today, up to this many. */
+const TICKS_SHOWN = 12
 
 function snapshotKey(snap: Snapshot): string {
   return JSON.stringify([
@@ -38,6 +45,7 @@ function snapshotKey(snap: Snapshot): string {
     snap.initiatives,
     snap.pullRequests,
     snap.reviewPullRequests,
+    snap.departed,
   ])
 }
 
@@ -419,7 +427,29 @@ export function App() {
     () => (data?.reviewPullRequests ?? []).filter((pr) => watched.has(pr.repo)),
     [data?.reviewPullRequests, watched],
   )
-  const prs = page === 'review' ? review : mine
+  // A pull request that merged stays listed for a moment, so its row can show the merge before it goes.
+  const merged = useMemo(() => new Map((data?.departed ?? []).filter((pr) => pr.outcome === 'merged').map((pr) => [pr.key, pr])), [data?.departed])
+  const justMerged = (pr: { key: string }) => {
+    const at = merged.get(pr.key)?.at
+    return at != null && Date.now() - Date.parse(at) < LANDED_NEWS_MS
+  }
+  const mineShown = useLingering(mine, justMerged, LANDING_MS)
+  const reviewShown = useLingering(review, justMerged, LANDING_MS)
+  const { list: prs, leaving } = page === 'review' ? reviewShown : mineShown
+  const mergedToday = useMemo(() => {
+    const midnight = new Date(now).setHours(0, 0, 0, 0)
+    return [...merged.values()].filter((pr) => pr.list === 'mine' && Date.parse(pr.at) >= midnight)
+  }, [merged, now])
+  // Say so when one of yours lands. The first snapshot is where this starts from, so old merges are not announced.
+  const announced = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const before = announced.current
+    announced.current = new Set(merged.keys())
+    if (!before) return
+    const landed = [...merged.values()].filter((pr) => pr.list === 'mine' && !before.has(pr.key) && Date.now() - Date.parse(pr.at) < LANDED_NEWS_MS)
+    toastLanded(landed, mergedToday.length)
+  }, [merged])
   const initiatives = data?.initiatives ?? []
   const initiativeCounts = useMemo(() => {
     const keys = new Map<string, Set<string>>()
@@ -517,10 +547,22 @@ export function App() {
             </button>
             <button type="button" className="tab" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
               Review
-              {reviewBadge > 0 ? <span className="nav-count">{reviewBadge}</span> : null}
+              {reviewBadge > 0 ? <Roll className="nav-count" value={reviewBadge} /> : null}
             </button>
           </nav>
           <div className="top-tools">
+            {listPage && mergedToday.length > 0 ? (
+              <span className="tally" title={`Your pull requests merged today: ${mergedToday.map((pr) => `#${pr.number}`).join(', ')}`}>
+                <span className="ticks" aria-hidden="true">
+                  {mergedToday.slice(0, TICKS_SHOWN).map((pr) => (
+                    <i key={pr.key} />
+                  ))}
+                </span>
+                <span>
+                  <Roll value={mergedToday.length} /> merged today
+                </span>
+              </span>
+            ) : null}
             {page === 'settings' ? null : (
               <RefreshControl
                 refreshing={refreshing}
@@ -651,8 +693,13 @@ export function App() {
               onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
             />
           ) : null}
-          {listPage && booting && prs.length === 0 ? <div className="empty">Loading saved pull requests…</div> : null}
-          {listPage && !booting && prs.length === 0 && refreshing ? <div className="empty">{status}</div> : null}
+          {listPage && booting && prs.length === 0 ? <SkeletonTable mode={page === 'review' ? 'review' : 'mine'} note="Loading saved pull requests…" /> : null}
+          {listPage && !booting && prs.length === 0 && refreshing ? (
+            <>
+              <SkeletonTable mode={page === 'review' ? 'review' : 'mine'} note={status} />
+              <p className="skeleton-note" aria-hidden="true">{status}</p>
+            </>
+          ) : null}
           {listPage && !booting && data && data.repos.length === 0 && !refreshing ? (
             <div className="empty">
               <h2>No repositories selected</h2>
@@ -732,6 +779,7 @@ export function App() {
               linearConfigured={Boolean(data?.linearConfigured)}
               viewer={viewer}
               onFeedback={applyFeedback}
+              leaving={leaving}
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
               onLinkIssue={(key, identifier) => mutate(() => api.linkLinearIssue(key, identifier))}
               onMerge={async (key) => {

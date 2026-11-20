@@ -1,4 +1,4 @@
-import { createContext, useContext, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { activeHoldNames, checkPhase, checkStamp, ciDetail, ciLabel, compareChecks, displayCi, selectChecks, worstDisplay, type CheckHold, type CiDisplay } from '../shared/ci.ts'
 import {
   activeSession,
@@ -24,7 +24,8 @@ import { blockRails, type Bucket, type Outline, type ProjectGroup, type StackBlo
 import { AgentDrawer, AgentList } from './agents.tsx'
 import { AgentProvider, launchTag, useAgentLaunch, useAgentName, useSessionLinks, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
-import { ageHeat, copyPrIdsLabel, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
+import { ageFill, ageHeat, cobwebTier, copyPrIdsLabel, formatAgo, formatCount, formatExact, formatWhen, graphitePrUrl, prCopyId, prCopyList } from './format.ts'
+import { useChanged, useSlidingRows } from './motion.tsx'
 import { usePrHref } from './pr-links.tsx'
 import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
@@ -52,6 +53,21 @@ const COLUMNS = 17
 
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
 const EMPTY_HOLDS: CheckHold[] = []
+
+/** Pull requests whose state just changed, and the ones that just merged and are on their way off the list. */
+const MotionContext = createContext<{ changed: Map<string, number>; leaving: Set<string> }>({ changed: new Map(), leaving: new Set() })
+
+/** What a row shows of a pull request's state. When this changes, the row is washed warm for a moment. */
+function rowSignature(pr: PullRequest): string {
+  return [pr.ci, pr.awaitingYouCount, pr.commentAwaitingCount, pr.unreadCount, pr.resolvedUnreadCount, pr.reviewCommentAwaitingCount, pr.reviewDecision, pr.mergeMark, pr.conflict, pr.isDraft].join('|')
+}
+
+/** The classes for a row that changed or is leaving. A second change swaps to a twin animation so the wash starts again. */
+function motionClass(keys: string[], motion: { changed: Map<string, number>; leaving: Set<string> }): string {
+  if (keys.length > 0 && keys.every((key) => motion.leaving.has(key))) return ' landing'
+  const stamp = Math.max(0, ...keys.map((key) => motion.changed.get(key) ?? 0))
+  return stamp === 0 ? '' : stamp % 2 === 1 ? ' fresh-a' : ' fresh-b'
+}
 
 function useHolds(): Map<string, CheckHold[]> {
   return useContext(HoldContext)
@@ -95,6 +111,7 @@ export function PrTable({
   onLinkIssue,
   viewer,
   onFeedback,
+  leaving = NONE_LEAVING,
 }: {
   mode: 'mine' | 'review'
   outline: Outline
@@ -132,7 +149,14 @@ export function PrTable({
   onLinkIssue: (key: string, identifier: string) => Promise<void>
   viewer: string | null
   onFeedback: (key: string, counts: FeedbackCounts) => void
+  /** Pull requests that merged a moment ago and are still listed while their row plays out. */
+  leaving?: Set<string>
 }) {
+  const body = useRef<HTMLTableSectionElement>(null)
+  useSlidingRows(body)
+  const signatures = useMemo(() => new Map([...prByKey].map(([key, pr]) => [key, rowSignature(pr)])), [prByKey])
+  const changed = useChanged(signatures)
+  const motion = useMemo(() => ({ changed, leaving }), [changed, leaving])
   const tones = stackTones(outline)
   const lanes = useMemo(() => widestRail(outline), [outline])
   const shared = {
@@ -165,6 +189,7 @@ export function PrTable({
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
     <AgentProvider start={onStartAgent} routing={agentRouting} t3Origin={t3Origin}>
     <HoldContext.Provider value={holds}>
+    <MotionContext.Provider value={motion}>
     <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
       <thead>
         <tr>
@@ -174,7 +199,7 @@ export function PrTable({
           {mode === 'review' ? <th className="author">Author</th> : null}
           {showRepo ? <SortHeader className="repo" label="Repo" sortKey="repo" sort={sort} onSort={onSort} /> : null}
           <SortHeader className="size" colSpan={3} label="Size" sortKey="size" sort={sort} onSort={onSort} />
-          <SortHeader className="when" label="Age" title="Time since it was ready for review. A draft shows the time since it was opened." sortKey="created" sort={sort} onSort={onSort} />
+          <SortHeader className="when" label="Age" title="Time since it was ready for review, as a ring that fills over two days. Hover one for the time. A draft shows the time since it was opened." sortKey="created" sort={sort} onSort={onSort} />
           <SortHeader className="when" label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
           <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
           <th className="branch" title="A red cross is a merge conflict. A white cross is behind the base branch.">Branch</th>
@@ -189,7 +214,7 @@ export function PrTable({
           <th aria-label="Actions" />
         </tr>
       </thead>
-      <tbody>
+      <tbody ref={body}>
         {outline.projects.length ? (
           <SectionBand id="band:projects" title="Linear projects" collapsed={collapsed} onToggle={onToggleSection}>
             {outline.projects.map((project) => (
@@ -222,9 +247,73 @@ export function PrTable({
         ) : null}
       </tbody>
     </table>
+    </MotionContext.Provider>
     </HoldContext.Provider>
     </AgentProvider>
     </FeedbackProvider>
+  )
+}
+
+const NONE_LEAVING: Set<string> = new Set()
+const SKELETON_TITLES = [62, 44, 71, 38, 56, 49, 66, 41]
+
+/** The list while it loads: the table's own columns, with a bar where each value will be. */
+export function SkeletonTable({ mode, note }: { mode: 'mine' | 'review'; note: string }) {
+  const bar = (width: number, height?: number, extra = '') => <span className={`sk${extra}`} style={{ width, height }} />
+  return (
+    <div role="status">
+      <span className="sr">{note}</span>
+      <table className="prs skeleton" aria-hidden="true">
+        <thead>
+          <tr>
+            <th className="grip" />
+            <th className="num">#</th>
+            <th>Title</th>
+            {mode === 'review' ? <th className="author">Author</th> : null}
+            <th className="size" colSpan={3}>Size</th>
+            <th className="when">Age</th>
+            <th className="when">Updated</th>
+            <th>CI</th>
+            <th className="branch">Branch</th>
+            <th>Review</th>
+            <th>Feedback</th>
+            <th className="agents"><RobotIcon /></th>
+            {mode === 'mine' ? <th className="merge">Merge</th> : null}
+            <th className="open">Open</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="band">
+            <td colSpan={COLUMNS}>{bar(150, 14)}</td>
+          </tr>
+          {SKELETON_TITLES.map((title, index) => (
+            <tr key={title} style={{ '--i': index } as CSSProperties}>
+              <td className="grip" />
+              <td className="num">{bar(34)}</td>
+              <td className="title-block">
+                <span className="sk block" style={{ width: `${title}%` }} />
+                {index % 3 === 1 ? null : <span className="sk block" style={{ width: 96 }} />}
+              </td>
+              {mode === 'review' ? <td className="author">{bar(22, 22, ' round')}</td> : null}
+              <td className="size add">{bar(24)}</td>
+              <td className="size del">{bar(20)}</td>
+              <td className="size files">{bar(18)}</td>
+              <td className="when age">{bar(16, 16, ' round')}</td>
+              <td className="when">{bar(22)}</td>
+              <td>{bar(56, 18, ' round')}</td>
+              <td className="uptodate" />
+              <td>{bar(16, 16, ' square')}{bar(16, 16, ' square')}{bar(16, 16, ' square')}</td>
+              <td>{bar(26)}</td>
+              <td className="agents" />
+              {mode === 'mine' ? <td className="merge">{index % 3 === 0 ? bar(64, 26, ' amber') : null}</td> : null}
+              <td className="open">{bar(16, 16, ' square')}{bar(16, 16, ' square')}</td>
+              <td className="row-actions" />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -307,7 +396,7 @@ function SectionBand({
   const open = !collapsed.has(id)
   return (
     <>
-      <tr className="band fold" onClick={(event) => toggleSection(event, () => onToggle(id))}>
+      <tr className="band fold" data-flip={id} onClick={(event) => toggleSection(event, () => onToggle(id))}>
         <td colSpan={COLUMNS}>
           <SectionHead open={open} label={title} onToggle={() => onToggle(id)}>
             <span className="section-title">{title}</span>
@@ -324,7 +413,7 @@ function ProjectRows({ project, ...shared }: { project: ProjectGroup } & RowShar
   const open = !shared.collapsed.has(project.id)
   return (
     <>
-      <tr className="project depth-1 fold" onClick={(event) => toggleSection(event, () => shared.onToggleSection(project.id))}>
+      <tr className="project depth-1 fold" data-flip={project.id} onClick={(event) => toggleSection(event, () => shared.onToggleSection(project.id))}>
         <td colSpan={COLUMNS}>
           <SectionHead open={open} label={project.title} onToggle={() => shared.onToggleSection(project.id)}>
             <span className="section-title">{project.title}</span>
@@ -346,7 +435,7 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
   return (
     <>
       {collapsible ? (
-        <tr className={`section depth-${depth} fold`} onClick={(event) => toggleSection(event, () => shared.onToggleSection(bucket.id))}>
+        <tr className={`section depth-${depth} fold`} data-flip={`${depth}:${bucket.id}`} onClick={(event) => toggleSection(event, () => shared.onToggleSection(bucket.id))}>
           <td colSpan={COLUMNS}>
             <SectionHead open={open} label={bucket.title!} onToggle={() => shared.onToggleSection(bucket.id)}>
               {shared.linearConfigured ? <SectionIssue bucket={bucket} onUpdateIssue={shared.onUpdateIssue} /> : null}
@@ -477,6 +566,18 @@ function BlockRows({
       setLocked(false)
     },
   }
+  // For a moment after a stack is opened, its rows play their way in.
+  const [unfolding, setUnfolding] = useState(false)
+  const wasOpen = useRef(open)
+  useLayoutEffect(() => {
+    if (open === wasOpen.current) return
+    wasOpen.current = open
+    if (!open || !block.collapsible) return
+    setUnfolding(true)
+    const timer = window.setTimeout(() => setUnfolding(false), 600 + block.rows.length * 45)
+    return () => window.clearTimeout(timer)
+  }, [open])
+  const unfoldAt = (index: number) => (unfolding ? Math.min(index, 14) : null)
   const visible = block.rows.flatMap((row) => (row.type === 'pr' ? [row.pr] : []))
   const stackTone = block.collapsible ? tone : null
   const layout = useMemo(() => blockRails(block), [block])
@@ -488,7 +589,7 @@ function BlockRows({
       const spine = stackTone ? spineAt(index, block.rows.length) : null
       const rail = forked ? (layout.rails[index] ?? null) : null
       return row.type === 'ellipsis' ? (
-        <tr key={row.id} className={`ellipsis${rail ? ' forked' : ''}${spineClass(spine, stackTone)}`}>
+        <tr key={row.id} className={`ellipsis${rail ? ' forked' : ''}${spineClass(spine, stackTone)}${unfoldClass(unfoldAt(index))}`} style={unfoldStyle(unfoldAt(index))} data-flip={`${bucket.id}:${row.id}`}>
           <Grip spine={spine} rail={rail} hollow />
           <td />
           <td colSpan={COLUMNS - 2}>
@@ -500,6 +601,8 @@ function BlockRows({
           key={row.pr.id}
           mode={shared.mode}
           pr={row.pr}
+          flip={`${bucket.id}:${row.pr.key}`}
+          unfold={unfoldAt(index)}
           block={block}
           child={block.collapsible}
           spine={spine}
@@ -534,6 +637,7 @@ function BlockRows({
       mode={shared.mode}
       block={block}
       visible={visible}
+      flip={`${bucket.id}:${block.summary.topKey}`}
       openId={openId}
       spine="only"
       tone={stackTone}
@@ -562,9 +666,20 @@ function BlockRows({
   return <StackLockContext.Provider value={stackLock}>{rows}</StackLockContext.Provider>
 }
 
+/** The first row of a stack that just opened only draws its rail. The rows under it come in one after another. */
+function unfoldClass(index: number | null): string {
+  return index === null ? '' : index === 0 ? ' unfold-top' : ' unfold'
+}
+
+function unfoldStyle(index: number | null): CSSProperties | undefined {
+  return index === null ? undefined : ({ '--i': index } as CSSProperties)
+}
+
 function DataRow({
   mode,
   pr,
+  flip,
+  unfold,
   block,
   child,
   spine,
@@ -593,6 +708,10 @@ function DataRow({
 }: {
   mode: 'mine' | 'review'
   pr: PullRequest
+  /** The row's name for sliding it to a new place. */
+  flip: string
+  /** Its place in a stack that has just been opened, or null. */
+  unfold: number | null
   block: StackBlock
   child: boolean
   spine: Spine | null
@@ -624,10 +743,13 @@ function DataRow({
   const mark = queueByKey.get(pr.key) ?? null
   const ci = shownLevel([pr], holds)
   const prHref = usePrHref(pr.url)
+  const motion = useContext(MotionContext)
   return (
     <tr
-      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${pr.isDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${rail ? ' forked' : ''}${spineClass(spine, tone)}`}
+      className={`${child ? 'child' : ''} ${ci === 'red' ? 'fail' : ''} ${toggle ? 'stack' : ''}${pr.isDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${rail ? ' forked' : ''}${spineClass(spine, tone)}${unfoldClass(unfold)}${motionClass([pr.key], motion)}`}
+      style={unfoldStyle(unfold)}
       data-row={pr.key}
+      data-flip={flip}
       onClick={(event) => {
         if (!toggle) return
         if (pressedControl(event.target)) return
@@ -661,7 +783,7 @@ function DataRow({
         </td>
       ) : null}
       <Size additions={pr.additions} deletions={pr.deletions} files={pr.changedFiles} />
-      <Age readyAt={pr.isDraft ? null : (pr.readyAt ?? pr.createdAt)} createdAt={pr.createdAt} />
+      <Age id={`age:${pr.id}`} readyAt={pr.isDraft ? null : (pr.readyAt ?? pr.createdAt)} createdAt={pr.createdAt} />
       <When iso={pr.updatedAt} />
       <td>
         <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
@@ -680,6 +802,7 @@ function DataRow({
       <Agents id={`agents:${pr.id}`} prs={[pr]} />
       {mode === 'mine' ? (
         <td className="merge">
+          {motion.leaving.has(pr.key) ? <span className="pill queue merged">Merged</span> : null}
           <MergeControls
             pr={pr}
             ordered={mergeLineOf(block, pr.key, prByKey)}
@@ -717,6 +840,7 @@ function SummaryRow({
   mode,
   block,
   visible,
+  flip,
   openId,
   spine,
   tone,
@@ -744,6 +868,7 @@ function SummaryRow({
   mode: 'mine' | 'review'
   block: StackBlock
   visible: PullRequest[]
+  flip: string
   openId: string
   spine: Spine
   tone: 'a' | 'b' | null
@@ -787,10 +912,12 @@ function SummaryRow({
   const branches = branchCount(forest)
   const readyCount = segments.filter((segment) => segment.state === 'ready').length
   const allDraft = summary.draftCount === visible.length
+  const motion = useContext(MotionContext)
   return (
     <tr
-      className={`stack ${ci === 'red' ? 'fail' : ''}${allDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}`}
+      className={`stack ${ci === 'red' ? 'fail' : ''}${allDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}${motionClass(visible.map((pr) => pr.key), motion)}`}
       data-row={openId}
+      data-flip={flip}
       onClick={(event) => {
         if (pressedControl(event.target)) return
         onToggle(openId)
@@ -809,7 +936,7 @@ function SummaryRow({
             title={`${readyCount} of ${segments.length} ${mode === 'review' ? 'approved by you' : 'ready to merge'}`}
             aria-label={`${segments.length} pull requests, bottom of the stack first: ${segments.map((segment) => SEGMENT_LABEL[mode][segment.state]).join(', ')}`}
           >
-            <SegmentRun nodes={forest} mode={mode} />
+            <SegmentRun nodes={forest} mode={mode} marks={queueByKey} />
           </span>
           <a href={summaryHref} target="_blank" rel="noreferrer" title={summary.title}>
             {summary.title}
@@ -835,7 +962,7 @@ function SummaryRow({
         </td>
       ) : null}
       <Size additions={summary.additions} deletions={summary.deletions} files={summary.changedFiles} />
-      <Age readyAt={summary.readyAt} createdAt={summary.createdAt} />
+      <Age id={`age:${block.id}`} readyAt={summary.readyAt} createdAt={summary.createdAt} />
       <When iso={summary.updatedAt} />
       <td>
         <CiControl id={`ci:${block.id}`} prs={visible} onRerun={onRerun} />
@@ -1011,24 +1138,28 @@ function branchCount(nodes: SegmentNode[]): number {
 }
 
 /** One segment for each pull request. Where the stack branches, each branch gets its own line. */
-function SegmentRun({ nodes, mode }: { nodes: SegmentNode[]; mode: 'mine' | 'review' }) {
+function SegmentRun({ nodes, mode, marks }: { nodes: SegmentNode[]; mode: 'mine' | 'review'; marks: Map<string, RowMark> }) {
+  const { leaving } = useContext(MotionContext)
   if (nodes.length === 0) return null
   if (nodes.length > 1) {
     return (
       <span className="seg-fork">
         {nodes.map((node) => (
           <span key={node.pr.id} className="segments">
-            <SegmentRun nodes={[node]} mode={mode} />
+            <SegmentRun nodes={[node]} mode={mode} marks={marks} />
           </span>
         ))}
       </span>
     )
   }
   const node = nodes[0]!
+  // While the stack is in the merge queue, the segment being merged pulses and the ones that have landed are green.
+  const step = marks.get(node.pr.key)?.status
+  const queued = step === 'merged' || step === 'restacked' ? ' q-done' : step === 'merging' || step === 'rebasing' || step === 'waiting' ? ' q-live' : ''
   return (
     <>
-      <i className={`seg ${node.state}`} title={`#${node.pr.number} · ${SEGMENT_LABEL[mode][node.state]}`} />
-      <SegmentRun nodes={node.above} mode={mode} />
+      <i className={`seg ${node.state}${queued}${leaving.has(node.pr.key) ? ' leaving' : ''}`} title={`#${node.pr.number} · ${step ? stepLabel(step) : SEGMENT_LABEL[mode][node.state]}`} />
+      <SegmentRun nodes={node.above} mode={mode} marks={marks} />
     </>
   )
 }
@@ -1603,18 +1734,63 @@ function Size({ additions, deletions, files }: { additions: number; deletions: n
   )
 }
 
-/** Time since review could start, coloured as it gets old. A draft shows the time since it was opened and is never coloured. */
-function Age({ readyAt, createdAt }: { readyAt: string | null; createdAt: string }) {
+const RING = 2 * Math.PI * 6
+
+/**
+ * Time since review could start, as a ring that fills over two days and takes the age's colour. The time itself is in the card.
+ * A draft has a dotted ring that never fills, for the time since it was opened.
+ */
+function Age({ id, readyAt, createdAt }: { id: string; readyAt: string | null; createdAt: string }) {
   const heat = ageHeat(readyAt)
-  const title = !readyAt
-    ? `Draft. Opened ${formatExact(createdAt)}`
-    : readyAt === createdAt
-      ? `Opened ${formatExact(createdAt)}`
-      : `Ready for review ${formatExact(readyAt)}. Opened ${formatExact(createdAt)}`
+  const web = cobwebTier(readyAt)
+  const since = readyAt ?? createdAt
+  const heading = !readyAt ? `Draft, opened ${formatAgo(createdAt)}` : readyAt === createdAt ? `Opened ${formatAgo(createdAt)}` : `Ready for review ${formatAgo(readyAt)}`
+  const label = (
+    <>
+      <span className="sr">{heading}</span>
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle className="track" cx="8" cy="8" r="6" />
+        {readyAt ? <circle className="arc" cx="8" cy="8" r="6" strokeDasharray={RING} strokeDashoffset={RING * (1 - Math.max(0.04, ageFill(readyAt)))} /> : null}
+      </svg>
+    </>
+  )
   return (
-    <td className={`when age ${heat.level}`} style={{ '--heat': `${Math.round(heat.warmth * 100)}%` } as CSSProperties} title={title}>
-      {formatWhen(readyAt ?? createdAt)}
+    <td className={`when age ${heat.level}`} style={{ '--heat': `${Math.round(heat.warmth * 100)}%` } as CSSProperties}>
+      {web ? <Cobweb tier={web} /> : null}
+      <HoverCard id={id} className={`age-ring${readyAt ? '' : ' draft'}`} label={label}>
+        <h3>{heading}</h3>
+        <p className="age-line">{formatExact(since)}</p>
+        {readyAt && readyAt !== createdAt ? <p>Opened {formatExact(createdAt)}</p> : null}
+        {web ? <p>{web === 3 ? 'Over a month. The spider has moved in.' : web === 2 ? 'Over two weeks, and gathering cobwebs.' : 'Over five days. The first cobweb.'}</p> : null}
+      </HoverCard>
     </td>
+  )
+}
+
+/** Points along the four threads a web hangs from, out of the cell's top corner. */
+const SPOKES = [[28, 3], [23, 14], [14, 23], [3, 28]] as const
+const WEB_RINGS = { 1: [0.5, 0.85], 2: [0.34, 0.6, 0.86], 3: [0.24, 0.44, 0.64, 0.84] } as const
+
+function Cobweb({ tier }: { tier: 1 | 2 | 3 }) {
+  const at = (spoke: readonly [number, number], far: number) => `${(spoke[0] * far).toFixed(1)} ${(spoke[1] * far).toFixed(1)}`
+  // Each ring sags towards the corner between one thread and the next.
+  const rings = WEB_RINGS[tier].map((far) =>
+    SPOKES.map((spoke, index) => {
+      if (index === 0) return `M${at(spoke, far)}`
+      const before = SPOKES[index - 1]!
+      return `Q${at([(spoke[0] + before[0]) / 2, (spoke[1] + before[1]) / 2], far * 0.8)} ${at(spoke, far)}`
+    }).join(''),
+  )
+  return (
+    <svg className={`cobweb tier-${tier}`} viewBox="0 0 30 32" aria-hidden="true">
+      <path d={`${SPOKES.map((spoke) => `M0 0L${spoke[0]} ${spoke[1]}`).join('')}${rings.join('')}`} />
+      {tier === 3 ? (
+        <>
+          <path d="M3.4 23.5V29" />
+          <circle className="spider" cx="3.4" cy="29" r="1.7" />
+        </>
+      ) : null}
+    </svg>
   )
 }
 

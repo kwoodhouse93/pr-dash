@@ -95,3 +95,20 @@ export function ageHeat(iso: string | null | undefined, now = Date.now()): { lev
   if (hours <= 3) return { level: 'none', warmth: 0 }
   return { level: 'warm', warmth: Math.min(1, (hours - 3) / 21) }
 }
+
+const HOUR_MS = 3_600_000
+
+/** How far a pull request is through the two days it has before its age turns red, from 0 to 1. */
+export function ageFill(iso: string | null | undefined, now = Date.now()): number {
+  const time = iso ? Date.parse(iso) : Number.NaN
+  if (Number.isNaN(time)) return 0
+  return Math.min(1, Math.max(0, (now - time) / (48 * HOUR_MS)))
+}
+
+/** How much cobweb a pull request has gathered waiting: none, then more past 5, 14 and 30 days. */
+export function cobwebTier(iso: string | null | undefined, now = Date.now()): 0 | 1 | 2 | 3 {
+  const time = iso ? Date.parse(iso) : Number.NaN
+  if (Number.isNaN(time)) return 0
+  const days = (now - time) / (24 * HOUR_MS)
+  return days > 30 ? 3 : days > 14 ? 2 : days > 5 ? 1 : 0
+}
