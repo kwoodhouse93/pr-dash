@@ -98,7 +98,7 @@ export class Tabs {
       grouping: isGrouping(options.sidebar?.grouping) ? options.sidebar.grouping : 'match',
       collapsed: Array.isArray(options.sidebar?.collapsed) ? options.sidebar.collapsed.filter((id) => typeof id === 'string') : [],
       earlierOpen: options.sidebar?.earlierOpen === true,
-      linearByProject: options.sidebar?.linearByProject === true,
+      linearByProject: options.sidebar?.linearByProject !== false,
     }
     this.agentFile = options.agentFile
     this.agentState = readAgentState(options.agentFile)
