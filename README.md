@@ -55,6 +55,10 @@ A stack with branches is one stack, and each pull request is listed once. Collap
 
 Project, issue and initiative headings count the same states for the rows under them, so a collapsed heading still says whether it needs you.
 
+## The icon
+
+The browser tab's icon and the desktop app's Dock icon say whether to look. The top bar is red when something is broken: a required check failed on one of your pull requests that is not a draft, or a merge is held in the queue. Otherwise it is amber, with a count, when pull requests wait on you: yours with replies to answer or ready to merge, and ones to review. With nothing waiting, all three bars are green. While the merge queue works, the bars ripple.
+
 ## Repositories
 
 Each repository has an icon and a colour. It starts with a pair chosen from its name, and you can change it beside the repository in Settings. The Repo column shows the icon, and is hidden when every pull request in the list is in one repository. The merge queue shows it beside each repository name.

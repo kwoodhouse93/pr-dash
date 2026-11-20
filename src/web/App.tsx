@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { collectHolds, mergeHolds, reconcileHolds, withoutHolds, type CheckHold } from '../shared/ci.ts'
 import type { FeedbackCounts } from '../shared/feedback.ts'
+import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
@@ -380,6 +381,23 @@ export function App() {
       onView: () => setPrefs((current) => ({ ...current, page: 'queue' })),
     })
   }, [heldKey])
+
+  // The tab's icon takes the list's most urgent colour, and its bars ripple while the queue works.
+  const icon = useMemo(() => iconState(data, queue ? queueSummary(queue.entries) : null), [data, queue])
+  const iconKey = JSON.stringify(icon)
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    if (!link) return
+    let frame = 0
+    const draw = () => {
+      link.href = `data:image/svg+xml,${encodeURIComponent(iconSvg(icon, frame))}`
+      frame = (frame + 1) % ICON_FRAMES
+    }
+    draw()
+    if (!icon.merging) return
+    const timer = window.setInterval(draw, 450)
+    return () => window.clearInterval(timer)
+  }, [iconKey])
 
   const page = prefs.page
 

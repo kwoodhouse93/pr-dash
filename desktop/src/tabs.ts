@@ -1,7 +1,9 @@
 import { clipboard, ipcMain, Menu, shell, WebContentsView, type BaseWindow, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { iconState } from '../../src/shared/icon.ts'
 import { queueSummary, type QueueSnapshot, type QueueSummary } from '../../src/shared/queue.ts'
+import { DockIcon, RASTERIZE } from './dock-icon.ts'
 import type { Snapshot, Sort } from '../../src/shared/types.ts'
 import {
   buildSidebar,
@@ -115,6 +117,8 @@ export class Tabs {
   private fetching = false
   private queue: QueueSummary | null = null
   private fetchingQueue = false
+  // The shell's own page draws the icon, since it is the one page that is always there.
+  private readonly dockIcon = new DockIcon((svg) => this.chrome.webContents.executeJavaScript(`(${RASTERIZE})(${JSON.stringify(svg)})`) as Promise<string>)
   private refreshTimer: NodeJS.Timeout | null = null
   onChange: () => void = () => {}
   onApplyUpdate: () => void = () => {}
@@ -331,9 +335,9 @@ export class Tabs {
     this.publish()
   }
 
-  // Only the sidebar shows the queue, so it is not read while the sidebar is hidden.
+  // The sidebar and the Dock icon both show the queue, so it is read whether or not the sidebar is open.
   private async refreshQueue() {
-    if (this.fetchingQueue || !this.sidebar.open || this.win.isDestroyed()) return
+    if (this.fetchingQueue || this.win.isDestroyed()) return
     this.fetchingQueue = true
     let next = this.queue
     try {
@@ -794,6 +798,7 @@ export class Tabs {
 
   private publish() {
     if (this.chrome.webContents.isDestroyed()) return
+    if (!this.chrome.webContents.isLoading()) this.dockIcon.show(iconState(this.data, this.queue))
     const contents = this.active.view.webContents
     const model = this.model()
     this.chrome.webContents.send('state', {
