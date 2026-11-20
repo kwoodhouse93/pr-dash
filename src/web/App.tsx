@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { collectHolds, mergeHolds, reconcileHolds, withoutHolds, type CheckHold } from '../shared/ci.ts'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { rowMarks } from '../shared/queue.ts'
@@ -11,7 +11,7 @@ import { ManageInitiatives } from './editors.tsx'
 import { formatExact } from './format.ts'
 import { FilterBar, activeFilterLabels } from './filter-bar.tsx'
 import { MenuProvider } from './menus.tsx'
-import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage } from './prefs.ts'
+import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage, type ListPage } from './prefs.ts'
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
@@ -374,6 +374,26 @@ export function App() {
   }, [heldKey])
 
   const page = prefs.page
+
+  // Each page keeps its own scroll position, so a look at the queue or
+  // settings comes back to the same place in the list.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrolls = useRef<Partial<Record<DashboardPage, number>>>({})
+  const lastList = useRef<ListPage>('mine')
+  if (page === 'mine' || page === 'review') lastList.current = page
+  useLayoutEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrolls.current[page] ?? 0
+  }, [page])
+  // The desktop app's sidebar links to the queue and settings, and back to the list.
+  useEffect(() => {
+    const onPage = (event: Event) => {
+      const target: unknown = (event as CustomEvent).detail
+      if (target !== 'list' && target !== 'queue' && target !== 'settings') return
+      setPrefs((current) => ({ ...current, page: target === 'list' ? lastList.current : target }))
+    }
+    window.addEventListener('pr-dash:page', onPage)
+    return () => window.removeEventListener('pr-dash:page', onPage)
+  }, [])
   const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']
   const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])
   const mine = useMemo(
@@ -551,7 +571,13 @@ export function App() {
             onManageInitiatives={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
           />
         ) : null}
-        <div className="scroll">
+        <div
+          className="scroll"
+          ref={scrollRef}
+          onScroll={(event) => {
+            scrolls.current[page] = event.currentTarget.scrollTop
+          }}
+        >
           {page === 'settings' ? (
             <SettingsPage
               status={sync}

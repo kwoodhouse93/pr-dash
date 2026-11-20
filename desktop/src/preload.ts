@@ -16,6 +16,8 @@ const commands = new Set([
   'agent-dismiss',
   'agents-clear',
   'overlay',
+  'sidebar-width',
+  'dashboard',
 ])
 
 contextBridge.exposeInMainWorld('shell', {

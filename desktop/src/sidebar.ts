@@ -266,9 +266,12 @@ export function buildSidebar(input: {
   prefs: DashboardPrefs
   collapsed: string[]
   agentState: AgentState
+  /** Runs read in the tab being looked at. They keep their row until another tab takes over. */
+  held?: string[]
   now: number
 }): SidebarModel {
   const { tabs, activeId, data, grouping, prefs, agentState, now } = input
+  const held = new Set(input.held ?? [])
   const known = indexPrs(data)
   const runs = collectRuns(known)
   const lookup = (url: string): Known | null => {
@@ -307,16 +310,17 @@ export function buildSidebar(input: {
   const rows = runs.map(agentRow)
   const stamp = new Map(runs.map((run) => [run.key, cursorSessionActive(run.session.status) ? run.session.createdAt : run.session.updatedAt]))
   const newest = (a: AgentRow, b: AgentRow) => stamp.get(b.key)!.localeCompare(stamp.get(a.key)!)
-  const current = rows.filter((row) => row.mark !== 'read' && !dismissed.has(row.key))
+  const listed = (row: AgentRow) => (row.mark !== 'read' || held.has(row.key)) && !dismissed.has(row.key)
+  const current = rows.filter(listed)
   const agents = [...current.filter((row) => row.mark === 'running').sort(newest), ...current.filter((row) => row.mark !== 'running').sort(newest)]
-  const earlier = rows.filter((row) => row.mark === 'read' || dismissed.has(row.key)).sort(newest)
+  const earlier = rows.filter((row) => !listed(row)).sort(newest)
 
   // Tabs.
   const byId = new Map(tabs.map((tab) => [tab.id, tab]))
-  const listed = tabs.filter((tab) => !tab.pinned && !runOfTab.has(tab.id))
+  const plain = tabs.filter((tab) => !tab.pinned && !runOfTab.has(tab.id))
   const children = new Map<number, TabInfo[]>()
   const top: TabInfo[] = []
-  for (const tab of listed) {
+  for (const tab of plain) {
     const parent = tab.parent === null ? null : byId.get(tab.parent)
     const nests = !lookup(tab.placedUrl) && parent && !parent.pinned && !runOfTab.has(parent.id) && lookup(parent.placedUrl)
     if (nests) children.set(parent.id, [...(children.get(parent.id) ?? []), tab])
@@ -419,7 +423,7 @@ export function buildSidebar(input: {
     agents,
     earlier,
     running: agents.filter((row) => row.mark === 'running').length,
-    unread: agents.filter((row) => row.mark !== 'running').length,
+    unread: agents.filter((row) => row.mark === 'unread' || row.mark === 'failed').length,
     strip,
     order,
     crumb,

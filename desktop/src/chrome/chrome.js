@@ -5,6 +5,8 @@ const EARLIER_SHOWN = 5
 let state = null
 let menuOpen = false
 let earlierAll = false
+let resizing = false
+let pendingWidth = null
 
 $('back').onclick = () => send('back')
 $('forward').onclick = () => send('forward')
@@ -16,8 +18,37 @@ $('hide-sidebar').onclick = () => send('toggle-sidebar')
 $('grouping').onclick = () => send('grouping-menu')
 $('agents-clear').onclick = () => send('agents-clear')
 $('pop-clear').onclick = () => send('agents-clear')
-$('home').onmousedown = (event) => {
-  if (event.button === 0 && state) send('select', state.tabs.find((tab) => tab.pinned).id)
+for (const [id, page] of [['home', 'list'], ['queue-link', 'queue'], ['settings-link', 'settings']]) {
+  $(id).onmousedown = (event) => {
+    if (event.button === 0) send('dashboard', page)
+  }
+}
+
+// The page sits over everything right of the sidebar, so the strip's view is
+// raised for the length of a drag to keep hearing the pointer.
+$('resize').onmousedown = (event) => {
+  if (event.button !== 0) return
+  event.preventDefault()
+  resizing = true
+  document.body.classList.add('resizing')
+  send('overlay', true)
+}
+$('resize').ondblclick = () => send('sidebar-width', 264)
+window.onmousemove = (event) => {
+  if (!resizing) return
+  const first = pendingWidth === null
+  pendingWidth = Math.round(event.clientX)
+  if (!first) return
+  requestAnimationFrame(() => {
+    send('sidebar-width', pendingWidth)
+    pendingWidth = null
+  })
+}
+window.onmouseup = () => {
+  if (!resizing) return
+  resizing = false
+  document.body.classList.remove('resizing')
+  send('overlay', menuOpen)
 }
 $('agents-pill').onclick = () => setMenu(!menuOpen)
 $('backdrop').onmousedown = () => setMenu(false)
@@ -207,12 +238,16 @@ function render() {
   $('external').disabled = !state.external
   $('update').hidden = !state.updateReady
 
+  document.documentElement.style.setProperty('--sidebar', `${state.width}px`)
   $('sidebar').hidden = !state.sidebar
   $('tabs').hidden = state.sidebar
   $('crumb').hidden = !state.sidebar
   if (state.sidebar) {
     $('crumb').replaceChildren(...crumb())
-    $('home').className = classes('row home', state.tabs.some((tab) => tab.pinned && tab.id === state.activeId) && 'active')
+    const onDashboard = state.tabs.some((tab) => tab.pinned && tab.id === state.activeId)
+    $('home').className = classes('row home', onDashboard && state.dashboard === 'list' && 'active')
+    $('queue-link').className = classes('row', onDashboard && state.dashboard === 'queue' && 'active')
+    $('settings-link').className = classes('row', onDashboard && state.dashboard === 'settings' && 'active')
     $('agents-section').hidden = !anyAgents
     $('agents-note').textContent = agentNote()
     $('agents-clear').hidden = state.unread === 0

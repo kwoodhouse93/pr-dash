@@ -67,7 +67,7 @@ function tab(id: number, url: string, over: Partial<TabInfo> = {}): TabInfo {
 const HOME = tab(0, 'http://127.0.0.1:4318/', { pinned: true, title: 'Pull requests' })
 const QUIET: AgentState = { since: '2026-11-01T00:00:00Z', seen: {}, dismissed: [] }
 
-function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; activeId?: number; collapsed?: string[]; agentState?: AgentState; byIssue?: boolean } = {}) {
+function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; activeId?: number; collapsed?: string[]; agentState?: AgentState; byIssue?: boolean; held?: string[] } = {}) {
   return buildSidebar({
     tabs: [HOME, ...tabs],
     activeId: over.activeId ?? 0,
@@ -76,6 +76,7 @@ function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; act
     prefs: { mineByIssue: over.byIssue ?? true, reviewByIssue: over.byIssue ?? true },
     collapsed: over.collapsed ?? [],
     agentState: over.agentState ?? QUIET,
+    held: over.held,
     now: NOW,
   })
 }
@@ -199,6 +200,18 @@ describe('sidebar agents', () => {
     const model = build([], data, { agentState: state })
     expect(model.agents.map((row) => row.key)).toEqual(['bc-fail:run-1'])
     expect(model.earlier.map((row) => row.key)).toEqual(['bc-run:run-1', 'bc-done:run-1', 'bc-old:run-1'])
+  })
+
+  it('keeps an agent read in the open tab in its row until another tab is chosen', () => {
+    const state: AgentState = { ...QUIET, seen: { 'bc-done:run-1': '2026-11-19T10:30:00Z' } }
+    const model = build([], data, { agentState: state, held: ['bc-done:run-1'] })
+    expect(model.agents.map((row) => [row.key, row.mark])).toEqual([
+      ['bc-run:run-1', 'running'],
+      ['bc-fail:run-1', 'failed'],
+      ['bc-done:run-1', 'read'],
+    ])
+    expect(model.unread).toBe(1)
+    expect(model.earlier.map((row) => row.key)).toEqual(['bc-old:run-1'])
   })
 
   it('keeps an agent tab out of the tab list and ties it to its row', () => {

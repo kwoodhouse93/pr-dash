@@ -18,7 +18,11 @@ import {
 } from './sidebar.ts'
 
 export const STRIP_HEIGHT = 40
-export const SIDEBAR_WIDTH = 264
+const SIDEBAR_WIDTH = 264
+const SIDEBAR_MIN = 200
+const SIDEBAR_MAX = 560
+const PAGE_MIN = 320
+const ZOOM_LIMIT = 4
 const SNAPSHOT_INTERVAL_MS = 30_000
 const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 
@@ -40,7 +44,10 @@ type Tab = {
 /** `parents` holds, for each address, the index of the tab it was opened from. */
 export type SavedTabs = { urls: string[]; active: number; parents?: (number | null)[] }
 
-export type SidebarState = { open: boolean; grouping: Grouping; collapsed: string[]; earlierOpen: boolean }
+export type SidebarState = { open: boolean; width: number; grouping: Grouping; collapsed: string[]; earlierOpen: boolean }
+
+/** A page of the dashboard the sidebar links to. `list` is whichever list was open last. */
+type DashboardPage = 'list' | 'queue' | 'settings'
 
 export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string }
 
@@ -63,6 +70,10 @@ export class Tabs {
   private data: Snapshot | null = null
   private prefs: DashboardPrefs = { mineByIssue: true, reviewByIssue: true }
   private overlay = false
+  /** Agent runs read in the active tab, kept in their row until another tab is chosen. */
+  private held: string[] = []
+  /** Tabs in the order they were last looked at, newest last. */
+  private readonly visited: number[] = []
   private fetching = false
   private refreshTimer: NodeJS.Timeout | null = null
   onChange: () => void = () => {}
@@ -76,6 +87,7 @@ export class Tabs {
   ) {
     this.sidebar = {
       open: options.sidebar?.open === true,
+      width: clampWidth(options.sidebar?.width),
       grouping: isGrouping(options.sidebar?.grouping) ? options.sidebar.grouping : 'match',
       collapsed: Array.isArray(options.sidebar?.collapsed) ? options.sidebar.collapsed.filter((id) => typeof id === 'string') : [],
       earlierOpen: options.sidebar?.earlierOpen === true,
@@ -88,6 +100,8 @@ export class Tabs {
     this.chrome.setBackgroundColor('#00000000')
     win.contentView.addChildView(this.chrome)
     void this.chrome.webContents.loadFile(path.join(__dirname, 'chrome', 'index.html'))
+    // The strip's zoom is remembered between launches, and the page below has to start where the strip ends.
+    this.chrome.webContents.on('did-finish-load', () => this.layout())
 
     ipcMain.on('chrome', (event, command: string, arg?: number | string | boolean) => {
       if (event.sender !== this.chrome.webContents) return
@@ -104,6 +118,8 @@ export class Tabs {
       else if (command === 'agent-dismiss' && key) this.dismissAgent(key)
       else if (command === 'agents-clear') this.clearUnread()
       else if (command === 'overlay') this.setOverlay(arg === true)
+      else if (command === 'sidebar-width' && typeof id === 'number') this.setWidth(id)
+      else if (command === 'dashboard' && (key === 'list' || key === 'queue' || key === 'settings')) this.showDashboard(key)
       else if (command === 'back') this.back()
       else if (command === 'forward') this.forward()
       else if (command === 'reload') this.reload()
@@ -149,6 +165,28 @@ export class Tabs {
     this.layout()
   }
 
+  private setWidth(width: number) {
+    this.sidebar.width = clampWidth(width)
+    this.layout()
+    this.changed()
+  }
+
+  /** Zooms the strip and sidebar when they have the keyboard, and the page otherwise. Null goes back to actual size. */
+  zoom(step: number | null) {
+    const target = this.chrome.webContents.isFocused() ? this.chrome.webContents : this.active.view.webContents
+    target.setZoomLevel(step === null ? 0 : Math.max(-ZOOM_LIMIT, Math.min(ZOOM_LIMIT, target.getZoomLevel() + step)))
+    this.layout()
+  }
+
+  // The dashboard is one page that shows a list, the merge queue or settings.
+  // It keeps its own scroll position for each, so this only asks it to switch.
+  private showDashboard(page: DashboardPage) {
+    this.activate(this.dashboard.id)
+    const contents = this.dashboard.view.webContents
+    if (page === 'list' && dashboardPage(this.dashboard.url) === 'list') return
+    void contents.executeJavaScript(`window.dispatchEvent(new CustomEvent('pr-dash:page', { detail: ${JSON.stringify(page)} }))`).catch(() => undefined)
+  }
+
   private setSidebar(patch: Partial<SidebarState>) {
     Object.assign(this.sidebar, patch)
     this.changed()
@@ -188,6 +226,7 @@ export class Tabs {
       prefs: this.prefs,
       collapsed: this.sidebar.collapsed,
       agentState: this.agentState,
+      held: this.held,
       now: Date.now(),
     })
   }
@@ -253,17 +292,23 @@ export class Tabs {
     this.saveAgentState({ ...this.agentState, seen: { ...this.agentState.seen, ...Object.fromEntries(keys.map((key) => [key, now])) } })
   }
 
-  // An agent that finishes while its tab is in front has been seen.
+  // An agent that finishes while its tab is in front has been seen. Its row
+  // stays where it is until the user moves on, so it does not jump on a click.
   private noteSeen() {
-    if (this.win.isFocused()) this.markSeen(runsShownAt(this.active.url, this.data, this.agentState))
+    if (!this.win.isFocused()) return
+    const keys = runsShownAt(this.active.url, this.data, this.agentState)
+    this.held.push(...keys)
+    this.markSeen(keys)
   }
 
   private openAgent(key: string) {
     const row = [...this.model().agents, ...this.model().earlier].find((item) => item.key === key)
     if (!row) return
-    this.markSeen([key])
     if (row.tabId !== null) this.activate(row.tabId)
     else this.open(row.url)
+    if (row.mark !== 'read') this.held.push(key)
+    this.markSeen([key])
+    this.publish()
   }
 
   private dismissAgent(key: string) {
@@ -507,7 +552,11 @@ export class Tabs {
   private activate(id: number) {
     if (!this.tabs.some((tab) => tab.id === id)) return
     const previous = this.active
-    if (previous.id !== id) previous.placedUrl = previous.url
+    if (previous.id !== id) {
+      previous.placedUrl = previous.url
+      this.held = []
+    }
+    this.visited.splice(0, this.visited.length, ...this.visited.filter((item) => item !== id), id)
     this.activeId = id
     this.noteSeen()
     for (const tab of this.tabs) tab.view.setVisible(tab.id === id)
@@ -524,17 +573,22 @@ export class Tabs {
     if (isWebUrl(url)) this.closed.push(url)
     this.tabs.splice(index, 1)
     for (const other of this.tabs) if (other.parent === id) other.parent = null
+    this.visited.splice(0, this.visited.length, ...this.visited.filter((item) => item !== id))
     this.win.contentView.removeChildView(tab.view)
     tab.view.webContents.close()
-    if (this.activeId === id) this.activate((this.tabs[index] ?? this.tabs[index - 1])!.id)
+    // Closing a tab goes back to the one looked at before it.
+    if (this.activeId === id) this.activate(this.visited.at(-1) ?? (this.tabs[index] ?? this.tabs[index - 1])!.id)
     else this.changed()
   }
 
   private layout() {
     const { width, height } = this.win.getContentBounds()
-    const left = this.sidebar.open ? Math.min(SIDEBAR_WIDTH, width) : 0
+    // The strip and sidebar are sized in their own page's units, which zooming scales.
+    const zoom = this.chrome.webContents.getZoomFactor()
+    const left = this.sidebar.open ? Math.round(Math.min(this.sidebar.width * zoom, Math.max(0, width - PAGE_MIN))) : 0
+    const top = Math.round(Math.min(STRIP_HEIGHT * zoom, height))
     this.chrome.setBounds({ x: 0, y: 0, width, height })
-    this.active.view.setBounds({ x: left, y: STRIP_HEIGHT, width: Math.max(0, width - left), height: Math.max(0, height - STRIP_HEIGHT) })
+    this.active.view.setBounds({ x: left, y: top, width: Math.max(0, width - left), height: Math.max(0, height - top) })
     // Adding a view that is already there moves it to the front.
     this.win.contentView.addChildView(this.overlay ? this.chrome : this.active.view)
   }
@@ -557,6 +611,8 @@ export class Tabs {
       unread: model.unread,
       crumb: model.crumb,
       sidebar: this.sidebar.open,
+      width: this.sidebar.width,
+      dashboard: dashboardPage(this.dashboard.url),
       grouping: GROUPINGS.find((item) => item.value === this.sidebar.grouping)!.label,
       earlierOpen: this.sidebar.earlierOpen,
       activeId: this.activeId,
@@ -567,6 +623,15 @@ export class Tabs {
       fullscreen: this.win.isFullScreen(),
     })
   }
+}
+
+function clampWidth(width: unknown): number {
+  return typeof width === 'number' && Number.isFinite(width) ? Math.round(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width))) : SIDEBAR_WIDTH
+}
+
+function dashboardPage(url: string): DashboardPage {
+  const view = URL.canParse(url) ? new URL(url).searchParams.get('view') : null
+  return view === 'queue' || view === 'settings' ? view : 'list'
 }
 
 function readAgentState(file: string): AgentState {
