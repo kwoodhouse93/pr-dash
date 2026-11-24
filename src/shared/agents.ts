@@ -209,6 +209,30 @@ export function sessionNote(request: AgentRequest): string | null {
   return extra ? `${place}\n\n${extra}` : place
 }
 
+const STARTING = 'pr-dash-agent='
+
+/**
+ * The address of the empty tab the dashboard opens for an agent it is about to start.
+ * It names the pull request and what was asked, so the desktop app can file the tab before the agent exists.
+ */
+export function startingTabUrl(key: string, request: AgentRequest): string {
+  const note = sessionNote(request)?.split('\n')[0]?.trim() || null
+  return `about:blank#${STARTING}${encodeURIComponent(JSON.stringify({ key, kind: request.kind, prompt: note }))}`
+}
+
+export type StartingAgent = { key: string; kind: AgentKind; prompt: string | null }
+
+export function startingAgent(url: string): StartingAgent | null {
+  if (!url.startsWith(`about:blank#${STARTING}`)) return null
+  try {
+    const { key, kind, prompt } = JSON.parse(decodeURIComponent(url.slice(url.indexOf('=') + 1))) as Record<string, unknown>
+    if (typeof key !== 'string' || typeof kind !== 'string' || !(kind in KIND_LABEL)) return null
+    return { key, kind: kind as AgentKind, prompt: typeof prompt === 'string' ? prompt : null }
+  } catch {
+    return null
+  }
+}
+
 export function threadPlace(thread: ThreadFix): string {
   const path = thread.path?.trim() || 'Discussion'
   if (thread.startLine && thread.line && thread.startLine !== thread.line) return `${path}:${thread.startLine}-${thread.line}`

@@ -23,7 +23,7 @@ import {
   type TabInfo,
 } from './sidebar.ts'
 import { isT3Handoff, isT3PairLink, T3_PROMPT_CSS, T3_PROMPT_SCRIPT, t3PromptAction, t3PromptUpdate, type T3PromptAction } from './t3-prompt.ts'
-import { t3ThreadUrl } from '../../src/shared/agents.ts'
+import { startingAgent, t3ThreadUrl, type StartingAgent } from '../../src/shared/agents.ts'
 
 export const STRIP_HEIGHT = 40
 const SIDEBAR_WIDTH = 264
@@ -48,6 +48,10 @@ type Tab = {
   /** False until the first page has loaded, so a redirect on the way in still decides the tab's place. */
   settled: boolean
   parent: number | null
+  /** The agent the dashboard opened this tab for. Dropped once a snapshot read after the tab reached a page says what the tab shows. */
+  starting: StartingAgent | null
+  /** When that tab first reached a page. */
+  landedAt: number | null
 }
 
 /** `parents` holds, for each address, the index of the tab it was opened from. */
@@ -287,7 +291,7 @@ export class Tabs {
 
   private model(): SidebarModel {
     return buildSidebar({
-      tabs: this.tabs.map((tab): TabInfo => ({ id: tab.id, pinned: tab.pinned, url: tab.url, placedUrl: tab.placedUrl, title: tab.title, favicon: tab.favicon, loading: tab.loading, parent: tab.parent })),
+      tabs: this.tabs.map((tab): TabInfo => ({ id: tab.id, pinned: tab.pinned, url: tab.url, placedUrl: tab.placedUrl, title: tab.title, favicon: tab.favicon, loading: tab.loading, parent: tab.parent, starting: tab.starting })),
       activeId: this.activeId,
       data: this.data,
       grouping: this.sidebar.grouping,
@@ -318,10 +322,13 @@ export class Tabs {
   private async refresh() {
     if (this.fetching || this.win.isDestroyed()) return
     this.fetching = true
+    const asked = Date.now()
     try {
       const res = await fetch(`${this.dashboardUrl}/api/snapshot`, { signal: AbortSignal.timeout(10_000) })
       if (res.ok) {
         this.data = (await res.json()) as Snapshot
+        // This snapshot has the agent of any tab that was on its page before the snapshot was asked for.
+        for (const tab of this.tabs) if (tab.landedAt !== null && tab.landedAt < asked) tab.starting = null
         this.saveAgentState(pruneAgentState(this.agentState, this.data))
       }
       await this.readPrefs()
@@ -629,11 +636,11 @@ export class Tabs {
     this.publish()
   }
 
-  private create(url: string, options: { pinned?: boolean; after?: Tab; adopt?: WebContents; parent?: number | null }): Tab {
+  private create(url: string, options: { pinned?: boolean; after?: Tab; adopt?: WebContents; parent?: number | null; starting?: StartingAgent | null }): Tab {
     const view = new WebContentsView(options.adopt ? { webContents: options.adopt } : { webPreferences: { session: this.session } })
     view.setBackgroundColor('#10110f')
     view.setVisible(false)
-    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt, url, placedUrl: url, settled: false, parent: options.parent ?? null }
+    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt, url, placedUrl: url, settled: false, parent: options.parent ?? null, starting: options.starting ?? null, landedAt: null }
     const at = options.after ? this.tabs.indexOf(options.after) + 1 : this.tabs.length
     this.tabs.splice(at, 0, tab)
     this.win.contentView.addChildView(view)
@@ -657,12 +664,14 @@ export class Tabs {
       // later, as the dashboard does while a Cursor agent starts. The page
       // needs that tab's window back, so the tab takes the contents Electron
       // made for it instead of loading its own.
-      if (url === 'about:blank') {
+      // The dashboard names the agent it is starting in that tab's address.
+      const starting = tab.pinned ? startingAgent(url) : null
+      if (url === 'about:blank' || starting) {
         return {
           action: 'allow',
           createWindow: (options) => {
             const adopt = (options as { webContents: WebContents }).webContents
-            const opened = this.create(url, { after: tab, adopt, parent: tab.pinned ? null : tab.id })
+            const opened = this.create(url, { after: tab, adopt, parent: tab.pinned ? null : tab.id, starting })
             if (disposition === 'background-tab') this.changed()
             else this.activate(opened.id)
             return adopt
@@ -716,6 +725,7 @@ export class Tabs {
     const navigated = () => {
       const url = contents.getURL()
       if (url) tab.url = url
+      if (tab.starting && tab.landedAt === null && isWebUrl(url)) tab.landedAt = Date.now()
       // The row of the tab being looked at keeps its place, so nothing moves
       // under the pointer. It is filed again when another tab takes over.
       if (tab.id !== this.activeId || !tab.settled) tab.placedUrl = tab.url

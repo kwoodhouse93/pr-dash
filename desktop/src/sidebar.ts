@@ -1,4 +1,4 @@
-import { agentKindLabel, sessionActive, sessionLinks } from '../../src/shared/agents.ts'
+import { agentKindLabel, sessionActive, sessionLinks, type StartingAgent } from '../../src/shared/agents.ts'
 import { layoutRails } from '../../src/shared/rails.ts'
 import { buildStacks, type Stack } from '../../src/shared/stacks.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type DepartedPull, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
@@ -33,6 +33,8 @@ export type TabInfo = {
   loading: boolean
   /** The tab this one was opened from. */
   parent: number | null
+  /** The agent the dashboard opened this tab for, until that agent's run is known. */
+  starting?: StartingAgent | null
 }
 
 /** Whether each dashboard list groups pull requests under their Linear issue. */
@@ -250,7 +252,7 @@ function isUnread(run: Run, state: AgentState): boolean {
   return !seen || seen < updatedAt
 }
 
-function agentLabel(session: AgentSession): string {
+function agentLabel(session: Pick<AgentSession, 'kind' | 'prompt'>): string {
   const first = session.prompt?.split('\n')[0]?.trim()
   if (session.kind === 'prompt' && first) return first
   if (session.kind === 'thread' && first) return first.split('/').at(-1)!
@@ -473,6 +475,24 @@ export function buildSidebar(input: {
     runOfTab.set(tab.id, run)
     for (const other of runs) if (other.session.agentId === run.session.agentId && !tabOfRun.has(other.key)) tabOfRun.set(other.key, tab.id)
   }
+  // A tab opened for an agent that is still starting stands for it until its run is in the snapshot.
+  const startingOfTab = new Map<number, { label: string; pr: { key: string; number: number } }>()
+  for (const tab of tabs) {
+    if (tab.pinned || !tab.starting || runOfTab.has(tab.id)) continue
+    const { key, kind } = tab.starting
+    const pr = [...known.values()].find((item) => item.pr.key === key)?.pr
+    if (!pr) continue
+    const label = agentLabel(tab.starting)
+    // The run can be known before the tab has reached its page. The tab is that run's from then on.
+    const run = runs
+      .filter((item) => item.pr.key === key && item.session.kind === kind && sessionActive(item.session.status) && !tabOfRun.has(item.key) && agentLabel(item.session) === label)
+      .sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt))[0]
+    if (run) {
+      runOfTab.set(tab.id, run)
+      tabOfRun.set(run.key, tab.id)
+    } else startingOfTab.set(tab.id, { label, pr })
+  }
+  const agentTab = (id: number) => runOfTab.has(id) || startingOfTab.has(id)
   const markOf = (run: Run): AgentMark => {
     if (sessionActive(run.session.status)) return 'running'
     if (!isUnread(run, agentState)) return 'read'
@@ -496,22 +516,23 @@ export function buildSidebar(input: {
   const newest = (a: AgentRow, b: AgentRow) => stamp.get(b.key)!.localeCompare(stamp.get(a.key)!)
   const listed = (row: AgentRow) => (row.mark !== 'read' || held.has(row.key)) && !dismissed.has(row.key)
   const current = rows.filter(listed)
-  const agents = [...current.filter((row) => row.mark === 'running').sort(newest), ...current.filter((row) => row.mark !== 'running').sort(newest)]
+  const starting = [...startingOfTab].map(([tabId, { label, pr }]): AgentRow => ({ key: `starting:${tabId}`, label, number: pr.number, mark: 'running', age: 'now', url: null, tabId }))
+  const agents = [...starting, ...current.filter((row) => row.mark === 'running').sort(newest), ...current.filter((row) => row.mark !== 'running').sort(newest)]
   const earlier = rows.filter((row) => !listed(row)).sort(newest)
 
   // Tabs.
   const byId = new Map(tabs.map((tab) => [tab.id, tab]))
-  const plain = tabs.filter((tab) => !tab.pinned && !runOfTab.has(tab.id))
+  const plain = tabs.filter((tab) => !tab.pinned && !agentTab(tab.id))
   const children = new Map<number, TabInfo[]>()
   const top: TabInfo[] = []
   for (const tab of plain) {
     const parent = tab.parent === null ? null : byId.get(tab.parent)
-    const nests = !lookup(tab.placedUrl) && !linearRef(tab.placedUrl) && parent && !parent.pinned && !runOfTab.has(parent.id) && lookup(parent.placedUrl)
+    const nests = !lookup(tab.placedUrl) && !linearRef(tab.placedUrl) && parent && !parent.pinned && !agentTab(parent.id) && lookup(parent.placedUrl)
     if (nests) children.set(parent.id, [...(children.get(parent.id) ?? []), tab])
     else top.push(tab)
   }
 
-  const activeRuns = new Set(runs.filter((run) => sessionActive(run.session.status)).map((run) => run.pr.key))
+  const activeRuns = new Set([...runs.filter((run) => sessionActive(run.session.status)).map((run) => run.pr.key), ...[...startingOfTab.values()].map(({ pr }) => pr.key)])
   const rowOf = (tab: TabInfo): TabRow => {
     const shown = lookup(tab.url)
     return {
@@ -623,28 +644,32 @@ export function buildSidebar(input: {
 
   const strip: StripTab[] = tabs.map((tab) => {
     const run = runOfTab.get(tab.id)
-    const shown = tab.pinned || run ? null : lookup(tab.url)
+    const begun = startingOfTab.get(tab.id)
+    const shown = tab.pinned || run || begun ? null : lookup(tab.url)
     return {
       id: tab.id,
       pinned: tab.pinned,
-      title: run ? agentLabel(run.session) : shown ? prTitle(shown.pr) : tab.title,
+      title: run ? agentLabel(run.session) : begun ? begun.label : shown ? prTitle(shown.pr) : tab.title,
       favicon: tab.favicon,
       loading: tab.loading,
       ci: shown && !shown.gone ? shown.pr.ci : null,
       gone: shown?.gone ?? null,
-      agent: run ? markOf(run) : null,
+      agent: run ? markOf(run) : begun ? 'running' : null,
     }
   })
 
   const active = byId.get(activeId)
   const activeRun = runOfTab.get(activeId)
-  const activePr = active && !active.pinned && !activeRun ? lookup(active.url) : null
+  const activeStart = startingOfTab.get(activeId)
+  const activePr = active && !active.pinned && !activeRun && !activeStart ? lookup(active.url) : null
   const crumb = !active
     ? []
     : active.pinned
       ? [active.title]
       : activeRun
         ? ['Agents', `${agentLabel(activeRun.session)} · #${activeRun.pr.number}`]
+        : activeStart
+          ? ['Agents', `${activeStart.label} · #${activeStart.pr.number}`]
         : [...(crumbs.get(activeId) ?? []), activePr ? prTitle(activePr.pr) : active.title]
 
   return {

@@ -365,7 +365,33 @@ describe('sidebar agents', () => {
     expect(model.nodes.flatMap((node) => (node.kind === 'tab' ? [node.row.agent] : []))).toEqual([true])
   })
 
+  it('lists a tab opened for an agent that is still starting with the agents, under its pull request', () => {
+    const starting = { key: 'acme/app#2', kind: 'prompt' as const, prompt: 'Tidy the imports' }
+    const model = build([tab(7, 'about:blank', { starting })], data, { activeId: 7 })
+    expect(outline(model.nodes)).toEqual([])
+    expect(model.agents[0]).toMatchObject({ key: 'starting:7', label: 'Tidy the imports', number: 2, mark: 'running', tabId: 7 })
+    expect(model.running).toBe(2)
+    expect(model.crumb).toEqual(['Agents', 'Tidy the imports · #2'])
+    expect(model.strip.find((item) => item.id === 7)).toMatchObject({ title: 'Tidy the imports', agent: 'running' })
+  })
+
+  it('gives that tab to the run once the run is known, before the tab has reached its page', () => {
+    const started = session('bc-new', { kind: 'prompt', prompt: 'Tidy the imports\n\nAll of them.', createdAt: '2026-11-19T11:59:00Z' })
+    const next = snapshot([pr(1, { agentSessions: [running] }), pr(2, { agentSessions: [started] })])
+    const model = build([tab(7, 'about:blank', { starting: { key: 'acme/app#2', kind: 'prompt', prompt: 'Tidy the imports' } })], next)
+    expect(model.agents.map((row) => [row.key, row.tabId])).toEqual([
+      ['bc-new:run-1', 7],
+      ['bc-run:run-1', null],
+    ])
+  })
+
+  it('files such a tab as any other when its pull request is not listed', () => {
+    const model = build([tab(7, 'about:blank', { starting: { key: 'acme/app#9', kind: 'ci', prompt: null } })], data)
+    expect(outline(model.nodes)).toEqual(['Page 7'])
+  })
+
   it('finds the unread runs a tab is showing', () => {
+
     expect(runsShownAt('https://cursor.com/agents/bc-done', data, QUIET)).toEqual(['bc-done:run-1'])
     expect(runsShownAt('https://cursor.com/agents/bc-run', data, QUIET)).toEqual([])
     expect(runsShownAt('https://example.com/bc-done', data, QUIET)).toEqual([])

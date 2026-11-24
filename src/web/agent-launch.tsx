@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
-import { agentWork, DEFAULT_ROUTING, providerFor, providerLabel, sessionLinks, t3ThreadUrl, type AgentRequest } from '../shared/agents.ts'
+import { agentWork, DEFAULT_ROUTING, providerFor, providerLabel, sessionLinks, startingTabUrl, t3ThreadUrl, type AgentRequest } from '../shared/agents.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import type { AgentProviderId, AgentRouting, AgentSession } from '../shared/types.ts'
 import { paintCursorLoading } from './cursor-loading.ts'
@@ -70,7 +70,9 @@ export function useAgentLaunch(): AgentLaunch {
     // A T3 Code thread has a page to open only when this browser is paired with T3 Code.
     // Otherwise it is followed from the Agents column.
     const opensTab = provider === 'cursor' || t3Origin !== null
-    const agent = opensTab ? window.open('', '_blank') : null
+    // The desktop app reads from the tab's address which pull request the agent is for, and lists the tab with its agents from the start.
+    const desktop = (window as { prDashDesktop?: unknown }).prDashDesktop === true
+    const agent = opensTab ? window.open(desktop ? startingTabUrl(pr.key, request) : '', '_blank') : null
     if (agent && provider === 'cursor') {
       try {
         paintCursorLoading(agent, agentWork(request.kind, provider))
