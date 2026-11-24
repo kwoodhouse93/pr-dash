@@ -629,6 +629,15 @@ describe('feedback', () => {
     })
   })
 
+  it('settles a conversation note resolved here until someone writes another', () => {
+    const note = { id: 'N1', author: { __typename: 'User', login: 'ada' }, createdAt: '2026-10-20T12:00:00Z', body: 'Looks good.', kind: 'review' as const }
+    const local = { N1: '2026-10-20T13:00:00Z' }
+    expect(summarizeNotes([], [note], 'grace')).toEqual({ author: 1, reviewer: 1 })
+    expect(summarizeNotes([], [note], 'grace', local)).toEqual({ author: 0, reviewer: 0 })
+    const later = { ...note, id: 'N2', createdAt: '2026-10-20T15:00:00Z', body: 'One more thing.' }
+    expect(summarizeNotes([], [note, later], 'grace', local)).toEqual({ author: 1, reviewer: 1 })
+  })
+
   it('quotes a conversation comment, mentions the author, and links to that comment', () => {
     expect(quoteReply({
       authorLogin: 'ada',

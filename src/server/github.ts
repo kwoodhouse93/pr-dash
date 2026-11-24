@@ -9,6 +9,7 @@ import {
   type FeedbackDetail,
   type FeedbackNote,
   type FeedbackPayload,
+  type LocalResolutions,
 } from '../shared/feedback.ts'
 import { summarizeReviews } from '../shared/approval.ts'
 import { GRAPHQL_SINGLE_FLOOR, budgetFromHeaders, graphqlView, rememberWindow, type GraphqlBudget, type GraphqlView } from '../shared/budget.ts'
@@ -118,7 +119,7 @@ function pullFields(threadComments: boolean): string {
   baseRefName headRefName reviewDecision mergeStateStatus mergeable
   author { login avatarUrl }
   repository { nameWithOwner name squashMergeAllowed defaultBranchRef { name } }
-  reviews(last: 40) { nodes { state submittedAt body author { __typename login avatarUrl } } }
+  reviews(last: 40) { nodes { id state submittedAt body author { __typename login avatarUrl } } }
   readyEvents: timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
   reviewThreads(first: 60) {
     pageInfo { hasNextPage }
@@ -130,7 +131,7 @@ function pullFields(threadComments: boolean): string {
     }
   }
   comments(first: 12) { nodes { author { __typename login } body } }
-  latestComments: comments(last: 20) { nodes { author { __typename login } createdAt body } }
+  latestComments: comments(last: 20) { nodes { id author { __typename login } createdAt body } }
   reviewRequests(first: 20) {
     nodes {
       requestedReviewer {
@@ -562,6 +563,7 @@ async function hydrate(
   loadRules: RulesLoader,
   previous: PullRequest[] = [],
   forceChecks = false,
+  local: LocalResolutions = {},
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   const previousById = new Map(previous.map((pr) => [pr.id, pr]))
   const repos = [...new Set(nodes.map((node) => node.repository.nameWithOwner))]
@@ -598,6 +600,7 @@ async function hydrate(
       checks: bundle?.checks ?? [],
       suites: bundle?.suites ?? [],
       behindBy,
+      local,
     })
     if (bundle) return { ...mapped, checkCursor: bundle.cursor }
     if (prior && reuseIds.has(node.id)) {
@@ -617,6 +620,8 @@ export type ListHydration = {
   previous?: PullRequest[]
   /** Read every check list again. A full sync uses this so required checks are rebuilt from the rules. */
   forceChecks?: boolean
+  /** What the viewer resolved on this dashboard only. */
+  local?: LocalResolutions
 }
 
 export async function fetchAuthoredPullRequests(
@@ -629,7 +634,7 @@ export async function fetchAuthoredPullRequests(
   if (repos.length === 0) return { viewer: '', pullRequests: [], warning: null }
   const viewer = await loginFor(token)
   const nodes = keptRepos(await fetchSearchNodes(token, authoredSearchQueries(repos), onProgress, 'Fetching your pull requests'), repos)
-  return hydrate(token, viewer, [], nodes, onProgress, null, loadRules, hydration.previous ?? [], hydration.forceChecks === true)
+  return hydrate(token, viewer, [], nodes, onProgress, null, loadRules, hydration.previous ?? [], hydration.forceChecks === true, hydration.local)
 }
 
 export async function fetchReviewPullRequests(
@@ -641,7 +646,7 @@ export async function fetchReviewPullRequests(
 ): Promise<{ viewer: string; pullRequests: PullRequest[]; warning: string | null }> {
   if (repos.length === 0) return { viewer: '', pullRequests: [], warning: null }
   const { viewer, teams, nodes, warning } = await fetchReviewNodes(token, repos, onProgress)
-  return hydrate(token, viewer, teams, nodes, onProgress, warning, loadRules, hydration.previous ?? [], hydration.forceChecks === true)
+  return hydrate(token, viewer, teams, nodes, onProgress, warning, loadRules, hydration.previous ?? [], hydration.forceChecks === true, hydration.local)
 }
 
 let accessibleCache: { at: number; names: string[]; truncated: boolean } | null = null
@@ -760,7 +765,7 @@ const THREAD_QUERY = `
       ... on PullRequest {
         id
         updatedAt
-        reviews(last: 40) { nodes { state submittedAt body author { __typename login } } }
+        reviews(last: 40) { nodes { id state submittedAt body author { __typename login } } }
         reviewThreads(first: 60) {
           pageInfo { hasNextPage }
           nodes {
@@ -770,7 +775,7 @@ const THREAD_QUERY = `
             comments(last: 30) { nodes { author { __typename login } createdAt url } }
           }
         }
-        latestComments: comments(last: 20) { nodes { author { __typename login } createdAt body } }
+        latestComments: comments(last: 20) { nodes { id author { __typename login } createdAt body } }
       }
     }
   }
@@ -1254,10 +1259,12 @@ export async function replyToPullNote(token: string, repo: string, number: numbe
   return fetchPullFeedback(token, repo, number)
 }
 
-export function payloadFor(detail: FeedbackDetail, viewerLogin: string): FeedbackPayload {
+export function payloadFor(detail: FeedbackDetail, viewerLogin: string, local: LocalResolutions = {}): FeedbackPayload {
+  const ids = detail.notes.map((note) => note.id)
   return {
     detail,
-    counts: feedbackCounts(detail.threads.map(asThread), detail.notes.map(asNote), viewerLogin, detail.threadsTruncated),
+    counts: feedbackCounts(detail.threads.map(asThread), detail.notes.map(asNote), viewerLogin, detail.threadsTruncated, local),
+    local: Object.fromEntries(ids.flatMap((id) => (Object.hasOwn(local, id) ? [[id, local[id]!]] : []))),
   }
 }
 

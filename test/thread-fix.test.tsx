@@ -50,6 +50,7 @@ function payload(): FeedbackPayload {
       reviewCommentAwaitingCount: 0,
       threadsTruncated: false,
     },
+    local: {},
     detail: {
       pullId: 'pr-7',
       title: 'Ship the queue',

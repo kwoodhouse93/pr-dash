@@ -13,10 +13,23 @@ export type Thread = {
 }
 
 export type Note = {
+  id?: string | null
   author: { __typename: string; login: string } | null
   createdAt: string
   body: string
   kind: 'comment' | 'review'
+}
+
+/**
+ * Conversation comments and review messages the viewer resolved on this dashboard only, by GitHub node ID, with when.
+ * GitHub has no way to resolve these, so nothing is sent there. Review threads are resolved on GitHub instead.
+ */
+export type LocalResolutions = Record<string, string>
+
+function resolvedHereAt(local: LocalResolutions, id: string | null | undefined): number | null {
+  if (!id || !Object.hasOwn(local, id)) return null
+  const at = Date.parse(local[id]!)
+  return Number.isNaN(at) ? null : at
 }
 
 export type FeedbackSummary = {
@@ -117,8 +130,8 @@ function humanNotes(notes: Note[]): Note[] {
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
 }
 
-/** The conversation note the viewer still owes a reply, if there is one. */
-export function unansweredNote(threads: Thread[], notes: Note[], viewerLogin: string): Note | null {
+/** The conversation note the viewer still owes a reply, if there is one. Resolving it here settles it until someone writes another. */
+export function unansweredNote(threads: Thread[], notes: Note[], viewerLogin: string, local: LocalResolutions = {}): Note | null {
   let viewerThreadAt = Number.NEGATIVE_INFINITY
   let viewerSpoke = false
   for (const thread of threads) {
@@ -133,12 +146,13 @@ export function unansweredNote(threads: Thread[], notes: Note[], viewerLogin: st
   const humans = humanNotes(notes)
   const latest = humans.at(-1)
   if (!latest || latest.author!.login === viewerLogin) return null
+  if (resolvedHereAt(local, latest.id) !== null) return null
   if (viewerSpoke && viewerThreadAt > Date.parse(latest.createdAt)) return null
   return latest
 }
 
-export function summarizeNotes(threads: Thread[], notes: Note[], viewerLogin: string): { author: number; reviewer: number } {
-  const latest = unansweredNote(threads, notes, viewerLogin)
+export function summarizeNotes(threads: Thread[], notes: Note[], viewerLogin: string, local: LocalResolutions = {}): { author: number; reviewer: number } {
+  const latest = unansweredNote(threads, notes, viewerLogin, local)
   if (!latest) return { author: 0, reviewer: 0 }
   const involved = humanNotes(notes).some((note) => note.author!.login === viewerLogin)
   return { author: 1, reviewer: involved || latest.kind === 'review' ? 1 : 0 }
@@ -210,6 +224,8 @@ export type FeedbackCounts = {
 export type FeedbackPayload = {
   detail: FeedbackDetail
   counts: FeedbackCounts
+  /** What the viewer resolved here only, among this pull request's notes. */
+  local: LocalResolutions
 }
 
 export function asThread(thread: FeedbackThread): Thread {
@@ -222,12 +238,18 @@ export function asThread(thread: FeedbackThread): Thread {
 }
 
 export function asNote(note: FeedbackNote): Note {
-  return { author: note.author, createdAt: note.createdAt, body: note.body, kind: note.kind }
+  return { id: note.id, author: note.author, createdAt: note.createdAt, body: note.body, kind: note.kind }
 }
 
-export function feedbackCounts(threads: Thread[], notes: Note[], viewerLogin: string, threadsTruncated: boolean): FeedbackCounts {
+export function feedbackCounts(
+  threads: Thread[],
+  notes: Note[],
+  viewerLogin: string,
+  threadsTruncated: boolean,
+  local: LocalResolutions = {},
+): FeedbackCounts {
   const summary = summarizeThreads(threads, viewerLogin)
-  const comments = summarizeNotes(threads, notes, viewerLogin)
+  const comments = summarizeNotes(threads, notes, viewerLogin, local)
   return {
     threadCount: summary.threadCount,
     unresolvedCount: summary.unresolvedCount,

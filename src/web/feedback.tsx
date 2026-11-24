@@ -7,11 +7,13 @@ import {
   summarizeNotes,
   threadKinds,
   threadPermalink,
+  unansweredNote,
   type FeedbackCounts,
   type FeedbackDetail,
   type FeedbackNote,
   type FeedbackPayload,
   type FeedbackThread,
+  type LocalResolutions,
 } from '../shared/feedback.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import type { PullRequest } from '../shared/types.ts'
@@ -39,6 +41,8 @@ export type FeedbackTarget = {
   truncated: boolean
   detailsPending: boolean
 }
+
+const HERE_HINT = 'Only on this dashboard: GitHub has no way to resolve a comment. A newer comment asks for you again.'
 
 const FOCUS_TITLE: Record<FeedbackFocus, string> = {
   awaiting: 'Awaiting you',
@@ -200,6 +204,11 @@ function sum(targets: FeedbackTarget[], pick: (target: FeedbackTarget) => number
 type Loaded = {
   target: FeedbackTarget
   detail: FeedbackDetail
+  local: LocalResolutions
+}
+
+function loadedFrom(target: FeedbackTarget, payload: FeedbackPayload): Loaded {
+  return { target: withCounts(target, payload.counts), detail: payload.detail, local: payload.local ?? {} }
 }
 
 function withCounts(target: FeedbackTarget, counts: FeedbackCounts): FeedbackTarget {
@@ -264,13 +273,13 @@ function FeedbackDrawer({
     Promise.all(targets.map((target) => api.pullFeedback(target.key).then((payload) => ({ target, payload }))))
       .then((loaded) => {
         if (cancel) return
-        const next = loaded.map(({ target, payload }) => ({ target: withCounts(target, payload.counts), detail: payload.detail }))
+        const next = loaded.map(({ target, payload }) => loadedFrom(target, payload))
         for (const item of loaded) onCounts(item.target.key, item.payload.counts)
         setSections(next)
         setShown(shownThreads(next, filterNow.current, viewer))
         if (viewer) {
           const ids = next.flatMap((section) => {
-            const id = unansweredId(section.detail, viewer)
+            const id = unansweredId(section.detail, viewer, section.local)
             return id ? [id] : []
           })
           if (ids.length > 0) setOpenNotes(new Set(ids))
@@ -288,7 +297,7 @@ function FeedbackDrawer({
     onCounts(targetKey, payload.counts)
     setSections((current) =>
       current?.map((section) =>
-        section.target.key === targetKey ? { target: withCounts(section.target, payload.counts), detail: payload.detail } : section,
+        section.target.key === targetKey ? loadedFrom(section.target, payload) : section,
       ) ?? current,
     )
   }
@@ -365,6 +374,10 @@ function FeedbackDrawer({
               {notes ? (
                 <NoteList
                   detail={section.detail}
+                  local={section.local}
+                  onLocal={(itemId, resolved) =>
+                    api.setLocallyResolved(section.target.key, itemId, resolved).then((payload) => apply(section.target.key, payload))
+                  }
                   openNotes={openNotes}
                   onOpen={(id) => setOpenNotes((current) => new Set([...current, id]))}
                   onReply={(noteId, body) => api.replyToNote(section.target.key, noteId, body).then((payload) => apply(section.target.key, payload))}
@@ -399,8 +412,8 @@ function threadIdsFor(detail: FeedbackDetail, focus: FeedbackFocus, viewer: stri
   return detail.threads.filter((thread) => threadKinds(asThread(thread), viewer).includes(kind)).map((thread) => thread.id)
 }
 
-function unansweredId(detail: FeedbackDetail, viewer: string): string | null {
-  if (summarizeNotes(detail.threads.map(asThread), detail.notes.map(asNote), viewer).author === 0) return null
+function unansweredId(detail: FeedbackDetail, viewer: string, local: LocalResolutions): string | null {
+  if (summarizeNotes(detail.threads.map(asThread), detail.notes.map(asNote), viewer, local).author === 0) return null
   const sorted = detail.notes.slice().sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
   return sorted.at(-1)?.id ?? null
 }
@@ -710,20 +723,36 @@ function FixPrompt({
 
 function NoteList({
   detail,
+  local,
   openNotes,
   onOpen,
   onReply,
+  onLocal,
 }: {
   detail: FeedbackDetail
+  local: LocalResolutions
   openNotes: Set<string>
   onOpen: (id: string) => void
   onReply: (noteId: string, body: string) => Promise<void>
+  onLocal: (noteId: string, resolved: boolean) => Promise<void>
 }) {
+  const viewer = useViewer()
   const notes = detail.notes.slice().sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+  // Only the newest note can be owed a reply, so it is the only one there is anything to resolve on.
+  const owed = viewer ? (unansweredNote(detail.threads.map(asThread), detail.notes.map(asNote), viewer)?.id ?? null) : null
   return (
     <>
       {notes.map((note) => (
-        <NoteCard key={note.id} note={note} open={openNotes.has(note.id)} onOpen={() => onOpen(note.id)} onReply={onReply} />
+        <NoteCard
+          key={note.id}
+          note={note}
+          here={note.id === owed && Object.hasOwn(local, note.id)}
+          owed={note.id === owed}
+          open={openNotes.has(note.id)}
+          onOpen={() => onOpen(note.id)}
+          onReply={onReply}
+          onLocal={onLocal}
+        />
       ))}
     </>
   )
@@ -731,24 +760,52 @@ function NoteList({
 
 function NoteCard({
   note,
+  here,
+  owed,
   open,
   onOpen,
   onReply,
+  onLocal,
 }: {
   note: FeedbackNote
+  /** Resolved on this dashboard only. */
+  here: boolean
+  /** The note the viewer has not answered. */
+  owed: boolean
   open: boolean
   onOpen: () => void
   onReply: (noteId: string, body: string) => Promise<void>
+  onLocal: (noteId: string, resolved: boolean) => Promise<void>
 }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lock = useRef(false)
   const href = usePrHref(note.url ?? '', noteAnchor(note))
   const hostName = linkHostName(href)
+  async function resolveHere() {
+    if (lock.current) return
+    lock.current = true
+    setPending(true)
+    setError(null)
+    try {
+      await onLocal(note.id, !here)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not update the comment')
+    } finally {
+      lock.current = false
+      setPending(false)
+    }
+  }
+  const hereButton = owed ? (
+    <button type="button" className="ghost reply-toggle" title={HERE_HINT} onClick={() => void resolveHere()} disabled={pending}>
+      {here ? 'Unresolve' : 'Resolve'}
+    </button>
+  ) : null
   return (
     <article className="thread-card">
       <div className="thread-file">
         <span className="note-kind">{note.kind === 'review' ? 'Review' : 'Comment'}</span>
+        {here ? <span className="pill" title={HERE_HINT}>Resolved</span> : null}
         {note.url ? (
           <a className="external" href={href} target="_blank" rel="noreferrer">
             View on {hostName}
@@ -777,11 +834,16 @@ function NoteCard({
               setPending(false)
             }
           }}
+          extra={hereButton}
         />
       ) : (
-        <button type="button" className="ghost reply-toggle" onClick={onOpen}>
-          Reply
-        </button>
+        <div className="note-actions">
+          <button type="button" className="ghost reply-toggle" onClick={onOpen}>
+            Reply
+          </button>
+          {hereButton}
+          {error ? <p className="launch-error">{error}</p> : null}
+        </div>
       )}
     </article>
   )

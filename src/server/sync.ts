@@ -1,4 +1,4 @@
-import { carryThreadFeedback } from '../shared/feedback.ts'
+import { carryThreadFeedback, type LocalResolutions } from '../shared/feedback.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
 import { applyThreadDetails, mapPullRequest } from '../shared/map.ts'
 import { refreshSteps, stepIndex, type RefreshStep } from '../shared/progress.ts'
@@ -372,7 +372,7 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
     note(message)
   }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
-  }), { previous: knownPulls(db), forceChecks: forceRules })
+  }), { previous: knownPulls(db), forceChecks: forceRules, local: db.localResolutions() })
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   await confirmLandedMerges(db, token, fetched.pullRequests)
   const next = db.queue.overlay(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr)))
@@ -399,7 +399,7 @@ async function refreshReview(db: DashboardDb, token: string, forceRules: boolean
     note(message)
   }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
     note(message)
-  }), { previous: knownPulls(db), forceChecks: forceRules })
+  }), { previous: knownPulls(db), forceChecks: forceRules, local: db.localResolutions() })
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   const outcomes = await outcomesOfGone(token, db.snapshot().reviewPullRequests, fetched.pullRequests, watched)
   const current = db.snapshot()
@@ -506,11 +506,12 @@ async function readFeedback(
     const token = loadGithubToken()
     const details = await fetchThreadDetails(token, batch.map((pr) => pr.id))
     const viewer = snap.viewer ?? ''
+    const local = db.localResolutions()
     const updates = new Map<string, PullRequest>()
     for (const pr of batch) {
       const detail = details.get(pr.id)
       if (!detail) continue
-      updates.set(pr.key, applyThreadDetails(pr, detail, viewer))
+      updates.set(pr.key, applyThreadDetails(pr, detail, viewer, local))
     }
     const apply = (items: PullRequest[]) => items.map((pr) => updates.get(pr.key) ?? pr)
     const saved = db.saveSnapshot({
@@ -553,7 +554,7 @@ async function readOne(db: DashboardDb, key: string, signal: AbortSignal): Promi
     })
     const rule = rules.get(current.repo)
     const viewer = viewerState.login || snap.viewer || ''
-    let mapped = mapOne(current, loaded, viewer, viewerState.teams, rule)
+    let mapped = mapOne(current, loaded, viewer, viewerState.teams, rule, db.localResolutions())
     mapped = keepLinear(current, mapped)
     mapped = mergeLinkedIssues(mapped, db.linearLinks().get(mapped.key) ?? [])
     const linearKey = process.env.LINEAR_API_KEY
@@ -590,6 +591,7 @@ function mapOne(
   viewer: string,
   teams: string[],
   rule: RepoRules | undefined,
+  local: LocalResolutions,
 ): PullRequest {
   const mapped = mapPullRequest(loaded.pull, {
     viewer,
@@ -601,6 +603,7 @@ function mapOne(
     checks: loaded.checks,
     suites: loaded.suites,
     behindBy: loaded.behindBy,
+    local,
   })
   return loaded.cursor ? { ...mapped, checkCursor: loaded.cursor } : mapped
 }

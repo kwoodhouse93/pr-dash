@@ -124,6 +124,8 @@ export const api = {
       `/api/linear/issues?q=${encodeURIComponent(query)}`,
     ).then((body) => body.issues),
   linkLinearIssue: (key: string, identifier: string) => post<Snapshot>('/api/linear/links', { key, identifier }),
+  setLocallyResolved: (key: string, itemId: string, resolved: boolean) =>
+    post<FeedbackPayload>('/api/feedback/local', { key, itemId, resolved }),
   pullFeedback: (key: string) => request<FeedbackPayload>(`/api/feedback?key=${encodeURIComponent(key)}`),
   replyToThread: (key: string, threadId: string, body: string) => post<FeedbackPayload>('/api/feedback/reply', { key, threadId, body }),
   replyToNote: (key: string, noteId: string, body: string) => post<FeedbackPayload>('/api/feedback/note', { key, noteId, body }),

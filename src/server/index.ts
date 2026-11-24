@@ -419,6 +419,27 @@ app.post('/api/feedback/resolve', async (c) => {
   return publishFeedback(c, body.key ?? '', (token, pr) => setReviewThreadResolved(token, pr.repo, pr.number, body.threadId ?? '', body.resolved === true))
 })
 
+app.post('/api/feedback/local', async (c) => {
+  const body = await c.req.json<{ key?: string; itemId?: string; resolved?: boolean }>().catch(() => ({ key: '', itemId: '', resolved: false }))
+  const itemId = body.itemId
+  if (!itemId || typeof body.resolved !== 'boolean') return c.json({ error: 'A comment and a resolved flag are required.' }, 400)
+  return publishFeedback(c, body.key ?? '', async (token, pr) => {
+    const detail = await fetchPullFeedback(token, pr.repo, pr.number)
+    const note = detail.notes.find((item) => item.id === itemId)
+    if (!note) {
+      const error = new Error('That comment is no longer on the pull request.')
+      error.name = 'FeedbackRejected'
+      throw error
+    }
+    if (!body.resolved) {
+      db.setLocalResolution(pr.key, itemId, null)
+      return detail
+    }
+    db.setLocalResolution(pr.key, itemId, new Date().toISOString())
+    return detail
+  })
+})
+
 app.post('/api/pulls/agents', async (c) => {
   const body = await c.req.json<{ key?: string; provider?: unknown }>().catch(() => null)
   const request = parseAgentRequest(body)
@@ -491,7 +512,7 @@ async function publishFeedback(c: Context, key: string, load: (token: string, pr
   if (!pr) return c.json({ error: 'That pull request is no longer in this list.' }, 404)
   try {
     const detail = await load(loadGithubToken(), pr)
-    const payload = payloadFor(detail, db.snapshot().viewer ?? '')
+    const payload = payloadFor(detail, db.snapshot().viewer ?? '', db.localResolutions())
     db.patchFeedback(pr.key, { ...payload.counts, feedbackAt: pr.updatedAt })
     return c.json(payload)
   } catch (error) {

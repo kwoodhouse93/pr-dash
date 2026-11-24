@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { DEFAULT_ROUTING, isAgentProvider } from '../shared/agents.ts'
-import type { FeedbackCounts } from '../shared/feedback.ts'
+import type { FeedbackCounts, LocalResolutions } from '../shared/feedback.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
@@ -44,6 +44,10 @@ export type DashboardDb = {
   linearLinks(): Map<string, string[]>
   attachLinearIssue(prKey: string, issue: LinearIssue): Snapshot
   patchFeedback(key: string, counts: FeedbackCounts & { feedbackAt?: string | null }): void
+  /** Conversation comments and review messages the viewer resolved on this dashboard only, by GitHub node ID, with when. */
+  localResolutions(): LocalResolutions
+  /** A null time takes the resolution back. */
+  setLocalResolution(prKey: string, itemId: string, at: string | null): void
   saveAgentSession(prKey: string, session: AgentSession): void
   agentSessions(): { prKey: string; session: AgentSession }[]
   agentRouting(): AgentRouting
@@ -157,6 +161,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       outcome TEXT NOT NULL,
       at TEXT NOT NULL,
       pull_request TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS local_resolutions (
+      item_id TEXT PRIMARY KEY,
+      pr_key TEXT NOT NULL,
+      at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS linear_links (
       pr_key TEXT NOT NULL,
@@ -552,6 +561,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.prepare(`DELETE FROM agent_sessions WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM initiative_pull_requests WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM linear_links WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+        db.prepare(`DELETE FROM local_resolutions WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM departed_pulls WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare('DELETE FROM watched_repos WHERE repo = ?').run(repo)
         db.prepare('DELETE FROM repo_marks WHERE repo = ?').run(repo)
@@ -666,6 +676,19 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       ).run(repo, agent.provider, agent.environmentId, agent.checkout)
     },
     queue,
+    localResolutions() {
+      const rows = db.prepare('SELECT item_id, at FROM local_resolutions').all() as { item_id: string; at: string }[]
+      return Object.fromEntries(rows.map((row) => [row.item_id, row.at]))
+    },
+    setLocalResolution(prKey, itemId, at) {
+      if (at === null) {
+        db.prepare('DELETE FROM local_resolutions WHERE item_id = ?').run(itemId)
+        return
+      }
+      db.prepare(
+        'INSERT INTO local_resolutions (item_id, pr_key, at) VALUES (?, ?, ?) ON CONFLICT(item_id) DO UPDATE SET pr_key = excluded.pr_key, at = excluded.at',
+      ).run(itemId, prKey, at)
+    },
     patchFeedback(key, counts) {
       const row = readSnapshotRow.get() as SnapshotRow | undefined
       if (!row) return

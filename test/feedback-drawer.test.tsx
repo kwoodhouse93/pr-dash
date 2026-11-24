@@ -8,7 +8,7 @@ import { Feedback, FeedbackProvider, type FeedbackTarget } from '../src/web/feed
 import { PrLinksProvider } from '../src/web/pr-links.tsx'
 
 vi.mock('../src/web/api.ts', () => ({
-  api: { pullFeedback: vi.fn() },
+  api: { pullFeedback: vi.fn(), setLocallyResolved: vi.fn() },
 }))
 
 declare global {
@@ -74,6 +74,7 @@ function payload(): FeedbackPayload {
       reviewCommentAwaitingCount: 0,
       threadsTruncated: false,
     },
+    local: {},
     detail: {
       pullId: 'pr-7',
       title: 'Ship the queue',
@@ -83,6 +84,24 @@ function payload(): FeedbackPayload {
       notes: [],
       threads: [thread('open', false, 'Please rename this.'), thread('done', true, 'Already handled.')],
     },
+  }
+}
+
+const note = {
+  id: 'note-1',
+  author: { __typename: 'User', login: 'ada', avatarUrl: null },
+  createdAt: '2026-10-20T13:00:00Z',
+  body: 'Can you check the copy?',
+  url: 'https://github.com/acme/app/pull/7#issuecomment-1',
+  kind: 'comment' as const,
+}
+
+function withNote(resolved: boolean): FeedbackPayload {
+  const base = payload()
+  return {
+    counts: { ...base.counts, commentAwaitingCount: resolved ? 0 : 1 },
+    detail: { ...base.detail, notes: [note] },
+    local: resolved ? { 'note-1': '2026-10-21T00:00:00Z' } : {},
   }
 }
 
@@ -226,5 +245,36 @@ describe('feedback drawer', () => {
     expect(link?.href).toBe('https://app.graphite.com/github/pr/acme/app/7/changes#comment-open-comment')
     expect(link?.title).toBe('Open this diff on Graphite')
     expect(document.querySelector<HTMLAnchorElement>('.drawer-pr')?.href).toBe('https://app.graphite.com/github/pr/acme/app/7')
+  })
+
+  it('resolves a conversation comment on the dashboard only, and stops counting it', async () => {
+    vi.mocked(api.pullFeedback).mockResolvedValue(withNote(false))
+    vi.mocked(api.setLocallyResolved).mockReset()
+    vi.mocked(api.setLocallyResolved).mockResolvedValue(withNote(true))
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <FeedbackProvider viewer="grace" onCounts={() => {}}>
+          <Feedback mode="mine" targets={[target]} />
+        </FeedbackProvider>,
+      )
+    })
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('button[aria-label="1 unresolved"]')?.click()
+    })
+    await act(async () => {
+      ;[...document.querySelectorAll<HTMLButtonElement>('.feedback-filters button')].find((item) => item.textContent?.startsWith('Comments'))?.click()
+    })
+    const named = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('.thread-card button')].filter((item) => item.textContent === text)
+    expect(named('Resolve')).toHaveLength(1)
+    await act(async () => {
+      named('Resolve')[0]?.click()
+    })
+    expect(api.setLocallyResolved).toHaveBeenCalledWith('acme/app#7', 'note-1', true)
+    expect(named('Unresolve')).toHaveLength(1)
+    const comments = [...document.querySelectorAll('.feedback-filters button')].find((item) => item.textContent?.startsWith('Comments'))
+    expect(comments?.querySelector('.filter-count')?.textContent).toBe('0')
   })
 })

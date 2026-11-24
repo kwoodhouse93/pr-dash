@@ -1,10 +1,11 @@
 import { mergeReview, summarizeReviews, type ReviewDecision } from './approval.ts'
 import { applyRequired, checkPhase, ciLevel, selectChecks } from './ci.ts'
-import { summarizeNotes, summarizeThreads, threadPermalink, type Note, type Thread } from './feedback.ts'
+import { summarizeNotes, summarizeThreads, threadPermalink, type LocalResolutions, type Note, type Thread } from './feedback.ts'
 import { parseLinear } from './linear.ts'
 import type { Check, Mergeable, PullRequest } from './types.ts'
 
 export type GitHubComment = {
+  id?: string
   author: { __typename: string; login: string } | null
   body?: string
   createdAt?: string
@@ -36,6 +37,7 @@ export type GitHubPull = {
   }
   reviews: {
     nodes: Array<{
+      id?: string
       state: string
       submittedAt: string | null
       body?: string | null
@@ -254,12 +256,14 @@ export function mapPullRequest(
     checks: RawCheck[]
     suites?: RawCheckSuite[]
     behindBy?: number | null
+    /** What the viewer resolved on this dashboard only. */
+    local?: LocalResolutions
   },
 ): PullRequest {
   const reviews = summarizeReviews((node.reviews.nodes ?? []).filter(present))
   const threadNodes = (node.reviewThreads.nodes ?? []).filter(present)
   const commentsLoaded = threadNodes.every((thread) => thread.comments !== undefined)
-  const detail = feedbackFrom(threadNodes, node, extras.viewer)
+  const detail = feedbackFrom(threadNodes, node, extras.viewer, extras.local)
   const comments = (node.comments.nodes ?? []).filter(present)
   const merge = mergeReview(node.reviewDecision, node.isDraft)
   const checks = checksFromRaw(extras.checks, extras.requiredNames, {
@@ -337,13 +341,13 @@ export type ThreadDetail = {
   latestComments?: GitHubPull['latestComments']
 }
 
-export function applyThreadDetails(pr: PullRequest, detail: ThreadDetail, viewer: string): PullRequest {
+export function applyThreadDetails(pr: PullRequest, detail: ThreadDetail, viewer: string, local: LocalResolutions = {}): PullRequest {
   const at = Date.parse(detail.updatedAt)
   const current = Date.parse(pr.updatedAt)
   if (Number.isFinite(at) && Number.isFinite(current) && at < current) return pr
   const threads = threadsFrom(detail.reviewThreads.nodes)
   const feedback = summarizeThreads(threads, viewer)
-  const commentsAwaiting = summarizeNotes(threads, conversationNotes(detail), viewer)
+  const commentsAwaiting = summarizeNotes(threads, conversationNotes(detail), viewer, local)
   return {
     ...pr,
     updatedAt: Number.isFinite(at) && (!Number.isFinite(current) || at > current) ? detail.updatedAt : pr.updatedAt,
@@ -371,11 +375,12 @@ function feedbackFrom(
   }>,
   node: GitHubPull,
   viewer: string,
+  local: LocalResolutions = {},
 ) {
   const threads = threadsFrom(threadNodes)
   return {
     feedback: summarizeThreads(threads, viewer),
-    commentsAwaiting: summarizeNotes(threads, conversationNotes(node), viewer),
+    commentsAwaiting: summarizeNotes(threads, conversationNotes(node), viewer, local),
   }
 }
 
@@ -413,6 +418,7 @@ function lastReviewBy(reviews: { state: string; submittedAt: string | null; auth
 
 function conversationNotes(node: { latestComments?: GitHubPull['latestComments']; reviews: GitHubPull['reviews'] }): Note[] {
   const comments = (node.latestComments?.nodes ?? []).filter(present).map((comment) => ({
+    id: comment.id ?? null,
     author: comment.author,
     createdAt: comment.createdAt ?? '',
     body: comment.body ?? '',
@@ -420,7 +426,7 @@ function conversationNotes(node: { latestComments?: GitHubPull['latestComments']
   }))
   const reviews = (node.reviews.nodes ?? []).filter(present).flatMap((review) => {
     if (SKIPPED_REVIEW.has(review.state)) return []
-    return [{ author: review.author, createdAt: review.submittedAt ?? '', body: review.body ?? '', kind: 'review' as const }]
+    return [{ id: review.id ?? null, author: review.author, createdAt: review.submittedAt ?? '', body: review.body ?? '', kind: 'review' as const }]
   })
   return [...comments, ...reviews]
 }
