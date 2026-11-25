@@ -48,6 +48,12 @@ describe('dashboard preferences', () => {
     expect(loadPreferences().prLinks).toBe('github')
   })
 
+  it('keeps button sounds off once switched off, and starts with them on', () => {
+    expect(loadPreferences().sounds).toBe(true)
+    savePreferences({ ...loadPreferences(), sounds: false })
+    expect(loadPreferences().sounds).toBe(false)
+  })
+
   it('writes the page and its filters to the address, and leaves defaults out', () => {
     const prefs = loadPreferences()
     expect(locationSearch(prefs)).toBe('')

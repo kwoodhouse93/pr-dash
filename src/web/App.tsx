@@ -15,6 +15,7 @@ import { loadPreferences, locationSearch, savePreferences, withLocation, type Da
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
+import { setSoundsEnabled } from './sounds.ts'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
 import { Roll, reducedMotion, useLingering } from './motion.tsx'
@@ -103,6 +104,8 @@ export function App() {
     painted.current = key
     setData(next)
   }
+
+  useEffect(() => setSoundsEnabled(prefs.sounds), [prefs.sounds])
 
   useEffect(() => {
     savePreferences(prefs)
@@ -713,6 +716,8 @@ export function App() {
               }
               prLinks={prefs.prLinks}
               onPrLinks={(prLinks) => setPrefs((current) => ({ ...current, prLinks }))}
+              sounds={prefs.sounds}
+              onSounds={(sounds) => setPrefs((current) => ({ ...current, sounds }))}
               onAddRepo={async (repo) => {
                 const snap = await api.addRepo(repo)
                 setData(adopt(snap))

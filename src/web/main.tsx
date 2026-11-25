@@ -4,7 +4,10 @@ import '@fontsource/source-sans-3/400.css'
 import '@fontsource/source-code-pro/300.css'
 import '@fontsource/source-serif-4/500.css'
 import { App } from './App.tsx'
+import { installSounds } from './sounds.ts'
 import './styles.css'
+
+installSounds()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

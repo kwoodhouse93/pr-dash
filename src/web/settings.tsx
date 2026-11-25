@@ -31,6 +31,8 @@ export function SettingsPage({
   initiatives,
   prLinks = 'github',
   onPrLinks = () => {},
+  sounds = true,
+  onSounds = () => {},
 }: {
   status: SyncStatus | null
   repos: string[]
@@ -53,6 +55,9 @@ export function SettingsPage({
   initiatives?: ReactNode
   prLinks?: PrLinkHost
   onPrLinks?: (host: PrLinkHost) => void
+  /** Whether buttons click when pressed. */
+  sounds?: boolean
+  onSounds?: (on: boolean) => void
 }) {
   const [catalog, setCatalog] = useState<RepoCatalog | null>(null)
   const [draft, setDraft] = useState('')
@@ -277,6 +282,17 @@ export function SettingsPage({
               </button>
               <button type="button" aria-pressed={prLinks === 'graphite'} onClick={() => onPrLinks('graphite')}>
                 Graphite
+              </button>
+            </div>
+          </div>
+          <div className="panel-row setting">
+            <h3>Button sounds</h3>
+            <div className="segmented" role="group" aria-label="Button sounds">
+              <button type="button" aria-pressed={sounds} onClick={() => onSounds(true)}>
+                On
+              </button>
+              <button type="button" aria-pressed={!sounds} onClick={() => onSounds(false)}>
+                Off
               </button>
             </div>
           </div>
