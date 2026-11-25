@@ -14,7 +14,7 @@ const RULES: [selector: string, sound: Sound][] = [
   ['.primary', 'halo-space'],
   // Moving between views: the page tabs, the queue, settings and shortcuts, and what a drawer shows.
   ['.refresh-tool', 'halo-hard'],
-  ['.tab, .tool-btn, .feedback-filters button, .feedback-hit, .agent-all', 'halo-shift'],
+  ['.tab, .tally, .tool-btn, .feedback-filters button, .feedback-hit, .agent-all', 'halo-shift'],
   // Switching something on or off, choosing from a list, and opening or closing a section.
   [
     '.chip, .chip-x, .sort, .segmented button, .mark-swatch, .mark-icon, .option, [role="menuitemradio"], ' +

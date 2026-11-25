@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { personalBests, type Activity } from '../shared/activity.ts'
 import { collectHolds, mergeHolds, reconcileHolds, withoutHolds, type CheckHold } from '../shared/ci.ts'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
@@ -6,6 +7,7 @@ import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
+import { ActivityPage } from './activity.tsx'
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
 import { formatExact } from './format.ts'
@@ -20,7 +22,7 @@ import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
 import { Roll, reducedMotion, useLingering } from './motion.tsx'
 import { PrTable, SkeletonTable } from './table.tsx'
-import { Toasts, clearActionError, toastError, toastHeld, toastLanded, toastLinearHint, toastRerun, toastSyncWarning } from './toasts.tsx'
+import { Toasts, clearActionError, toastBest, toastError, toastHeld, toastLanded, toastLinearHint, toastRerun, toastSyncWarning } from './toasts.tsx'
 import type { SyncStatus } from './api.ts'
 
 /** Skip another GitHub pull when the saved list is newer than this. The server refreshes the list more often. */
@@ -473,6 +475,29 @@ export function App() {
     }
     return [...numbers.values()]
   }, [review, data?.departed, now])
+  // The record is read again whenever the day's counts move, and a day or week that has just passed your best is celebrated.
+  // The first read is where this starts from, so a record set while the dashboard was shut is not announced.
+  const [activity, setActivity] = useState<Activity | null>(null)
+  const activitySeen = useRef<Activity | null>(null)
+  const loaded = data != null
+  const onActivity = page === 'activity'
+  useEffect(() => {
+    if (!loaded) return
+    let stale = false
+    api
+      .activity()
+      .then((next) => {
+        if (stale) return
+        const before = activitySeen.current
+        activitySeen.current = next
+        setActivity(next)
+        if (before) toastBest(personalBests(before, next, Date.now()))
+      })
+      .catch(() => {})
+    return () => {
+      stale = true
+    }
+  }, [loaded, onActivity, mergedToday.length, reviewedToday.length])
   // Say so when one of yours lands. The first snapshot is where this starts from, so old merges are not announced.
   const announced = useRef<Set<string> | null>(null)
   useEffect(() => {
@@ -582,10 +607,13 @@ export function App() {
               Review
               {reviewBadge > 0 ? <Roll className="nav-count" value={reviewBadge} /> : null}
             </button>
+            <button type="button" className="tab" aria-pressed={page === 'activity'} onClick={() => setPrefs((current) => ({ ...current, page: 'activity' }))}>
+              Activity
+            </button>
           </nav>
           <div className="top-tools">
             {listPage && mergedToday.length + reviewedToday.length > 0 ? (
-              <span className="tally">
+              <button type="button" className="tally" aria-label="Activity" onClick={() => setPrefs((current) => ({ ...current, page: 'activity' }))}>
                 {mergedToday.length > 0 ? (
                   <span className="tally-part" title={`Your pull requests merged today: ${mergedToday.map((pr) => `#${pr.number}`).join(', ')}`}>
                     <span className="ticks" aria-hidden="true">
@@ -611,7 +639,7 @@ export function App() {
                   </span>
                 ) : null}
                 <span>today</span>
-              </span>
+              </button>
             ) : null}
             {page === 'settings' ? null : (
               <RefreshControl
@@ -736,6 +764,7 @@ export function App() {
               t3PairPrompt={prefs.t3PairPrompt}
             />
           ) : null}
+          {page === 'activity' ? <ActivityPage activity={activity} now={now} /> : null}
           {page === 'queue' ? (
             <MergeQueuePage
               queue={queue}

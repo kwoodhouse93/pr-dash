@@ -66,6 +66,8 @@ app.get('/api/snapshot', (c) => {
   return c.json(db.snapshot())
 })
 
+app.get('/api/activity', (c) => c.json(db.activity()))
+
 app.get('/api/status', (c) => c.json(describeSync(db)))
 
 app.get('/api/repos', async (c) => {

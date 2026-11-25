@@ -6,6 +6,7 @@ import type { FeedbackCounts, LocalResolutions } from '../shared/feedback.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
+import type { Activity, ActivityEvent } from '../shared/activity.ts'
 import type { AgentProviderId, AgentRouting, AgentSession, DepartedPull, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
@@ -59,6 +60,8 @@ export type DashboardDb = {
   pendingDepartures(): { key: string; repo: string; number: number }[]
   /** Records what GitHub says became of one. Open means it left the lists for another reason, so it is forgotten. */
   resolveDeparture(key: string, outcome: 'merged' | 'closed' | 'open', at: string | null): void
+  /** Every merge of the viewer's own and every review they submitted that the dashboard has on record, oldest first. */
+  activity(): Activity
   queue: QueueStore
 }
 
@@ -71,7 +74,7 @@ export type RepoAgent = {
   checkout: string | null
 }
 
-type StoredDeparture = Pick<DepartedPull, 'key' | 'repo' | 'repoName' | 'number' | 'title' | 'url' | 'author' | 'linearIssues' | 'viewerReviewedAt'>
+type StoredDeparture = Pick<DepartedPull, 'key' | 'repo' | 'repoName' | 'number' | 'title' | 'url' | 'author' | 'linearIssues' | 'viewerReviewedAt' | 'readyAt'>
 type Lists = { mine: PullRequest[]; review: PullRequest[] }
 
 /** How far back the snapshot carries merged and closed pull requests. The table keeps them all. */
@@ -94,6 +97,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   const db = new DatabaseSync(file)
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
+  const hadReviewLog = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_log'").get() != null
   db.exec(`
     CREATE TABLE IF NOT EXISTS snapshot (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -162,6 +166,12 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       at TEXT NOT NULL,
       pull_request TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS review_log (
+      pr_key TEXT NOT NULL,
+      at TEXT NOT NULL,
+      pull_request TEXT NOT NULL,
+      PRIMARY KEY (pr_key, at)
+    );
     CREATE TABLE IF NOT EXISTS local_resolutions (
       item_id TEXT PRIMARY KEY,
       pr_key TEXT NOT NULL,
@@ -209,6 +219,20 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   }
   if (!columns.some((column) => column.name === 'review_synced_at')) {
     db.exec('ALTER TABLE snapshot ADD COLUMN review_synced_at TEXT')
+  }
+
+  // A review is logged as a refresh sees it. What was known before the log existed is the one review each stored pull request carries.
+  const writeReview = db.prepare('INSERT OR IGNORE INTO review_log (pr_key, at, pull_request) VALUES (?, ?, ?)')
+  function logReview(pr: Pick<PullRequest, 'key' | 'repo' | 'repoName' | 'number' | 'title' | 'url' | 'viewerReviewedAt' | 'readyAt'>) {
+    if (!pr.viewerReviewedAt) return
+    const event: ActivityEvent = { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, at: pr.viewerReviewedAt, readyAt: pr.readyAt ?? null }
+    writeReview.run(pr.key, pr.viewerReviewedAt, JSON.stringify(event))
+  }
+  if (!hadReviewLog) {
+    const gone = db.prepare(`SELECT pull_request FROM departed_pulls WHERE list = 'review' AND outcome <> 'pending'`).all() as { pull_request: string }[]
+    for (const row of gone) logReview(JSON.parse(row.pull_request) as StoredDeparture)
+    const stored = db.prepare('SELECT review_pull_requests FROM snapshot WHERE id = 1').get() as { review_pull_requests: string | null } | undefined
+    for (const pr of parseList(stored?.review_pull_requests)) logReview(pr)
   }
 
   const queue = attachQueue(db, {
@@ -364,7 +388,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   }
 
   function slimDeparted(pr: PullRequest): StoredDeparture {
-    return { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, author: pr.author, linearIssues: pr.linearIssues, viewerReviewedAt: pr.viewerReviewedAt ?? null }
+    return { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, author: pr.author, linearIssues: pr.linearIssues, viewerReviewedAt: pr.viewerReviewedAt ?? null, readyAt: pr.readyAt ?? null }
   }
 
   /**
@@ -479,6 +503,10 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         { mine: parseList(existing?.pull_requests), review: parseList(existing?.review_pull_requests) },
         { mine: input.pullRequests, review },
       )
+      const watched = new Set(watchedRepos())
+      for (const pr of review) {
+        if (watched.has(pr.repo)) logReview(pr)
+      }
       const mineSyncedAt = input.mineSyncedAt === undefined ? (existing?.mine_synced_at ?? null) : input.mineSyncedAt
       const reviewSyncedAt = input.reviewSyncedAt === undefined ? (existing?.review_synced_at ?? null) : input.reviewSyncedAt
       db.prepare(
@@ -563,6 +591,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         db.prepare(`DELETE FROM linear_links WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM local_resolutions WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare(`DELETE FROM departed_pulls WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
+        db.prepare(`DELETE FROM review_log WHERE pr_key LIKE ? ESCAPE '\\'`).run(like)
         db.prepare('DELETE FROM watched_repos WHERE repo = ?').run(repo)
         db.prepare('DELETE FROM repo_marks WHERE repo = ?').run(repo)
         db.prepare('DELETE FROM repo_agents WHERE repo = ?').run(repo)
@@ -638,6 +667,17 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     resolveDeparture(key, outcome, at) {
       if (outcome === 'open') db.prepare(`DELETE FROM departed_pulls WHERE pr_key = ? AND outcome = 'pending'`).run(key)
       else db.prepare(`UPDATE departed_pulls SET outcome = ?, at = ? WHERE pr_key = ? AND outcome = 'pending'`).run(outcome, at ?? new Date().toISOString(), key)
+    },
+    activity() {
+      const merges = db.prepare(`SELECT at, pull_request FROM departed_pulls WHERE list = 'mine' AND outcome = 'merged' ORDER BY at ASC`).all() as { at: string; pull_request: string }[]
+      const reviews = db.prepare('SELECT pull_request FROM review_log ORDER BY at ASC').all() as { pull_request: string }[]
+      return {
+        merged: merges.map((row) => {
+          const pr = JSON.parse(row.pull_request) as StoredDeparture
+          return { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, at: row.at, readyAt: pr.readyAt ?? null }
+        }),
+        reviewed: reviews.map((row) => JSON.parse(row.pull_request) as ActivityEvent),
+      }
     },
     agentSessions,
     saveAgentSession(prKey, session) {

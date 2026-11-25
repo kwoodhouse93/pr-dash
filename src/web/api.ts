@@ -1,3 +1,4 @@
+import type { Activity } from '../shared/activity.ts'
 import type { AgentRequest, AgentSettings } from '../shared/agents.ts'
 import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
@@ -100,6 +101,7 @@ export const api = {
   setRepoAgent: (repo: string, agent: { provider: AgentProviderId | null; checkout: string | null }) =>
     post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents/repo', { repo, ...agent }),
   rebase: (key: string) => post<Snapshot>('/api/rebase', { key }),
+  activity: () => request<Activity>('/api/activity'),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),
   enqueue: (key: string, scope: 'pr' | 'downstack') => post<QueueSnapshot>('/api/merge-queue', { key, scope }),
   setMergeWhenReady: (key: string, scope: 'pr' | 'downstack', enabled: boolean) =>

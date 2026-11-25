@@ -97,4 +97,27 @@ describe('departed pull requests', () => {
     db.forgetRepo('acme/app')
     expect(db.pendingDepartures()).toEqual([])
   })
+
+  it('keeps every merge of yours and every review you submit for the activity page', () => {
+    const db = open()
+    const ready = '2026-11-20T09:00:00.000Z'
+    save(db, [pr(1, { readyAt: ready })], [pr(5, { viewerReviewedAt: '2026-11-21T10:00:00.000Z', readyAt: ready }), pr(6)])
+    // The same review is logged once however many refreshes see it; a second review is another entry.
+    save(db, [pr(1, { readyAt: ready })], [pr(5, { viewerReviewedAt: '2026-11-21T10:00:00.000Z', readyAt: ready }), pr(6)])
+    save(db, [], [pr(5, { viewerReviewedAt: '2026-11-22T10:00:00.000Z', readyAt: ready })])
+    db.resolveDeparture('acme/app#1', 'merged', '2026-11-22T12:00:00.000Z')
+    db.resolveDeparture('acme/app#6', 'merged', '2026-11-22T12:00:00.000Z')
+
+    const activity = db.activity()
+    expect(activity.merged).toEqual([
+      { key: 'acme/app#1', repo: 'acme/app', repoName: 'app', number: 1, title: 'PR 1', url: 'https://github.com/acme/app/pull/1', at: '2026-11-22T12:00:00.000Z', readyAt: ready },
+    ])
+    expect(activity.reviewed.map((event) => [event.key, event.at, event.readyAt])).toEqual([
+      ['acme/app#5', '2026-11-21T10:00:00.000Z', ready],
+      ['acme/app#5', '2026-11-22T10:00:00.000Z', ready],
+    ])
+
+    db.forgetRepo('acme/app')
+    expect(db.activity()).toEqual({ merged: [], reviewed: [] })
+  })
 })

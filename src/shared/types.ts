@@ -184,6 +184,8 @@ export type DepartedPull = {
   at: string
   /** When the viewer last reviewed it, so a review still counts after the pull request has gone. */
   viewerReviewedAt?: string | null
+  /** When review could start, so the time it took to merge can be told. Missing on one that left before this was kept. */
+  readyAt?: string | null
   linearIssues: LinearIssue[]
   initiativeIds: string[]
   /** Newest first. */

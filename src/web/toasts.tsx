@@ -1,6 +1,7 @@
 import { Toaster, toast } from 'sonner'
+import type { PersonalBest } from '../shared/activity.ts'
 import type { MergeEntry } from '../shared/queue.ts'
-import { confetti } from './confetti.ts'
+import { confetti, confettiShower } from './confetti.ts'
 import { chime, type Chime } from './sounds.ts'
 
 const BRIEF = 4000
@@ -183,6 +184,32 @@ export function toastLanded(landed: { number: number; title: string }[], today: 
       <div className="notice-toast">
         <p className="notice-line">{only ? only.title : landed.map((pr) => `#${pr.number}`).join(', ')}</p>
         <p className="notice-more">{today === 1 ? 'First merge today' : `${today} merged today`}</p>
+      </div>
+    ),
+  })
+}
+
+/** A day or a week that has passed your best on record: what it stands at, and what it beat. */
+export function toastBest(bests: PersonalBest[]) {
+  if (bests.length === 0) return
+  chime('landed')
+  confettiShower()
+  toast.success('Personal best', {
+    duration: READABLE * 2,
+    icon: (
+      <span className="best-mark" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+    ),
+    description: (
+      <div className="notice-toast">
+        {bests.map((best) => (
+          <p key={`${best.kind}-${best.span}`} className="notice-line">
+            {best.count} {best.kind} {best.span === 'day' ? 'today' : 'this week'}, past your best {best.span} of {best.was}
+          </p>
+        ))}
       </div>
     ),
   })
