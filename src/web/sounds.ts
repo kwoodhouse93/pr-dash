@@ -23,6 +23,8 @@ const RULES: [selector: string, sound: Sound][] = [
   ],
   // Everything else that does something: mark ready, resolve a thread, rebase, rerun checks, cancel, copy.
   ['.ghost, .danger, .menu-item, .queue-ic, .num-copy, .icon-btn', 'halo-hard'],
+  // Whatever else opens a popup or a panel. A section's own toggle is sounded by fold.
+  ['[aria-expanded]:not(.section-toggle)', 'halo-soft'],
 ]
 
 const VOLUME = 0.35

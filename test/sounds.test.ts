@@ -17,6 +17,11 @@ describe('soundFor', () => {
     expect(soundFor(control('<button class="tool-btn refresh-tool">Refresh</button>'))).toBe('halo-hard')
   })
 
+  it('sounds a button that opens a popup, whatever it looks like', () => {
+    expect(soundFor(control('<button class="ci-pill" aria-expanded="false">Checks</button>'))).toBe('halo-soft')
+    expect(soundFor(control('<button class="section-toggle" aria-expanded="true">Fold</button>'))).toBeNull()
+  })
+
   it('finds the button around what was pressed', () => {
     expect(soundFor(control('<button class="primary"><span data-hit>Merge</span></button>'))).toBe('halo-space')
   })
