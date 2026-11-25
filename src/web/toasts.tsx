@@ -1,10 +1,27 @@
 import { Toaster, toast } from 'sonner'
 import type { MergeEntry } from '../shared/queue.ts'
+import { confetti } from './confetti.ts'
+import { chime, type Chime } from './sounds.ts'
 
 const BRIEF = 4000
 const READABLE = 6000
 
 let actionErrorId: string | number | null = null
+/** Standing notices now up. One is redrawn as its detail changes, and only its arrival makes a sound. */
+const standing = new Set<string | number>()
+
+function arrive(id: string | number | undefined, kind: Chime) {
+  if (id != null) {
+    if (standing.has(id)) return
+    standing.add(id)
+  }
+  chime(kind)
+}
+
+function leave(id: string | number) {
+  standing.delete(id)
+  toast.dismiss(id)
+}
 
 export function Toasts() {
   return (
@@ -43,6 +60,7 @@ function notice(
   const lines = (options.lines ?? []).map((line) => line.trim()).filter((line) => line && line !== heading)
   const actions = options.actions ?? []
   const show = tone === 'error' ? toast.error : tone === 'warning' ? toast.warning : toast.info
+  if (tone !== 'info') arrive(options.id, tone)
   const id: string | number = show(heading, {
     id: options.id,
     duration: options.duration,
@@ -100,7 +118,7 @@ export function toastError(message: string, options: { heading?: string; onRetry
 /** Problems a refresh finished with, one per line. It stays until a refresh comes back clean. */
 export function toastSyncWarning(warning: string | null, actions: { onRetry: () => void; onSettings: () => void }) {
   if (!warning) {
-    toast.dismiss('snapshot-warning')
+    leave('snapshot-warning')
     return
   }
   notice('warning', 'Refresh finished with problems', {
@@ -142,6 +160,7 @@ export function toastLinearHint(show: boolean, onHide: () => void) {
 }
 
 export function toastSuccess(message: string) {
+  chime('success')
   toast.success(message, { duration: BRIEF })
 }
 
@@ -149,6 +168,8 @@ export function toastSuccess(message: string) {
 export function toastLanded(landed: { number: number; title: string }[], today: number) {
   if (landed.length === 0) return
   const only = landed.length === 1 ? landed[0]! : null
+  chime('landed')
+  confetti()
   toast.success(only ? `Landed #${only.number}` : `Landed ${landed.length} pull requests`, {
     duration: READABLE,
     icon: (
@@ -177,13 +198,14 @@ const HELD_LISTED = 3
  */
 export function toastHeld(entries: MergeEntry[], actions: { onRetry: (entryId: string) => void; onView: () => void }) {
   if (entries.length === 0) {
-    toast.dismiss(HELD_ID)
+    leave(HELD_ID)
     return
   }
   const only = entries.length === 1 ? entries[0]! : null
   const failedAt = only?.steps.findIndex((step) => step.status === 'failed') ?? -1
   const step = only && failedAt >= 0 ? only.steps[failedAt]! : null
   const why = only ? (only.error ?? step?.detail ?? null) : null
+  arrive(HELD_ID, 'warning')
   const view = () => {
     toast.dismiss(HELD_ID)
     actions.onView()

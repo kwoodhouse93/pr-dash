@@ -1,9 +1,9 @@
 import { load, press, release, setPath } from 'button-sounds'
 
-export type Sound = 'halo-space' | 'halo-shift' | 'halo-soft' | 'halo-hard'
+export type Sound = 'halo-space' | 'halo-shift' | 'halo-soft' | 'halo-hard' | 'tonal-on' | 'tonal-off'
 
 /** The sounds in use. The build copies only these audio files, so a new one here is served without further setup. */
-export const SOUNDS: Sound[] = ['halo-space', 'halo-shift', 'halo-soft', 'halo-hard']
+export const SOUNDS: Sound[] = ['halo-space', 'halo-shift', 'halo-soft', 'halo-hard', 'tonal-on', 'tonal-off']
 
 /**
  * Which sound a control makes, first match first. A control can name its own with data-sound,
@@ -18,7 +18,7 @@ const RULES: [selector: string, sound: Sound][] = [
   // Switching something on or off, choosing from a list, and opening or closing a section.
   [
     '.chip, .chip-x, .sort, .segmented button, .mark-swatch, .mark-icon, .option, [role="menuitemradio"], ' +
-      '.section-toggle, .thread-toggle, .queue-row-main, .queue-log-toggle, .agent-row',
+      '.thread-toggle, .queue-row-main, .queue-log-toggle, .agent-row',
     'halo-soft',
   ],
   // Everything else that does something: mark ready, resolve a thread, rebase, rerun checks, cancel, copy.
@@ -74,4 +74,41 @@ export function installSounds() {
 
 function play(trigger: typeof press, sound: Sound) {
   trigger(sound, { volume: VOLUME, playbackRate: 0.97 + Math.random() * 0.06 })
+}
+
+/**
+ * A stack or a section opening or closing. A click anywhere on its row does it, and so does a shortcut,
+ * so this is played by what handles the change. Opening is pitched up and closing down.
+ */
+export function fold(opening: boolean) {
+  if (enabled) press('halo-soft', { volume: VOLUME, playbackRate: opening ? 1.12 : 0.9 })
+}
+
+export type Chime = 'landed' | 'success' | 'warning' | 'error'
+
+/** What a notice plays as it appears: each note is a sound, how fast it is played, and when in milliseconds. */
+const CHIMES: Record<Chime, [sound: Sound, rate: number, at: number][]> = {
+  // A rising major chord, for a merge that landed.
+  landed: [
+    ['tonal-on', 1, 0],
+    ['tonal-on', 1.26, 90],
+    ['tonal-on', 1.5, 180],
+    ['tonal-on', 2, 290],
+  ],
+  success: [['tonal-on', 1.26, 0]],
+  warning: [['tonal-off', 1, 0]],
+  // Two falling notes.
+  error: [
+    ['tonal-off', 1, 0],
+    ['tonal-off', 0.75, 130],
+  ],
+}
+
+/** Plays the sound for a notice. Nobody pressed anything, so this is the only sound that plays unprompted. */
+export function chime(kind: Chime) {
+  if (!enabled) return
+  for (const [sound, playbackRate, at] of CHIMES[kind]) {
+    // One recording throughout, so the notes differ only by the pitch asked for.
+    window.setTimeout(() => press(sound, { volume: VOLUME, playbackRate, sampleIndex: 0 }), at)
+  }
 }

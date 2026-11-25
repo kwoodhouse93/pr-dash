@@ -15,7 +15,7 @@ import { loadPreferences, locationSearch, savePreferences, withLocation, type Da
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
-import { setSoundsEnabled } from './sounds.ts'
+import { fold, setSoundsEnabled } from './sounds.ts'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
 import { Roll, reducedMotion, useLingering } from './motion.tsx'
@@ -801,22 +801,24 @@ export function App() {
               queueByKey={rowMarks(queue?.entries ?? [])}
               watchesByKey={new Map((queue?.watches ?? []).map((watch) => [watch.key, watch]))}
               onSort={chooseSort}
-              onToggle={(id) =>
+              onToggle={(id) => {
+                fold(!prefs.expanded.includes(id))
                 setPrefs((current) => ({
                   ...current,
                   expanded: current.expanded.includes(id)
                     ? current.expanded.filter((item) => item !== id)
                     : [...current.expanded, id],
                 }))
-              }
-              onToggleSection={(id) =>
+              }}
+              onToggleSection={(id) => {
+                fold(prefs.collapsed.includes(id))
                 setPrefs((current) => ({
                   ...current,
                   collapsed: current.collapsed.includes(id)
                     ? current.collapsed.filter((item) => item !== id)
                     : [...current.collapsed, id],
                 }))
-              }
+              }}
               onAssign={(initiativeId, keys, action) => mutate(() => api.assign(initiativeId, keys, action))}
               onCreateAssigned={async (name, keys) => {
                 const before = new Set(initiatives.map((initiative) => initiative.id))
