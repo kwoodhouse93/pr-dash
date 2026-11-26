@@ -31,6 +31,7 @@ import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-contro
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
 import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
+import { reviewChase, type ChaseMessage } from './chase.ts'
 import { toastError, toastSuccess } from './toasts.tsx'
 
 type StackLock = {
@@ -1074,6 +1075,36 @@ async function copyPlain(text: string, confirmation: string): Promise<boolean> {
 }
 
 /** The chosen pull request and each one below it, closest to the trunk first. */
+/** Rich text where the clipboard takes it, so links survive a paste into Slack. */
+async function copyRich(message: ChaseMessage, confirmation: string): Promise<boolean> {
+  try {
+    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([message.html], { type: 'text/html' }),
+          'text/plain': new Blob([message.text], { type: 'text/plain' }),
+        }),
+      ])
+    } else {
+      await navigator.clipboard.writeText(message.text)
+    }
+    toastSuccess(confirmation)
+    return true
+  } catch {
+    toastError('Could not copy to the clipboard')
+    return false
+  }
+}
+
+/** Every pull request in the stack, bottom first. */
+function stackTargets(stackKeys: string[], parents: Parents, prByKey: Map<string, PullRequest>): PullRequest[] {
+  return stackKeys
+    .map((key, index) => ({ pr: prByKey.get(key), depth: downstackKeys(parents, key).length, index }))
+    .filter((item): item is { pr: PullRequest; depth: number; index: number } => item.pr != null)
+    .sort((a, b) => a.depth - b.depth || b.index - a.index)
+    .map((item) => item.pr)
+}
+
 function downstackTargets(
   parents: Parents,
   primaryKey: string,
@@ -1561,6 +1592,11 @@ function RowMenuBody(props: RowMenuProps) {
   const promptTargets = props.prs.length ? props.prs : pr ? [pr] : []
   const failing = props.prs.filter((item) => failingChecks(item).length > 0)
   const copyTargets = downstackTargets(props.parents, props.primaryKey, props.prByKey, props.prs)
+  const stack = props.stackKeys.length > 1 ? stackTargets(props.stackKeys, props.parents, props.prByKey) : []
+  const chases = [
+    ...(pr && !props.defaultWholeStack ? [{ label: `Copy review chase for #${pr.number}`, prs: [pr] }] : []),
+    ...(stack.length > 1 ? [{ label: 'Copy review chase for stack', prs: stack }] : []),
+  ]
 
   if (view === 'initiative') {
     return (
@@ -1617,6 +1653,26 @@ function RowMenuBody(props: RowMenuProps) {
           {copyPrIdsLabel(copyTargets.length)}
         </button>
       ) : null}
+      {chases.map((chase) => {
+        const message = reviewChase(chase.prs)
+        return (
+          <button
+            key={chase.label}
+            type="button"
+            className="menu-item"
+            disabled={!message}
+            title={message ? undefined : 'Nothing left to review'}
+            onClick={() => {
+              if (!message) return
+              void copyRich(message, 'Copied review chase').then((copied) => {
+                if (copied) close()
+              })
+            }}
+          >
+            {chase.label}
+          </button>
+        )
+      })}
       {promptTargets.length ? (
         <button type="button" className="menu-item" onClick={() => setView('prompt')}>
           Work on {promptTargets.length > 1 ? 'a pull request' : `#${promptTargets[0]!.number}`} with {name}…

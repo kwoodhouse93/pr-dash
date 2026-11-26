@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { summarize } from '../src/shared/stacks.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import type { Outline, StackBlock } from '../src/shared/view.ts'
+import { reviewChase } from '../src/web/chase.ts'
 import { copyPrIdsLabel, prCopyList } from '../src/web/format.ts'
 import { MenuProvider } from '../src/web/menus.tsx'
 import { PrTable } from '../src/web/table.tsx'
@@ -116,7 +117,7 @@ function outlineFor(prs: PullRequest[]): Outline {
 
 describe('copy pull request ids', () => {
   let root: Root | null = null
-  const writeText = vi.fn(async () => {})
+  const writeText = vi.fn(async (_text: string) => {})
   const toggled: string[] = []
 
   afterEach(() => {
@@ -252,6 +253,66 @@ describe('copy pull request ids', () => {
     await click(menuItem('Copy 1 PR ID'))
     expect(writeText).toHaveBeenLastCalledWith('frontend#1234')
     expect(toastSuccess).toHaveBeenCalledWith('Copied frontend#1234')
+  })
+
+  function waitingPull(number: number, readyAt: string): PullRequest {
+    return { ...pull(number), reviewDecision: 'REVIEW_REQUIRED', humanApproval: false, readyAt, additions: 180, deletions: 12 }
+  }
+
+  it('writes a review chase for a stack, bottom first, without drafts', () => {
+    const now = Date.parse('2026-10-10T12:00:00Z')
+    const bottom = waitingPull(412, '2026-10-08T11:00:00Z')
+    const middle = pull(413)
+    const top = waitingPull(414, '2026-10-10T07:00:00Z')
+    const draft = { ...waitingPull(415, '2026-10-01T00:00:00Z'), isDraft: true }
+    const message = reviewChase([bottom, middle, top, draft], now)
+    expect(message?.text).toBe(
+      [
+        '👀 Still looking for review - 2 need review, oldest has been waiting 2 days',
+        '',
+        '1. #412 Change 412 · +180 −12 · GitHub: https://github.com/initech/frontend/pull/412 · Graphite: https://app.graphite.com/github/pr/initech/frontend/412',
+        '2. #413 Change 413 · +1 −0 · ✅ approved · GitHub: https://github.com/initech/frontend/pull/413 · Graphite: https://app.graphite.com/github/pr/initech/frontend/413',
+        '3. #414 Change 414 · +180 −12 · GitHub: https://github.com/initech/frontend/pull/414 · Graphite: https://app.graphite.com/github/pr/initech/frontend/414',
+      ].join('\n'),
+    )
+    expect(message?.html).toContain('<ol><li><code>#412</code> Change 412 · +180 −12 · <a href="https://github.com/initech/frontend/pull/412">GitHub</a>')
+    expect(reviewChase([bottom, middle], now)?.text.split('\n')[0]).toBe('👀 Still looking for review - 1 needs review, waiting 2 days')
+  })
+
+  it('writes a review chase for one pull request and nothing once approved', () => {
+    const now = Date.parse('2026-10-10T12:00:00Z')
+    const pr = { ...waitingPull(412, '2026-10-10T07:00:00Z'), title: 'Fix <b> & co' }
+    const message = reviewChase([pr], now)
+    expect(message?.text).toBe(
+      '👀 Still looking for review - #412 Fix <b> & co · +180 −12 · waiting 5 hours · GitHub: https://github.com/initech/frontend/pull/412 · Graphite: https://app.graphite.com/github/pr/initech/frontend/412',
+    )
+    expect(message?.html).toContain('Fix &lt;b&gt; &amp; co')
+    expect(reviewChase([pull(413)], now)).toBeNull()
+    expect(reviewChase([{ ...pr, isDraft: true }], now)).toBeNull()
+  })
+
+  it('offers a review chase for the stack and for one pull request', async () => {
+    const top = waitingPull(1236, '2026-10-02T00:00:00Z')
+    const bottom = pull(1234)
+    top.baseRef = 'branch-1234'
+    bottom.headRef = 'branch-1234'
+
+    await render([top, bottom])
+    await click(document.querySelector('button.row-menu'))
+    expect(menuItem('Copy review chase for #1236')).toBeUndefined()
+    await click(menuItem('Copy review chase for stack'))
+    const stackText = writeText.mock.calls.at(-1)?.[0] ?? ''
+    expect(stackText.split('\n').slice(2).map((row) => row.slice(0, 8))).toEqual(['1. #1234', '2. #1236'])
+    expect(toastSuccess).toHaveBeenCalledWith('Copied review chase')
+    expect(document.querySelector('.popover')).toBeNull()
+
+    await render([top, bottom], true)
+    await click(rowFor(1234).querySelector('button.row-menu'))
+    expect(menuItem('Copy review chase for #1234')?.disabled).toBe(true)
+    expect(menuItem('Copy review chase for stack')?.disabled).toBe(false)
+    await click(rowFor(1236).querySelector('button.row-menu'))
+    await click(menuItem('Copy review chase for #1236'))
+    expect(writeText.mock.calls.at(-1)?.[0]).toContain('👀 Still looking for review - #1236 Change 1236')
   })
 
   it('reports a clipboard failure', async () => {
