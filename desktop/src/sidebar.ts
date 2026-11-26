@@ -126,6 +126,7 @@ export type SidebarModel = {
   earlier: AgentRow[]
   running: number
   unread: number
+  /** The tab strip: every tab but those standing for an agent, which the agents menu lists, unless it is the active one. */
   strip: StripTab[]
   /** Tabs other than the dashboard, top to bottom as the sidebar lists them. */
   order: number[]
@@ -642,7 +643,8 @@ export function buildSidebar(input: {
     }
   }
 
-  const strip: StripTab[] = tabs.map((tab) => {
+  // Agent tabs live in the agents menu, as they do in the sidebar. The one being looked at stays, so the strip shows where you are.
+  const strip: StripTab[] = tabs.filter((tab) => tab.id === activeId || !agentTab(tab.id)).map((tab) => {
     const run = runOfTab.get(tab.id)
     const begun = startingOfTab.get(tab.id)
     const shown = tab.pinned || run || begun ? null : lookup(tab.url)

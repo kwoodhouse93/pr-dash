@@ -365,6 +365,12 @@ describe('sidebar agents', () => {
     expect(model.nodes.flatMap((node) => (node.kind === 'tab' ? [node.row.agent] : []))).toEqual([true])
   })
 
+  it('keeps an agent tab out of the strip unless it is the one being looked at', () => {
+    const tabs = [tab(7, 'https://cursor.com/agents/bc-done'), tab(8, 'https://github.com/acme/app/pull/1'), tab(9, 'about:blank', { starting: { key: 'acme/app#2', kind: 'prompt', prompt: 'Tidy' } })]
+    expect(build(tabs, data, { activeId: 8 }).strip.map((item) => item.id)).toEqual([0, 8])
+    expect(build(tabs, data, { activeId: 7 }).strip.map((item) => item.id)).toEqual([0, 7, 8])
+  })
+
   it('lists a tab opened for an agent that is still starting with the agents, under its pull request', () => {
     const starting = { key: 'acme/app#2', kind: 'prompt' as const, prompt: 'Tidy the imports' }
     const model = build([tab(7, 'about:blank', { starting })], data, { activeId: 7 })

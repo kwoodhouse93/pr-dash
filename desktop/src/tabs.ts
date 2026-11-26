@@ -306,9 +306,10 @@ export class Tabs {
 
   /** Tabs in the order the user sees them: the sidebar's when it is open, the strip's otherwise. */
   private ordered(): Tab[] {
-    if (!this.sidebar.open) return this.tabs
     const byId = new Map(this.tabs.map((tab) => [tab.id, tab]))
-    return [this.dashboard, ...this.model().order.flatMap((id) => byId.get(id) ?? [])]
+    const model = this.model()
+    if (!this.sidebar.open) return model.strip.flatMap((item) => byId.get(item.id) ?? [])
+    return [this.dashboard, ...model.order.flatMap((id) => byId.get(id) ?? [])]
   }
 
   private refreshSoon() {
