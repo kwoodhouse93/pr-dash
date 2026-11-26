@@ -240,6 +240,30 @@ describe('sidebar tabs', () => {
     expect(outline(build(tabs, data, { grouping: 'initiative' }).nodes).slice(0, 3)).toEqual(['group:Onboarding', '  #3', 'group:Untagged'])
   })
 
+  it('keeps a tab that has left its pull request under that pull request', () => {
+    // Tab 7 was on #3 and followed a link in place; tab 8 was opened from it.
+    const wandered = [
+      tab(5, 'https://github.com/acme/app/pull/4'),
+      tab(7, 'https://github.com/acme/app/actions/runs/9', { origin: 'acme/app#3', title: 'CI run' }),
+      tab(8, 'https://vercel.com/acme/app', { parent: 7, origin: 'acme/app#3', title: 'Preview' }),
+    ]
+    expect(outline(build(wandered, data).nodes)).toEqual(['group:Onboarding', '  CI run', '  Preview', 'group:Ungrouped', '  #4'])
+    expect(build(wandered, data, { activeId: 7 }).crumb).toEqual(['Onboarding', 'CI run'])
+  })
+
+  it('nests a tab that has left its pull request under a tab still on it', () => {
+    const wandered = [tab(5, 'https://github.com/acme/app/pull/3'), tab(7, 'https://github.com/acme/app/actions/runs/9', { origin: 'acme/app#3', title: 'CI run' })]
+    expect(outline(build(wandered, data).nodes)).toEqual(['group:Onboarding', '  #3', '    CI run'])
+  })
+
+  it('files a page under Other or Linear when its pull request is unknown or it is on Linear', () => {
+    const wandered = [
+      tab(7, 'https://example.com/', { origin: 'acme/app#99', title: 'Unknown' }),
+      tab(8, 'https://linear.app/acme/issue/ENG-1/known', { origin: 'acme/app#3', title: 'Issue' }),
+    ]
+    expect(outline(build(wandered, data).nodes)).toEqual(['label:Linear', 'Issue', 'label:Other', 'Unknown'])
+  })
+
   it('hides the rows of a collapsed group but keeps them in the tab order', () => {
     const model = build(tabs, data, { collapsed: ['project:Invitations'] })
     expect(outline(model.nodes).slice(0, 2)).toEqual(['group:Invitations', 'group:Onboarding'])

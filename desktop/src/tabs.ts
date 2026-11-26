@@ -48,14 +48,16 @@ type Tab = {
   /** False until the first page has loaded, so a redirect on the way in still decides the tab's place. */
   settled: boolean
   parent: number | null
+  /** The pull request this tab last showed, or the one the tab it was opened from came from. */
+  origin: string | null
   /** The agent the dashboard opened this tab for. Dropped once a snapshot read after the tab reached a page says what the tab shows. */
   starting: StartingAgent | null
   /** When that tab first reached a page. */
   landedAt: number | null
 }
 
-/** `parents` holds, for each address, the index of the tab it was opened from. */
-export type SavedTabs = { urls: string[]; active: number; parents?: (number | null)[] }
+/** `parents` holds, for each address, the index of the tab it was opened from, and `origins` the pull request it came from. */
+export type SavedTabs = { urls: string[]; active: number; parents?: (number | null)[]; origins?: (string | null)[] }
 
 export type SidebarState = { open: boolean; width: number; grouping: Grouping; collapsed: string[]; earlierOpen: boolean; linearByProject: boolean }
 
@@ -291,7 +293,7 @@ export class Tabs {
 
   private model(): SidebarModel {
     return buildSidebar({
-      tabs: this.tabs.map((tab): TabInfo => ({ id: tab.id, pinned: tab.pinned, url: tab.url, placedUrl: tab.placedUrl, title: tab.title, favicon: tab.favicon, loading: tab.loading, parent: tab.parent, starting: tab.starting })),
+      tabs: this.tabs.map((tab): TabInfo => ({ id: tab.id, pinned: tab.pinned, url: tab.url, placedUrl: tab.placedUrl, title: tab.title, favicon: tab.favicon, loading: tab.loading, parent: tab.parent, origin: tab.origin, starting: tab.starting })),
       activeId: this.activeId,
       data: this.data,
       grouping: this.sidebar.grouping,
@@ -550,6 +552,8 @@ export class Tabs {
     for (const [index, tab] of made.entries()) {
       const parent = saved.parents?.[index]
       if (tab && typeof parent === 'number') tab.parent = made[parent]?.id ?? null
+      const origin = saved.origins?.[index]
+      if (tab && typeof origin === 'string') tab.origin = origin
     }
     const target = this.tabs[saved.active]
     if (target) this.activate(target.id)
@@ -565,6 +569,7 @@ export class Tabs {
       urls: kept.map((tab) => shareUrl(tab.view.webContents.getURL())),
       active: this.tabs.indexOf(this.active),
       parents,
+      origins: kept.map((tab) => tab.origin),
     }
   }
 
@@ -641,7 +646,9 @@ export class Tabs {
     const view = new WebContentsView(options.adopt ? { webContents: options.adopt } : { webPreferences: { session: this.session } })
     view.setBackgroundColor('#10110f')
     view.setVisible(false)
-    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt, url, placedUrl: url, settled: false, parent: options.parent ?? null, starting: options.starting ?? null, landedAt: null }
+    const from = options.parent == null ? null : this.tabs.find((tab) => tab.id === options.parent)
+    const origin = prRef(url)?.key ?? (from ? (prRef(from.url)?.key ?? from.origin) : null)
+    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt, url, placedUrl: url, settled: false, parent: options.parent ?? null, origin, starting: options.starting ?? null, landedAt: null }
     const at = options.after ? this.tabs.indexOf(options.after) + 1 : this.tabs.length
     this.tabs.splice(at, 0, tab)
     this.win.contentView.addChildView(view)
@@ -726,6 +733,8 @@ export class Tabs {
     const navigated = () => {
       const url = contents.getURL()
       if (url) tab.url = url
+      const shown = tab.pinned ? null : prRef(tab.url)
+      if (shown) tab.origin = shown.key
       if (tab.starting && tab.landedAt === null && isWebUrl(url)) tab.landedAt = Date.now()
       // The row of the tab being looked at keeps its place, so nothing moves
       // under the pointer. It is filed again when another tab takes over.

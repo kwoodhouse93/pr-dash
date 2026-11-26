@@ -33,6 +33,8 @@ export type TabInfo = {
   loading: boolean
   /** The tab this one was opened from. */
   parent: number | null
+  /** The pull request this tab last showed, or the one the tab it was opened from came from. A page off it is still filed under it. */
+  origin?: string | null
   /** The agent the dashboard opened this tab for, until that agent's run is known. */
   starting?: StartingAgent | null
 }
@@ -526,10 +528,23 @@ export function buildSidebar(input: {
   const plain = tabs.filter((tab) => !tab.pinned && !agentTab(tab.id))
   const children = new Map<number, TabInfo[]>()
   const top: TabInfo[] = []
+  const offPr = (tab: TabInfo) => !lookup(tab.placedUrl) && !linearRef(tab.placedUrl)
+  // The pull request a page that is not one came from, when the dashboard knows it.
+  const originOf = (tab: TabInfo) => (offPr(tab) && tab.origin ? (known.get(tab.origin) ?? null) : null)
+  // Where the sidebar files a tab: the pull request it shows, or the one it came from.
+  const placeOf = (tab: TabInfo) => lookup(tab.placedUrl) ?? originOf(tab)
   for (const tab of plain) {
     const parent = tab.parent === null ? null : byId.get(tab.parent)
-    const nests = !lookup(tab.placedUrl) && !linearRef(tab.placedUrl) && parent && !parent.pinned && !agentTab(parent.id) && lookup(parent.placedUrl)
-    if (nests) children.set(parent.id, [...(children.get(parent.id) ?? []), tab])
+    // A page goes under the tab it was opened from, or else under a tab on the pull request it came from.
+    const origin = originOf(tab)
+    const host = !offPr(tab)
+      ? null
+      : parent && !parent.pinned && !agentTab(parent.id) && lookup(parent.placedUrl)
+        ? parent
+        : origin
+          ? plain.find((other) => lookup(other.placedUrl) === origin)
+          : null
+    if (host) children.set(host.id, [...(children.get(host.id) ?? []), tab])
     else top.push(tab)
   }
 
@@ -568,7 +583,7 @@ export function buildSidebar(input: {
     for (const tab of top) push(tab, 0, true, [])
   } else {
     const { rank, stacks } = dashboardLayout(data, prefs)
-    const rankOf = (tab: TabInfo) => rank.get(lookup(tab.placedUrl)?.pr.key ?? '') ?? Number.MAX_SAFE_INTEGER
+    const rankOf = (tab: TabInfo) => rank.get(placeOf(tab)?.pr.key ?? '') ?? Number.MAX_SAFE_INTEGER
     const sorted = (rows: TabInfo[]) => rows.slice().sort((a, b) => rankOf(a) - rankOf(b))
     const first = (rows: TabInfo[]) => Math.min(Number.MAX_SAFE_INTEGER, ...rows.map(rankOf))
     // The pull request a row stands for in its stack. A tab that has left its pull request is not part of one.
@@ -591,7 +606,7 @@ export function buildSidebar(input: {
     const linear: TabInfo[] = []
     const other: TabInfo[] = []
     for (const tab of top) {
-      const placed = lookup(tab.placedUrl)
+      const placed = placeOf(tab)
       if (!placed) {
         ;(linearRef(tab.placedUrl) ? linear : other).push(tab)
         continue
