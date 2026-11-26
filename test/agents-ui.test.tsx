@@ -200,7 +200,7 @@ describe('agents', () => {
   }
 
   function button(text: string): HTMLButtonElement | undefined {
-    return [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes(text))
+    return [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) => (item.getAttribute('aria-label') ?? item.textContent)?.includes(text))
   }
 
   it('shows a single session as a count colored by its status, with the same list as several', async () => {

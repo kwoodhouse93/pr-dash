@@ -219,12 +219,12 @@ describe('merge action', () => {
 
   it('offers to merge without approval only when that is turned on', async () => {
     await render(async () => {}, { pr: unapproved })
-    expect((await openRowMenu()).some((item) => item.textContent?.includes('without approval'))).toBe(false)
+    expect((await openRowMenu()).some((item) => item.getAttribute('aria-label')?.includes('without approval'))).toBe(false)
   })
 
   it('does not offer to merge an approved pull request without approval', async () => {
     await render(async () => {}, { onMergeUnapproved: async () => {} })
-    expect((await openRowMenu()).some((item) => item.textContent?.includes('without approval'))).toBe(false)
+    expect((await openRowMenu()).some((item) => item.getAttribute('aria-label')?.includes('without approval'))).toBe(false)
   })
 
   it('queues a merge without approval after a second press', async () => {
@@ -235,13 +235,23 @@ describe('merge action', () => {
         queued.push(key)
       },
     })
-    const item = () => [...document.querySelectorAll<HTMLButtonElement>('button.menu-item')].find((button) => button.textContent?.includes('without approval'))!
+    const item = () => document.querySelector<HTMLButtonElement>('button.menu-item[aria-label="Merge #7 without approval…"]')
+    const confirm = () => document.querySelector<HTMLButtonElement>('.menu-confirm button.danger')
     await openRowMenu()
-    expect(item().textContent).toBe('Merge #7 without approval…')
-    await act(async () => item().click())
+    expect(confirm()).toBeNull()
+    await act(async () => item()!.click())
     expect(queued).toEqual([])
-    expect(item().textContent).toBe('Confirm: merge #7 without approval')
-    await act(async () => item().click())
+    expect(item()).toBeNull()
+    expect(document.querySelector('.menu-confirm h4')?.textContent).toBe('Merge #7 without approval?')
+
+    // Cancel puts the line back, and nothing is queued.
+    await act(async () => document.querySelector<HTMLButtonElement>('.menu-confirm button.ghost')!.click())
+    expect(confirm()).toBeNull()
+    expect(queued).toEqual([])
+
+    await act(async () => item()!.click())
+    await act(async () => confirm()!.click())
     expect(queued).toEqual(['acme/app#7'])
+    expect(document.querySelector('.popover')).toBeNull()
   })
 })

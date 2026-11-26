@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import { CloseButton } from './menus.tsx'
+import { dismiss } from './sounds.ts'
 
 const SHORTCUTS: { keys: string[]; does: string }[] = [
   { keys: ['/'], does: 'Search the list' },
@@ -6,6 +8,7 @@ const SHORTCUTS: { keys: string[]; does: string }[] = [
   { keys: ['k'], does: 'Move up a row' },
   { keys: ['Enter', 'o'], does: 'Open the pull request on the row' },
   { keys: ['x'], does: 'Expand or collapse the stack on the row' },
+  { keys: ['.'], does: 'Open the menu for the row' },
   { keys: ['Esc'], does: 'Clear the row, or close what is open' },
   { keys: ['?'], does: 'Show or hide this list' },
 ]
@@ -50,7 +53,10 @@ export function Shortcuts({ open, onOpen, onClose }: { open: boolean; onOpen: ()
         return
       }
       if (openRef.current) {
-        if (event.key === 'Escape') onClose()
+        if (event.key === 'Escape') {
+          dismiss()
+          onClose()
+        }
         return
       }
       if (document.querySelector('[aria-modal="true"]')) return
@@ -71,6 +77,9 @@ export function Shortcuts({ open, onOpen, onClose }: { open: boolean; onOpen: ()
         if (event.target instanceof HTMLElement && event.target.closest('button, a')) return
         event.preventDefault()
         row.querySelector<HTMLAnchorElement>('.title-line a')?.click()
+      } else if (event.key === '.') {
+        event.preventDefault()
+        row.querySelector<HTMLButtonElement>('.row-menu')?.click()
       } else if (event.key === 'x' && row.classList.contains('stack')) {
         event.preventDefault()
         row.click()
@@ -90,11 +99,16 @@ export function Shortcuts({ open, onOpen, onClose }: { open: boolean; onOpen: ()
     <div
       className="modal-back"
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (event.target !== event.currentTarget) return
+        dismiss()
+        onClose()
       }}
     >
       <div className="modal shortcuts" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
-        <h3 id="shortcuts-title">Keyboard shortcuts</h3>
+        <header className="modal-head">
+          <h3 id="shortcuts-title">Keyboard shortcuts</h3>
+          <CloseButton onClose={onClose} />
+        </header>
         <dl>
           {SHORTCUTS.map((item) => (
             <div key={item.does}>
@@ -110,9 +124,6 @@ export function Shortcuts({ open, onOpen, onClose }: { open: boolean; onOpen: ()
             </div>
           ))}
         </dl>
-        <button type="button" className="ghost" onClick={onClose}>
-          Close
-        </button>
       </div>
     </div>
   )

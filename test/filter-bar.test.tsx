@@ -125,7 +125,7 @@ describe('filter bar', () => {
     click(button('Repo'))
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
     act(() => {
-      window.dispatchEvent(new MouseEvent('click'))
+      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     })
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })

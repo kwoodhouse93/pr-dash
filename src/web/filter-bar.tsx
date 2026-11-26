@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { Filters, Initiative, PullRequest } from '../shared/types.ts'
 import { prMatches } from '../shared/view.ts'
-import { ClickCard, useMenuClose } from './menus.tsx'
+import { ClickCard, PopBody, PopHead, useMenuClose } from './menus.tsx'
 import type { ListPage } from './prefs.ts'
 
 type Option<T> = { value: T; label: string; count: number }
@@ -266,7 +266,6 @@ function FilterChip<T extends string | null>({
         id={`filter-${id}`}
         className="chip-btn"
         panelClassName="filter-menu"
-        closable={false}
         label={
           active ? (
             <>
@@ -308,25 +307,11 @@ function FilterOptions<T extends string | null>({
   footer?: { label: string; onClick: () => void }
 }) {
   const close = useMenuClose()
-  const closeRef = useRef(close)
-  closeRef.current = close
   const list = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     list.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus()
-    const onClick = () => closeRef.current()
-    window.addEventListener('click', onClick)
-    return () => window.removeEventListener('click', onClick)
   }, [])
-
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
-    if (!step) return
-    event.preventDefault()
-    const items = [...(list.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
-    const at = items.indexOf(document.activeElement as HTMLButtonElement)
-    items[(at + step + items.length) % items.length]?.focus()
-  }
 
   let foot: ReactNode = null
   if (footer) {
@@ -347,7 +332,10 @@ function FilterOptions<T extends string | null>({
   }
 
   return (
-    <div ref={list} role="menu" aria-label={label} onKeyDown={onKeyDown}>
+    <>
+      <PopHead title={label} />
+      <PopBody list>
+    <div ref={list} role="menu" aria-label={label}>
       {options.map((option) => (
         <button
           key={option.value ?? ''}
@@ -367,5 +355,7 @@ function FilterOptions<T extends string | null>({
       ))}
       {foot}
     </div>
+      </PopBody>
+    </>
   )
 }

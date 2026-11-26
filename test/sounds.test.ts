@@ -11,6 +11,7 @@ describe('soundFor', () => {
   it('gives each kind of control its own sound', () => {
     expect(soundFor(control('<button class="primary merge">Merge</button>'))).toBe('halo-space')
     expect(soundFor(control('<button class="tab">Review</button>'))).toBe('halo-shift')
+    expect(soundFor(control('<button class="pop-back">Back</button>'))).toBe('halo-shift')
     expect(soundFor(control('<button class="chip" aria-pressed="true">Hide drafts</button>'))).toBe('halo-soft')
     expect(soundFor(control('<div class="segmented"><button data-hit>On</button></div>'))).toBe('halo-soft')
     expect(soundFor(control('<button class="ghost merge">Ready</button>'))).toBe('halo-hard')

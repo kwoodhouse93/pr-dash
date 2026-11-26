@@ -197,7 +197,7 @@ describe('copy pull request ids', () => {
   }
 
   function menuItem(text: string): HTMLButtonElement | undefined {
-    return [...document.querySelectorAll<HTMLButtonElement>('button.menu-item')].find((item) => item.textContent === text)
+    return [...document.querySelectorAll<HTMLButtonElement>('button.menu-item')].find((item) => item.getAttribute('aria-label') === text)
   }
 
   it('formats a trunk-first list', () => {
@@ -249,7 +249,7 @@ describe('copy pull request ids', () => {
     expect(writeText).toHaveBeenLastCalledWith('frontend#1234, frontend#1235')
 
     await click(rowFor(1234).querySelector('button.row-menu'))
-    expect(menuItem('Copy 1 PR ID')?.textContent).toBe('Copy 1 PR ID')
+    expect(menuItem('Copy 1 PR ID')?.querySelector('.menu-label')?.textContent).toBe('PR ID')
     await click(menuItem('Copy 1 PR ID'))
     expect(writeText).toHaveBeenLastCalledWith('frontend#1234')
     expect(toastSuccess).toHaveBeenCalledWith('Copied frontend#1234')

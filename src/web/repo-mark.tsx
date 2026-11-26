@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { REPO_COLORS, REPO_ICONS, repoMarkOf } from '../shared/repo-marks.ts'
 import type { RepoMark } from '../shared/types.ts'
-import { ClickCard } from './menus.tsx'
+import { ClickCard, PopBody, PopHead } from './menus.tsx'
 
 const RepoMarksContext = createContext<Record<string, RepoMark> | undefined>(undefined)
 
@@ -54,7 +54,8 @@ export function RepoMarkPicker({ repo, onPick }: { repo: string; onPick: (repo: 
         </>
       }
     >
-      <h3>Icon for {repo}</h3>
+      <PopHead title={`Icon for ${repo}`} />
+      <PopBody>
       <div className="mark-swatches" role="group" aria-label="Colour">
         {REPO_COLORS.map((color) => (
           <button
@@ -85,6 +86,7 @@ export function RepoMarkPicker({ repo, onPick }: { repo: string; onPick: (repo: 
         ))}
       </div>
       {error ? <p className="launch-error">{error}</p> : null}
+      </PopBody>
     </ClickCard>
   )
 }

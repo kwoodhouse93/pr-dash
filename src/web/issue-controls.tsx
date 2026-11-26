@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { isLinearIdentifier } from '../shared/linear.ts'
 import type { LinearAssignee, LinearIssue, LinearStatus, PullRequest } from '../shared/types.ts'
 import { api } from './api.ts'
-import { ClickCard, useMenuClose } from './menus.tsx'
+import { ClickCard, PopBody, PopHead, useMenuClose } from './menus.tsx'
 
 export { isLinearIdentifier }
 
@@ -59,10 +59,13 @@ export function LinkIssueForm({
   prs,
   initialKey,
   onLink,
+  onBack,
 }: {
   prs: PullRequest[]
   initialKey: string
   onLink: (key: string, identifier: string) => Promise<void>
+  /** Shown as a step of a menu, this returns to the menu. */
+  onBack?: () => void
 }) {
   const close = useMenuClose()
   const [key, setKey] = useState(prs.some((pr) => pr.key === initialKey) ? initialKey : prs[0]!.key)
@@ -130,14 +133,14 @@ export function LinkIssueForm({
 
   return (
     <form
-      className="picker link-issue"
+      className="link-issue pop-form"
       onSubmit={(event) => {
         event.preventDefault()
         if (typedId) void choose(typedId)
       }}
     >
-      <h3>Link Linear issue</h3>
-      <p>Attaches this pull request on the issue.</p>
+      <PopHead title="Link Linear issue" sub={`Attaches #${pr.number} on the issue`} onBack={onBack} />
+      <PopBody list className="picker">
       {prs.length > 1 ? (
         <label className="agent-target">
           Pull request
@@ -159,7 +162,7 @@ export function LinkIssueForm({
         autoFocus
         disabled={busy}
       />
-      {error ? <p>{error}</p> : null}
+      {error ? <p className="launch-error">{error}</p> : null}
       {searching ? <p>Searching…</p> : null}
       {shown.map((issue) => {
         const already = linked.has(issue.identifier)
@@ -180,6 +183,7 @@ export function LinkIssueForm({
         )
       })}
       {!searching && query.trim().length >= 2 && shown.length === 0 && !error ? <p>No matching issues.</p> : null}
+      </PopBody>
     </form>
   )
 }
@@ -229,9 +233,10 @@ function StatusMenu({
   }
 
   return (
-    <div className="picker" role="listbox" aria-label="Issue status">
-      <h3>Status</h3>
-      {error ? <p>{error}</p> : null}
+    <>
+      <PopHead title={`Status · ${issue.identifier}`} />
+      <PopBody list className="picker" role="listbox" label="Issue status">
+      {error ? <p className="launch-error">{error}</p> : null}
       {statuses === null && !error ? <p>Loading statuses…</p> : null}
       {statuses?.map((status) => (
         <button
@@ -247,7 +252,8 @@ function StatusMenu({
           <span>{status.name}</span>
         </button>
       ))}
-    </div>
+      </PopBody>
+    </>
   )
 }
 
@@ -301,8 +307,9 @@ function AssigneeMenu({
   const currentMissing = issue.assignee && !visible.some((user) => user.id === issue.assignee?.id) && !needle
 
   return (
-    <div className="picker" role="listbox" aria-label="Assignee">
-      <h3>Assignee</h3>
+    <>
+      <PopHead title={`Assignee · ${issue.identifier}`} />
+      <PopBody list className="picker" role="listbox" label="Assignee">
       <input
         className="search"
         value={query}
@@ -311,7 +318,7 @@ function AssigneeMenu({
         aria-label="Search people"
         autoFocus
       />
-      {error ? <p>{error}</p> : null}
+      {error ? <p className="launch-error">{error}</p> : null}
       {users === null && !error ? <p>Loading people…</p> : null}
       <button
         type="button"
@@ -352,7 +359,8 @@ function AssigneeMenu({
         </button>
       ))}
       {users && visible.length === 0 ? <p>No matching people.</p> : null}
-    </div>
+      </PopBody>
+    </>
   )
 }
 

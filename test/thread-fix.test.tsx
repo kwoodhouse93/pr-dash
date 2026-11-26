@@ -6,6 +6,7 @@ import type { AgentRequest } from '../src/shared/agents.ts'
 import type { FeedbackPayload } from '../src/shared/feedback.ts'
 import { AgentProvider } from '../src/web/agent-launch.tsx'
 import { api } from '../src/web/api.ts'
+import { MenuProvider } from '../src/web/menus.tsx'
 import { Feedback, type FeedbackTarget } from '../src/web/feedback.tsx'
 
 vi.mock('../src/web/api.ts', () => ({
@@ -120,7 +121,7 @@ describe('fix a review thread with Cursor', () => {
     await act(async () => {
       root?.render(
         <AgentProvider start={onStart}>
-          <Feedback mode="mine" targets={targets} />
+          <MenuProvider><Feedback mode="mine" targets={targets} /></MenuProvider>
         </AgentProvider>,
       )
     })

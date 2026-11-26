@@ -14,7 +14,7 @@ const RULES: [selector: string, sound: Sound][] = [
   ['.primary', 'halo-space'],
   // Moving between views: the page tabs, the queue, settings and shortcuts, and what a drawer shows.
   ['.refresh-tool', 'halo-hard'],
-  ['.tab, .tally, .tool-btn, .feedback-filters button, .feedback-hit, .agent-all', 'halo-shift'],
+  ['.tab, .tally, .tool-btn, .feedback-filters button, .feedback-hit, .agent-all, .pop-back', 'halo-shift'],
   // Switching something on or off, choosing from a list, and opening or closing a section.
   [
     '.chip, .chip-x, .sort, .segmented button, .mark-swatch, .mark-icon, .option, [role="menuitemradio"], ' +
@@ -54,6 +54,7 @@ export function installSounds() {
     'pointerdown',
     (event) => {
       if (!enabled || event.button !== 0) return
+      if (closes(event.target)) return dismiss()
       const sound = soundFor(event.target)
       if (!sound) return
       play(press, sound)
@@ -67,6 +68,7 @@ export function installSounds() {
     'click',
     (event) => {
       if (!enabled || event.detail !== 0) return
+      if (closes(event.target)) return dismiss()
       const sound = soundFor(event.target)
       if (sound) play(press, sound)
     },
@@ -84,6 +86,19 @@ function play(trigger: typeof press, sound: Sound) {
  */
 export function fold(opening: boolean) {
   if (enabled) press('halo-soft', { volume: VOLUME, playbackRate: opening ? 1.12 : 0.9 })
+}
+
+/** Whether what was pressed is the cross that closes a popup, a drawer or a dialog. */
+function closes(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest('button.popover-close:not(:disabled)'))
+}
+
+/**
+ * A popup, a drawer or a dialog closed without anything being done in it: by its cross, by Escape or by a
+ * click outside. It is the sound of one opening, pitched down. Closing because an action ran is silent.
+ */
+export function dismiss() {
+  if (enabled) press('halo-soft', { volume: VOLUME, playbackRate: 0.9 })
 }
 
 export type Chime = 'landed' | 'success' | 'warning' | 'error'

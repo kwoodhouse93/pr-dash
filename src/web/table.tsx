@@ -30,7 +30,7 @@ import { usePrHref } from './pr-links.tsx'
 import { isLinearIdentifier, IssueControls, LinkIssueForm } from './issue-controls.tsx'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { Feedback, FeedbackProvider, feedbackTarget, useViewer } from './feedback.tsx'
-import { ClickCard, HoverCard, useMenuClose } from './menus.tsx'
+import { ClickCard, HoverCard, MenuItem, PopBody, PopFoot, PopHead, useMenuClose } from './menus.tsx'
 import { reviewChase, type ChaseMessage } from './chase.ts'
 import { toastError, toastSuccess } from './toasts.tsx'
 
@@ -1359,7 +1359,8 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
             </>
           }
         >
-          <h3>Resolve with {name}</h3>
+          <PopHead title={`Resolve with ${name}`} />
+          <PopBody>
           <p>{name} will resolve the conflict and push to this pull request’s existing branch.</p>
           {conflicts.map((pr) => {
             const running = activeSession(pr, 'conflict')
@@ -1384,6 +1385,7 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
             )
           })}
           {error ? <p className="launch-error">{error}</p> : null}
+          </PopBody>
         </ClickCard>
       </span>
     </td>
@@ -1437,7 +1439,7 @@ function Agents({ id, prs }: { id: string; prs: PullRequest[] }) {
   }
   return (
     <td className="agents">
-      <ClickCard id={id} disabled={locked} className={`cursor-chip ${lead}`} panelClassName="agent-panel" closable={false} label={label}>
+      <ClickCard id={id} disabled={locked} className={`cursor-chip ${lead}`} panelClassName="agent-panel" label={label}>
         <AgentList items={sessions} showPr={prs.length > 1} onOpen={open} />
       </ClickCard>
       {drawer ? <AgentDrawer prs={prs} items={sessions} focus={drawer.focus} onClose={() => setDrawer(null)} /> : null}
@@ -1506,12 +1508,16 @@ function UpToDate({
           </>
         }
       >
-        <h3>Rebase</h3>
-        <p>{rebaseCopy(target, above)}</p>
-        <button type="button" className="menu-item" disabled={pending || locked} onClick={() => void rebase(target)}>
-          {pending ? 'Rebasing…' : 'Rebase'}
-        </button>
-        {error ? <p className="launch-error">{error}</p> : null}
+        <PopHead title={`Rebase #${target.number}`} />
+        <PopBody>
+          <p>{rebaseCopy(target, above)}</p>
+          {error ? <p className="launch-error">{error}</p> : null}
+        </PopBody>
+        <PopFoot>
+          <button type="button" className="primary" disabled={pending || locked} onClick={() => void rebase(target)}>
+            {pending ? 'Rebasing…' : 'Rebase'}
+          </button>
+        </PopFoot>
       </ClickCard>
     </td>
   )
@@ -1577,7 +1583,7 @@ function RowMenu(props: RowMenuProps) {
       <ClickCard
         id={props.id}
         className="row-menu"
-        closable={false}
+        align="end"
         disabled={locked}
         label={
           <>
@@ -1597,6 +1603,8 @@ function RowMenuBody(props: RowMenuProps) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // Kept here so a prompt survives a step back to the menu.
+  const [prompt, setPrompt] = useState('')
   const close = useMenuClose()
   const agents = useAgentLaunch()
   const mergeUnapproved = useContext(UnapprovedMergeContext)
@@ -1608,9 +1616,10 @@ function RowMenuBody(props: RowMenuProps) {
   const copyTargets = downstackTargets(props.parents, props.primaryKey, props.prByKey, props.prs)
   const stack = props.stackKeys.length > 1 ? stackTargets(props.stackKeys, props.parents, props.prByKey) : []
   const chases = [
-    ...(pr && !props.defaultWholeStack ? [{ label: `Copy review chase for #${pr.number}`, prs: [pr] }] : []),
-    ...(stack.length > 1 ? [{ label: 'Copy review chase for stack', prs: stack }] : []),
+    ...(pr && !props.defaultWholeStack ? [{ label: `Copy review chase for #${pr.number}`, scope: 'this PR', prs: [pr] }] : []),
+    ...(stack.length > 1 ? [{ label: 'Copy review chase for stack', scope: 'stack', prs: stack }] : []),
   ]
+  const back = () => setView('menu')
 
   if (view === 'initiative') {
     return (
@@ -1622,143 +1631,202 @@ function RowMenuBody(props: RowMenuProps) {
         initiatives={props.initiatives}
         onAssign={props.onAssign}
         onCreate={props.onCreate}
+        onBack={back}
       />
     )
   }
   if (view === 'prompt') {
-    return <AgentPromptForm prs={promptTargets} initialKey={props.primaryKey} onStarted={close} />
+    return <AgentPromptForm prs={promptTargets} initialKey={props.primaryKey} text={prompt} onText={setPrompt} onStarted={close} onBack={back} />
   }
   if (view === 'issue') {
-    return <LinkIssueForm prs={promptTargets} initialKey={props.primaryKey} onLink={props.onLinkIssue} />
+    return <LinkIssueForm prs={promptTargets} initialKey={props.primaryKey} onLink={props.onLinkIssue} onBack={back} />
   }
+
+  // The head says which row this is, so the lines under it need not repeat it.
+  const single = pr && !props.defaultWholeStack ? pr : null
+  const depth = props.stackKeys.length
+  const place = single && depth > 1 ? `${depth - props.stackKeys.indexOf(single.key)} of ${depth} in stack` : null
+  const title = single ? `#${single.number} · ${single.title}` : `Stack of ${depth}`
+  const sub = single
+    ? [single.repoName, place].filter(Boolean).join(' · ')
+    : [props.prs[0]?.repoName, props.prs.map((item) => `#${item.number}`).join(', ')].filter(Boolean).join(' · ')
+  const tagged = single ? props.initiatives.filter((initiative) => single.initiativeIds.includes(initiative.id)).map((initiative) => initiative.name) : []
+
   return (
     <>
-      {pr ? (
-        <button
-          type="button"
-          className="menu-item"
-          disabled={pending}
-          onClick={() => {
-            setPending(true)
-            setError(null)
-            void props.onRefresh(props.primaryKey)
-              .then(() => close())
-              .catch((caught: unknown) => {
-                setError(caught instanceof Error ? caught.message : 'Could not refresh that pull request')
-              })
-              .finally(() => setPending(false))
-          }}
-        >
-          {pending ? 'Refreshing…' : `Refresh #${pr.number}`}
-        </button>
-      ) : null}
-      {copyTargets.length ? (
-        <button
-          type="button"
-          className="menu-item"
-          onClick={() => {
-            const text = prCopyList(copyTargets)
-            const confirmation = copyTargets.length === 1 ? `Copied ${text}` : `Copied ${copyTargets.length} PR IDs`
-            void copyPlain(text, confirmation).then((copied) => {
-              if (copied) close()
-            })
-          }}
-        >
-          {copyPrIdsLabel(copyTargets.length)}
-        </button>
-      ) : null}
-      {chases.map((chase) => {
-        const message = reviewChase(chase.prs)
-        return (
-          <button
-            key={chase.label}
-            type="button"
-            className="menu-item"
-            disabled={!message}
-            title={message ? undefined : 'Nothing left to review'}
+      <PopHead title={title} sub={sub} />
+      <PopBody list>
+        {pr ? (
+          <MenuItem
+            icon="refresh"
+            label={pending && !confirming ? 'Refreshing…' : single ? 'Refresh' : `Refresh #${pr.number}`}
+            name={`Refresh #${pr.number}`}
+            hotkey="r"
+            disabled={pending}
             onClick={() => {
-              if (!message) return
-              void copyRich(message, 'Copied review chase').then((copied) => {
+              setPending(true)
+              setError(null)
+              void props
+                .onRefresh(props.primaryKey)
+                .then(() => close())
+                .catch((caught: unknown) => {
+                  setError(caught instanceof Error ? caught.message : 'Could not refresh that pull request')
+                })
+                .finally(() => setPending(false))
+            }}
+          />
+        ) : null}
+        {copyTargets.length || chases.length ? <p className="menu-group">Copy</p> : null}
+        {copyTargets.length ? (
+          <MenuItem
+            icon="copy"
+            label={copyTargets.length === 1 ? 'PR ID' : `${copyTargets.length} PR IDs`}
+            name={copyPrIdsLabel(copyTargets.length)}
+            right={copyTargets.length > 1 ? 'this and below' : undefined}
+            hotkey="c"
+            onClick={() => {
+              const text = prCopyList(copyTargets)
+              const confirmation = copyTargets.length === 1 ? `Copied ${text}` : `Copied ${copyTargets.length} PR IDs`
+              void copyPlain(text, confirmation).then((copied) => {
                 if (copied) close()
               })
             }}
-          >
-            {chase.label}
-          </button>
-        )
-      })}
-      {unapproved && mergeUnapproved ? (
-        <button
-          type="button"
-          className="menu-item"
-          disabled={pending}
-          title="Queues this pull request to merge without its required approval. Checks, threads and conflicts still have to be clear."
-          onClick={() => {
-            if (!confirming) {
-              setConfirming(true)
-              return
-            }
-            setPending(true)
-            setError(null)
-            void mergeUnapproved(unapproved.key)
-              .then(() => close())
-              .catch((caught: unknown) => {
-                setError(caught instanceof Error ? caught.message : 'Could not queue that merge')
-              })
-              .finally(() => {
-                setPending(false)
-                setConfirming(false)
-              })
-          }}
-        >
-          {confirming ? `Confirm: merge #${unapproved.number} without approval` : `Merge #${unapproved.number} without approval…`}
-        </button>
-      ) : null}
-      {promptTargets.length ? (
-        <button type="button" className="menu-item" onClick={() => setView('prompt')}>
-          Work on {promptTargets.length > 1 ? 'a pull request' : `#${promptTargets[0]!.number}`} with {name}…
-        </button>
-      ) : null}
-      {failing.map((item) => {
-        const request: AgentRequest = { kind: 'ci' }
-        const running = activeSession(item, 'ci')
-        return (
-          <button
-            key={item.key}
-            type="button"
-            className="menu-item external"
-            disabled={running !== null || agents.pending !== null}
-            onClick={() => {
-              void agents.launch(item, request).then((opened) => {
-                if (opened) close()
-              })
-            }}
-          >
-            {agents.pending === launchTag(item.key, request)
-              ? `Starting ${name}…`
-              : running
-                ? `${providerLabel(running.provider)} is investigating CI on #${item.number}`
-                : `Investigate CI failure on #${item.number}`}
-          </button>
-        )
-      })}
-      {props.linearConfigured && promptTargets.length ? (
-        <button type="button" className="menu-item" onClick={() => setView('issue')}>
-          Link Linear issue…
-        </button>
-      ) : null}
-      <button type="button" className="menu-item" onClick={() => setView('initiative')}>
-        Set initiative
-      </button>
-      {error ? <p>{error}</p> : null}
-      {agents.error ? <p className="launch-error">{agents.error}</p> : null}
+          />
+        ) : null}
+        {chases.map((chase) => {
+          const message = reviewChase(chase.prs)
+          return (
+            <MenuItem
+              key={chase.label}
+              icon="chat"
+              label="Review chase"
+              name={chase.label}
+              right={message ? chase.scope : `${chase.scope} · nothing to review`}
+              disabled={!message}
+              title={message ? undefined : 'Nothing left to review'}
+              onClick={() => {
+                if (!message) return
+                void copyRich(message, 'Copied review chase').then((copied) => {
+                  if (copied) close()
+                })
+              }}
+            />
+          )
+        })}
+        {promptTargets.length ? (
+          <>
+            <p className="menu-group">{name}</p>
+            <MenuItem
+              icon="spark"
+              label={promptTargets.length > 1 ? 'Work on a pull request…' : 'Work on this…'}
+              right={prompt.trim() ? 'draft' : undefined}
+              name={`Work on ${promptTargets.length > 1 ? 'a pull request' : `#${promptTargets[0]!.number}`} with ${name}…`}
+              hotkey="w"
+              opens
+              onClick={() => setView('prompt')}
+            />
+          </>
+        ) : null}
+        {failing.map((item) => {
+          const request: AgentRequest = { kind: 'ci' }
+          const running = activeSession(item, 'ci')
+          const starting = agents.pending === launchTag(item.key, request)
+          return (
+            <MenuItem
+              key={item.key}
+              icon="alert"
+              tone="alert"
+              label={starting ? `Starting ${name}…` : running ? `${providerLabel(running.provider)} is investigating CI` : 'Investigate CI failure'}
+              name={
+                starting
+                  ? `Starting ${name}…`
+                  : running
+                    ? `${providerLabel(running.provider)} is investigating CI on #${item.number}`
+                    : `Investigate CI failure on #${item.number}`
+              }
+              right={single ? undefined : `#${item.number}`}
+              disabled={running !== null || agents.pending !== null}
+              onClick={() => {
+                void agents.launch(item, request).then((opened) => {
+                  if (opened) close()
+                })
+              }}
+            />
+          )
+        })}
+        <p className="menu-group">Organise</p>
+        {props.linearConfigured && promptTargets.length ? (
+          <MenuItem icon="link" label="Link Linear issue…" hotkey="l" opens onClick={() => setView('issue')} />
+        ) : null}
+        <MenuItem icon="tag" label="Initiative…" name="Set initiative" right={tagged.join(', ') || undefined} hotkey="i" opens onClick={() => setView('initiative')} />
+        {unapproved && mergeUnapproved ? (
+          <>
+            <div className="menu-rule" />
+            {confirming ? (
+              <div className="menu-confirm" role="group" aria-label={`Merge #${unapproved.number} without approval`}>
+                <h4>Merge #{unapproved.number} without approval?</h4>
+                <p>It joins the merge queue without its required approval. Checks, threads and conflicts still have to be clear.</p>
+                <div>
+                  <button type="button" className="ghost" autoFocus disabled={pending} onClick={() => setConfirming(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={pending}
+                    onClick={() => {
+                      setPending(true)
+                      setError(null)
+                      void mergeUnapproved(unapproved.key)
+                        .then(() => close())
+                        .catch((caught: unknown) => {
+                          setError(caught instanceof Error ? caught.message : 'Could not queue that merge')
+                        })
+                        .finally(() => {
+                          setPending(false)
+                          setConfirming(false)
+                        })
+                    }}
+                  >
+                    {pending ? 'Queuing…' : 'Merge without approval'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <MenuItem
+                icon="merge"
+                tone="warn"
+                label="Merge without approval…"
+                name={`Merge #${unapproved.number} without approval…`}
+                disabled={pending}
+                onClick={() => setConfirming(true)}
+              />
+            )}
+          </>
+        ) : null}
+        {error ? <p className="launch-error">{error}</p> : null}
+        {agents.error ? <p className="launch-error">{agents.error}</p> : null}
+      </PopBody>
     </>
   )
 }
 
-function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; initialKey: string; onStarted: () => void }) {
+function AgentPromptForm({
+  prs,
+  initialKey,
+  text,
+  onText,
+  onStarted,
+  onBack,
+}: {
+  prs: PullRequest[]
+  initialKey: string
+  text: string
+  onText: (text: string) => void
+  onStarted: () => void
+  onBack: () => void
+}) {
   const [key, setKey] = useState(prs.some((pr) => pr.key === initialKey) ? initialKey : prs[0]!.key)
-  const [text, setText] = useState('')
   const { launch, pending, error } = useAgentLaunch()
   const pr = prs.find((item) => item.key === key) ?? prs[0]!
   const name = useAgentName(pr.repo)
@@ -1766,7 +1834,7 @@ function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; i
   const ready = text.trim().length > 0 && text.length <= PROMPT_LIMIT
   return (
     <form
-      className="agent-form"
+      className="agent-form pop-form"
       onSubmit={(event) => {
         event.preventDefault()
         if (!ready || busy) return
@@ -1775,41 +1843,43 @@ function AgentPromptForm({ prs, initialKey, onStarted }: { prs: PullRequest[]; i
         })
       }}
     >
-      <h3>Work on #{pr.number} with {name}</h3>
-      <p>{name} gets this pull request’s link, branches, and linked issues, and pushes to its existing branch.</p>
-      {prs.length > 1 ? (
-        <label className="agent-target">
-          Pull request
-          <select className="select" value={key} disabled={busy} onChange={(event) => setKey(event.target.value)}>
-            {prs.map((item) => (
-              <option key={item.key} value={item.key}>
-                #{item.number} {item.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      <textarea
-        aria-label={`Prompt for ${name}`}
-        placeholder={`What should ${name} do?`}
-        rows={5}
-        autoFocus
-        value={text}
-        disabled={busy}
-        maxLength={PROMPT_LIMIT}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault()
-            event.currentTarget.form?.requestSubmit()
-          }
-        }}
-      />
-      <p className="faint reply-hint">⌘↵ to start</p>
-      <button type="submit" className="primary resolve-cta" disabled={!ready || busy}>
-        {busy ? `Starting ${name}…` : 'Start agent'}
-      </button>
-      {error ? <p className="launch-error">{error}</p> : null}
+      <PopHead title={`Work on #${pr.number} with ${name}`} sub="Gets the pull request, its branches and linked issues" onBack={onBack} />
+      <PopBody>
+        {prs.length > 1 ? (
+          <label className="agent-target">
+            Pull request
+            <select className="select" value={key} disabled={busy} onChange={(event) => setKey(event.target.value)}>
+              {prs.map((item) => (
+                <option key={item.key} value={item.key}>
+                  #{item.number} {item.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <textarea
+          aria-label={`Prompt for ${name}`}
+          placeholder={`What should ${name} do? It pushes to the existing branch.`}
+          rows={5}
+          autoFocus
+          value={text}
+          disabled={busy}
+          maxLength={PROMPT_LIMIT}
+          onChange={(event) => onText(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
+        />
+        {error ? <p className="launch-error">{error}</p> : null}
+      </PopBody>
+      <PopFoot hint={<><kbd>⌘↵</kbd> to start</>}>
+        <button type="submit" className="primary" disabled={!ready || busy}>
+          {busy ? `Starting ${name}…` : 'Start agent'}
+        </button>
+      </PopFoot>
     </form>
   )
 }
@@ -1855,10 +1925,12 @@ function Age({ id, readyAt, createdAt }: { id: string; readyAt: string | null; c
     <td className={`when age ${heat.level}`} style={{ '--heat': `${Math.round(heat.warmth * 100)}%` } as CSSProperties}>
       {web ? <Cobweb tier={web} /> : null}
       <HoverCard id={id} className={`age-ring${readyAt ? '' : ' draft'}`} label={label}>
-        <h3>{heading}</h3>
+        <PopHead title={heading} />
+        <PopBody>
         <p className="age-line">{formatExact(since)}</p>
         {readyAt && readyAt !== createdAt ? <p>Opened {formatExact(createdAt)}</p> : null}
         {web ? <p>{web === 3 ? 'Over a month. The spider has moved in.' : web === 2 ? 'Over two weeks, and gathering cobwebs.' : 'Over five days. The first cobweb.'}</p> : null}
+        </PopBody>
       </HoverCard>
     </td>
   )
@@ -2057,8 +2129,10 @@ function QueueStatus({ mark, progress, onRetry }: { mark: RowMark; progress: boo
       <div className="merge-held">
         {why ? (
           <HoverCard id={`queue-why:${cardId}`} className={`pill queue ${mark.status}`} label={text}>
-            <h3>Why it stopped</h3>
-            <p className="merge-why">{why}</p>
+            <PopHead title="Why it stopped" />
+            <PopBody>
+              <p className="merge-why">{why}</p>
+            </PopBody>
           </HoverCard>
         ) : (
           <span className={`pill queue ${mark.status}`}>{text}</span>
@@ -2228,11 +2302,27 @@ function CiPanel({
     grouped.set(name, list)
   }
   const heading = prs.length === 1 || level === 'invalidated' ? ciDetail(level) : 'Checks across this stack'
+  const tones = checks.map(({ pr, check }) => {
+    if (invalidated(pr, check)) return 'pending'
+    const phase = checkPhase(check)
+    return phase === 'fail' ? 'fail' : phase === 'missing' || phase === 'pending' ? 'pending' : 'success'
+  })
+  const tally = (
+    [
+      ['fail', 'failing'],
+      ['pending', 'waiting'],
+      ['success', 'passed'],
+    ] as const
+  )
+    .map(([tone, word]) => [tones.filter((item) => item === tone).length, word] as const)
+    .filter(([count]) => count > 0)
+    .map(([count, word]) => `${count} ${word}`)
+    .join(' · ')
+  const agents = useAgentLaunch()
   return (
-    <div>
-      <h3>{heading}</h3>
-      <RerunActions keys={prs.map((pr) => pr.key)} onRerun={onRerun} />
-      <CiAgentActions prs={prs} />
+    <>
+      <PopHead title={heading} sub={tally || undefined} />
+      <PopBody>
       {[...grouped.entries()].map(([workflow, items]) => (
         <div key={workflow} className="check-group">
           <h4>{workflow}</h4>
@@ -2273,18 +2363,34 @@ function CiPanel({
         </div>
       ))}
       {checks.length === 0 ? <p>No checks on the latest commit.</p> : null}
-    </div>
+      <CiAgentNotes prs={prs} error={agents.error} />
+      </PopBody>
+      <CiFoot prs={prs} agents={agents} onRerun={onRerun} />
+    </>
   )
 }
 
-function RerunActions({ keys, onRerun }: { keys: string[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
+/** The foot of the checks popup: run them again on the left, hand a failure to an agent on the right. */
+function CiFoot({
+  prs,
+  agents,
+  onRerun,
+}: {
+  prs: PullRequest[]
+  agents: ReturnType<typeof useAgentLaunch>
+  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+}) {
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState<'failed' | 'all' | null>(null)
+  const name = useAgentName(prs[0]?.repo ?? null)
+  const failing = prs.filter((pr) => failingChecks(pr).length > 0)
+  const idle = failing.filter((pr) => !activeSession(pr, 'ci'))
+  const request: AgentRequest = { kind: 'ci' }
   async function run(mode: 'failed' | 'all') {
     setPending(mode)
     setMessage(null)
     try {
-      setMessage(await onRerun(keys, mode))
+      setMessage(await onRerun(prs.map((pr) => pr.key), mode))
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Rerun failed')
     } finally {
@@ -2292,53 +2398,50 @@ function RerunActions({ keys, onRerun }: { keys: string[]; onRerun: (keys: strin
     }
   }
   return (
-    <>
-      <div className="popover-actions">
-        <button type="button" disabled={pending !== null} aria-busy={pending === 'failed'} onClick={() => void run('failed')}>
-          {pending === 'failed' ? 'Rerunning…' : 'Rerun failed'}
+    <PopFoot
+      hint={
+        <>
+          <button type="button" className="ghost" disabled={pending !== null} aria-busy={pending === 'failed'} onClick={() => void run('failed')}>
+            {pending === 'failed' ? 'Rerunning…' : 'Rerun failed'}
+          </button>
+          <button type="button" className="ghost" disabled={pending !== null} aria-busy={pending === 'all'} onClick={() => void run('all')}>
+            {pending === 'all' ? 'Rerunning…' : 'Rerun all'}
+          </button>
+        </>
+      }
+    >
+      {idle.map((pr) => (
+        <button
+          key={pr.key}
+          type="button"
+          className="primary"
+          disabled={agents.pending !== null}
+          aria-busy={agents.pending === launchTag(pr.key, request)}
+          onClick={() => void agents.launch(pr, request)}
+        >
+          {agents.pending === launchTag(pr.key, request)
+            ? `Starting ${name}…`
+            : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with ${name}`}
         </button>
-        <button type="button" disabled={pending !== null} aria-busy={pending === 'all'} onClick={() => void run('all')}>
-          {pending === 'all' ? 'Rerunning…' : 'Rerun all'}
-        </button>
-      </div>
+      ))}
       {message ? <p>{message}</p> : null}
-    </>
+    </PopFoot>
   )
 }
 
-function CiAgentActions({ prs }: { prs: PullRequest[] }) {
+/** What an agent is doing about a failure, or what it would do. The button that starts one is in the foot. */
+function CiAgentNotes({ prs, error }: { prs: PullRequest[]; error: string | null }) {
   const failing = prs.filter((pr) => failingChecks(pr).length > 0)
-  const { launch, pending, error } = useAgentLaunch()
   const name = useAgentName(prs[0]?.repo ?? null)
   if (failing.length === 0) return null
-  const request: AgentRequest = { kind: 'ci' }
-  const idle = failing.filter((pr) => !activeSession(pr, 'ci'))
+  const idle = failing.some((pr) => !activeSession(pr, 'ci'))
   return (
     <div className="ci-agent">
       {failing.map((pr) => {
         const running = activeSession(pr, 'ci')
         return running ? <RunningNote key={pr.key} session={running} prefix={failing.length > 1 ? `#${pr.number}` : null} /> : null
       })}
-      {idle.length ? (
-        <>
-          <div className="popover-actions">
-            {idle.map((pr) => (
-              <button
-                key={pr.key}
-                type="button"
-                disabled={pending !== null}
-                aria-busy={pending === launchTag(pr.key, request)}
-                onClick={() => void launch(pr, request)}
-              >
-                {pending === launchTag(pr.key, request)
-                  ? `Starting ${name}…`
-                  : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with ${name}`}
-              </button>
-            ))}
-          </div>
-          <p>{name} reads the failing logs, pushes a fix if the cause is clear, and reports back if it is not.</p>
-        </>
-      ) : null}
+      {idle ? <p>{name} reads the failing logs, pushes a fix if the cause is clear, and reports back if it is not.</p> : null}
       {error ? <p className="launch-error">{error}</p> : null}
     </div>
   )
@@ -2434,8 +2537,8 @@ function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; s
         </>
       }
     >
-      <div>
-        <h3>Reviews</h3>
+      <PopHead title="Reviews" />
+      <PopBody>
         {prs.map((pr) => (
           <div key={pr.id} className="review-line">
             {prs.length > 1 ? <span className="review-num">#{pr.number}</span> : null}
@@ -2459,7 +2562,7 @@ function ReviewControl({ id, prs, summary }: { id: string; prs: PullRequest[]; s
             ))}
           </div>
         ))}
-      </div>
+      </PopBody>
     </HoverCard>
   )
 }

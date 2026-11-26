@@ -4,9 +4,11 @@ import { AgentSettingsPanel } from './agent-settings.tsx'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatAgo, formatExact, formatTime } from './format.ts'
 import { Icon } from './icons.tsx'
+import { CloseButton } from './menus.tsx'
 import { Fold } from './motion.tsx'
 import type { PrLinkHost } from './pr-links.tsx'
 import { RepoIcon, RepoMarkPicker } from './repo-mark.tsx'
+import { dismiss } from './sounds.ts'
 import type { RepoMark, Snapshot } from '../shared/types.ts'
 
 /** How many search matches the add box lists before asking for a narrower search. */
@@ -90,7 +92,9 @@ export function SettingsPage({
   useEffect(() => {
     if (!pending) return
     function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !removing) setPending(null)
+      if (event.key !== 'Escape' || removing) return
+      dismiss()
+      setPending(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -453,7 +457,9 @@ export function SettingsPage({
         <div
           className="modal-back"
           onMouseDown={() => {
-            if (!removing) setPending(null)
+            if (removing) return
+            dismiss()
+            setPending(null)
           }}
         >
           <div
@@ -464,7 +470,10 @@ export function SettingsPage({
             aria-describedby="remove-repo-body"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <h3 id="remove-repo-title">{warning.title}</h3>
+            <header className="modal-head">
+              <h3 id="remove-repo-title">{warning.title}</h3>
+              {removing ? null : <CloseButton onClose={() => setPending(null)} />}
+            </header>
             <p id="remove-repo-body">{warning.body}</p>
             {error ? <p className="repo-error">{error}</p> : null}
             <div className="modal-actions">

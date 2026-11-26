@@ -7,7 +7,9 @@ import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 import { toastError, toastSuccess } from './toasts.tsx'
+import { CloseButton, PopBody, PopHead } from './menus.tsx'
 import { Fold, useClosing } from './motion.tsx'
+import { dismiss } from './sounds.ts'
 
 export type AgentItem = { pr: PullRequest; session: AgentSession }
 
@@ -78,8 +80,9 @@ function Summary({ item, showPr }: { item: AgentItem; showPr: boolean }) {
 /** The popover: one line for each session. A line opens the sidebar at that session. */
 export function AgentList({ items, showPr, onOpen }: { items: AgentItem[]; showPr: boolean; onOpen: (agentId: string | null) => void }) {
   return (
-    <div className="agent-list">
-      <h3>Agents</h3>
+    <>
+      <PopHead title="Agents" />
+      <PopBody list className="agent-list">
       {items.map((item) => (
         <button key={item.session.agentId} type="button" className="agent-row" onClick={() => onOpen(item.session.agentId)}>
           <Summary item={item} showPr={showPr} />
@@ -90,7 +93,8 @@ export function AgentList({ items, showPr, onOpen }: { items: AgentItem[]; showP
           Open all
         </button>
       ) : null}
-    </div>
+      </PopBody>
+    </>
   )
 }
 
@@ -123,8 +127,10 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      // A popup over the drawer closes first.
+      if (event.key !== 'Escape' || document.querySelector('.popover')) return
       event.stopPropagation()
+      dismiss()
       close()
     }
     window.addEventListener('keydown', onKey)
@@ -151,7 +157,9 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
       }}
       onClick={(event) => {
         event.stopPropagation()
-        if (scrimPress.current && event.target === event.currentTarget) close()
+        if (!scrimPress.current || event.target !== event.currentTarget) return
+        dismiss()
+        close()
       }}
     >
       <aside className="drawer agent-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
@@ -175,11 +183,7 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
               </p>
             ) : null}
           </div>
-          <button type="button" className="popover-close" aria-label="Close" onClick={close}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </button>
+          <CloseButton onClose={close} />
         </header>
         <div className="drawer-body">
           {items.map((item) => (

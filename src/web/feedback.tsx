@@ -22,7 +22,9 @@ import { api } from './api.ts'
 import { formatExact, formatWhen } from './format.ts'
 import { Markdown } from './markdown.tsx'
 import { linkHostName, noteAnchor, prHref, threadAnchor, usePrHref, usePrLinkHost } from './pr-links.tsx'
+import { ClickCard, CloseButton, PopBody, PopFoot, PopHead, useMenuClose, useMenuOpen } from './menus.tsx'
 import { Fold, useClosing } from './motion.tsx'
+import { dismiss } from './sounds.ts'
 
 export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'all' | 'comments'
 
@@ -254,8 +256,10 @@ function FeedbackDrawer({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      // A popup over the drawer closes first.
+      if (event.key !== 'Escape' || document.querySelector('.popover')) return
       event.stopPropagation()
+      dismiss()
       close()
     }
     window.addEventListener('keydown', onKey)
@@ -325,7 +329,9 @@ function FeedbackDrawer({
       }}
       onClick={(event) => {
         event.stopPropagation()
-        if (scrimPress.current && event.target === event.currentTarget) close()
+        if (!scrimPress.current || event.target !== event.currentTarget) return
+        dismiss()
+        close()
       }}
     >
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
@@ -340,11 +346,7 @@ function FeedbackDrawer({
               <p className="drawer-pr">{targets.length} pull requests</p>
             )}
           </div>
-          <button type="button" className="popover-close" aria-label="Close" onClick={close}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </button>
+          <CloseButton onClose={close} />
         </header>
         <div className="feedback-filters" role="group" aria-label="Show">
           {FILTERS[mode].map((item) => (
@@ -583,15 +585,16 @@ function threadFix(thread: FeedbackThread): ThreadFix {
 function FixWithCursor({ prKey, thread }: { prKey: string; thread: FeedbackThread }) {
   const { launch, pending, error } = useAgentLaunch()
   const name = useAgentName(pullKeyRepo(prKey))
-  const [open, setOpen] = useState(false)
-  const anchor = useRef<HTMLButtonElement>(null)
+  const menuId = `thread-fix:${prKey}:${thread.id}`
+  const open = useMenuOpen(menuId)
+  const close = useMenuClose()
   const busy = pending !== null
   const place = locationLabel(thread)
 
   function run(prompt: string | null) {
     const request: AgentRequest = { kind: 'thread', thread: threadFix(thread), prompt }
     void launch({ key: prKey }, request).then((opened) => {
-      if (opened) setOpen(false)
+      if (opened) close()
     })
   }
 
@@ -606,118 +609,80 @@ function FixWithCursor({ prKey, thread }: { prKey: string; thread: FeedbackThrea
             aria-busy={busy}
             aria-label={`Fix ${place} with ${name}`}
             onClick={() => {
-              setOpen(false)
+              close()
               run(null)
             }}
           >
             {busy && !open ? `Starting ${name}…` : `Fix with ${name}`}
           </button>
-          <button
-            ref={anchor}
-            type="button"
+          <ClickCard
+            id={menuId}
             className="primary caret"
-            aria-expanded={open}
-            aria-label={`Fix ${place} with a prompt`}
-            disabled={busy}
-            onClick={() => setOpen((current) => !current)}
+            panelClassName="thread-fix"
+            align="end"
+            ariaLabel={`Fix ${place} with a prompt`}
+            disabled={busy && !open}
+            label="▾"
           >
-            ▾
-          </button>
+            <FixPrompt name={name} busy={busy} error={error} onStart={run} />
+          </ClickCard>
         </div>
       </div>
-      {open && anchor.current ? (
-        <FixPrompt anchor={anchor.current} name={name} busy={busy} error={error} onClose={() => setOpen(false)} onStart={run} />
-      ) : null}
       {error && !open ? <p className="launch-error">{error}</p> : null}
     </>
   )
 }
 
 function FixPrompt({
-  anchor,
   name,
   busy,
   error,
-  onClose,
   onStart,
 }: {
-  anchor: HTMLElement
   /** Whatever starts the agent: Cursor, T3 Code. */
   name: string
   busy: boolean
   error: string | null
-  onClose: () => void
   onStart: (prompt: string) => void
 }) {
-  const panel = useRef<HTMLFormElement>(null)
   const [text, setText] = useState('')
-  const rect = anchor.getBoundingClientRect()
-  const width = Math.min(360, window.innerWidth - 24)
-  const height = 280
-  let left = rect.right - width
-  if (left < 12) left = 12
-  if (left + width > window.innerWidth - 12) left = Math.max(12, window.innerWidth - width - 12)
-  const below = rect.bottom + 6
-  const top = below + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 6) : below
   const ready = text.trim().length > 0 && text.length <= PROMPT_LIMIT
 
-  useEffect(() => {
-    const onDoc = (event: MouseEvent) => {
-      const target = event.target
-      if (target instanceof Node && (anchor.contains(target) || panel.current?.contains(target))) return
-      onClose()
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      onClose()
-    }
-    window.addEventListener('mousedown', onDoc)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('mousedown', onDoc)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [anchor, onClose])
-
-  return createPortal(
+  return (
     <form
-      ref={panel}
-      className="popover thread-fix"
-      style={{ top, left }}
-      onMouseDown={(event) => event.stopPropagation()}
+      className="pop-form"
       onSubmit={(event) => {
         event.preventDefault()
         if (!ready || busy) return
         onStart(text.trim())
       }}
     >
-      <h3>Fix with a prompt</h3>
-      <p>{name} still gets this thread and the pull request. These instructions are added on top.</p>
-      <textarea
-        aria-label={`Prompt for ${name}`}
-        placeholder={`What should ${name} do with this thread?`}
-        rows={4}
-        autoFocus
-        value={text}
-        disabled={busy}
-        maxLength={PROMPT_LIMIT}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault()
-            event.currentTarget.form?.requestSubmit()
-          }
-        }}
-      />
-      <p className="faint reply-hint">⌘↵ to start</p>
-      <button type="submit" className="primary resolve-cta" disabled={!ready || busy}>
-        {busy ? `Starting ${name}…` : `Fix with ${name}`}
-      </button>
-      {error ? <p className="launch-error">{error}</p> : null}
-    </form>,
-    document.body,
+      <PopHead title="Fix with a prompt" sub={`Added to the thread ${name} already gets`} />
+      <PopBody>
+        <textarea
+          aria-label={`Prompt for ${name}`}
+          placeholder={`What should ${name} do with this thread?`}
+          rows={4}
+          autoFocus
+          value={text}
+          disabled={busy}
+          maxLength={PROMPT_LIMIT}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
+        />
+        {error ? <p className="launch-error">{error}</p> : null}
+      </PopBody>
+      <PopFoot hint={<><kbd>⌘↵</kbd> to start</>}>
+        <button type="submit" className="primary" disabled={!ready || busy}>
+          {busy ? `Starting ${name}…` : `Fix with ${name}`}
+        </button>
+      </PopFoot>
+    </form>
   )
 }
 

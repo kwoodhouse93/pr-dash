@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FeedbackPayload } from '../src/shared/feedback.ts'
 import { api } from '../src/web/api.ts'
+import { MenuProvider } from '../src/web/menus.tsx'
 import { Feedback, FeedbackProvider, type FeedbackTarget } from '../src/web/feedback.tsx'
 import { PrLinksProvider } from '../src/web/pr-links.tsx'
 
@@ -132,7 +133,7 @@ describe('feedback drawer', () => {
             hits += 1
           }}
         >
-          <Feedback mode="review" targets={[target]} />
+          <MenuProvider><Feedback mode="review" targets={[target]} /></MenuProvider>
         </div>,
       )
     })
@@ -192,7 +193,7 @@ describe('feedback drawer', () => {
     await act(async () => {
       root?.render(
         <FeedbackProvider viewer="grace" onCounts={() => {}}>
-          <Feedback mode="review" targets={[target]} />
+          <MenuProvider><Feedback mode="review" targets={[target]} /></MenuProvider>
         </FeedbackProvider>,
       )
     })
@@ -236,7 +237,7 @@ describe('feedback drawer', () => {
     await act(async () => {
       root?.render(
         <PrLinksProvider host="graphite">
-          <Feedback mode="review" targets={[target]} />
+          <MenuProvider><Feedback mode="review" targets={[target]} /></MenuProvider>
         </PrLinksProvider>,
       )
     })
@@ -257,7 +258,7 @@ describe('feedback drawer', () => {
     await act(async () => {
       root?.render(
         <FeedbackProvider viewer="grace" onCounts={() => {}}>
-          <Feedback mode="mine" targets={[target]} />
+          <MenuProvider><Feedback mode="mine" targets={[target]} /></MenuProvider>
         </FeedbackProvider>,
       )
     })

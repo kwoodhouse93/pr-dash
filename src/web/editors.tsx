@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Initiative, PullRequest } from '../shared/types.ts'
 import { Icon } from './icons.tsx'
-import { useMenuClose } from './menus.tsx'
+import { PopBody, PopHead, useMenuClose } from './menus.tsx'
 
 export function TagEditor({
   primaryKey,
@@ -11,7 +11,10 @@ export function TagEditor({
   initiatives,
   onAssign,
   onCreate,
+  onBack,
 }: {
+  /** Shown as a step of a menu, this returns to the menu. */
+  onBack?: () => void
   primaryKey: string
   stackKeys: string[]
   defaultWholeStack: boolean
@@ -37,9 +40,10 @@ export function TagEditor({
   }
 
   return (
-    <div>
-      <h3>Initiative</h3>
-      <p>Local to this dashboard. A pull request can sit in more than one.</p>
+    <>
+      <PopHead title="Initiative" sub="Local to this dashboard" onBack={onBack} />
+      <PopBody>
+      <p>A pull request can sit in more than one.</p>
       {stackKeys.length > 1 ? (
         <label className="stack-opt">
           <input type="checkbox" checked={whole} onChange={(event) => setWhole(event.target.checked)} />
@@ -74,13 +78,15 @@ export function TagEditor({
           onChange={(event) => setName(event.target.value)}
           placeholder="New initiative"
           aria-label="New initiative name"
+          data-draft
         />
         <button type="submit" className="ghost">
           Add
         </button>
       </form>
-      {error ? <p>{error}</p> : null}
-    </div>
+      {error ? <p className="launch-error">{error}</p> : null}
+      </PopBody>
+    </>
   )
 }
 
