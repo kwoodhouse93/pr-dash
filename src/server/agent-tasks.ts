@@ -57,14 +57,18 @@ export function agentTask(pr: PullRequest, request: AgentRequest): AgentTask {
 
 function threadPrompt(pr: PullRequest, thread: ThreadFix, extra: string): string {
   const lines = [
-    `Fix the issue raised in this review thread on pull request #${pr.number}.`,
-    'Read the comments and the diff, make the change they ask for, run the relevant checks, and push it to the existing branch.',
+    `Address this review thread on pull request #${pr.number}.`,
+    '',
+    'Verify the finding before changing anything. Read the comments, the diff and the surrounding code, and check whether the problem is real and still present.',
+    'Then decide whether it is worth addressing in this pull request. A finding can be wrong, already handled, out of scope, or not worth the added complexity.',
+    'Pushing back is a valid outcome. Do not make a change just because a reviewer asked for it.',
+    'If the finding holds up and is worth fixing, make the change, run the relevant checks, and push it to the existing branch.',
     'If the request is ambiguous, or a correct fix is not clear, do not push. Explain what is unclear instead.',
     '',
-    'When you are done, reply on the review thread itself, not as a general pull request comment.',
-    'Say what you changed and name the commit you pushed, or explain why you did not change anything.',
-    'Resolve the thread only if your pushed change fully addresses everything raised in it.',
-    'Leave it unresolved if you pushed nothing, fixed only part of it, or the reviewer still needs to decide something.',
+    'Always reply on the review thread itself, not as a general pull request comment.',
+    'Say what you found when you checked the finding and what you did about it: the change you made and the commit you pushed, or why you made no change.',
+    'Then resolve the thread. That covers a pushed fix and a reasoned pushback alike.',
+    'Leave it unresolved only when the reviewer needs to weigh in: you fixed part of it, the right call is a judgement only they can make, or something is unclear.',
   ]
   if (thread.id) {
     lines.push(
