@@ -22,6 +22,14 @@ function waiting(pr: ChasePr, now: number): string {
   return unit(Math.floor(minutes / (24 * 60)), 'day')
 }
 
+/**
+ * Slack pastes the plain text, and ignores the HTML, whenever the plain text looks like Markdown: a line starting `1. `, backticks, or `*emphasis*`.
+ * So the plain version numbers its lines `1)` and swaps those characters in titles for ones that look alike.
+ */
+function plainTitle(title: string): string {
+  return title.replace(/`/g, "'").replace(/\*/g, '∗').replace(/~~/g, '~ ~')
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
@@ -42,7 +50,7 @@ export function reviewChase(prs: ChasePr[], now = Date.now()): ChaseMessage | nu
     const facts = [size(pr), ...extra]
     const graphite = graphitePrUrl(pr.repo, pr.number)
     return {
-      text: [`${id(pr)} ${pr.title}`, ...facts, `GitHub: ${pr.url}`, `Graphite: ${graphite}`].join(' · '),
+      text: [`${id(pr)} ${plainTitle(pr.title)}`, ...facts, `GitHub: ${pr.url}`, `Graphite: ${graphite}`].join(' · '),
       html: [
         `<code>${escapeHtml(id(pr))}</code> ${escapeHtml(pr.title)}`,
         ...facts.map(escapeHtml),
@@ -65,7 +73,7 @@ export function reviewChase(prs: ChasePr[], now = Date.now()): ChaseMessage | nu
       : `${opener} - ${needing.length} need review, oldest has been waiting ${waiting(oldest, now)}`
   const lines = open.map((pr) => line(pr, approved(pr) ? ['✅ approved'] : []))
   return {
-    text: [head, '', ...lines.map((item, index) => `${index + 1}. ${item.text}`)].join('\n'),
+    text: [head, '', ...lines.map((item, index) => `${index + 1}) ${item.text}`)].join('\n'),
     html: `<p>${head}</p><ol>${lines.map((item) => `<li>${item.html}</li>`).join('')}</ol>`,
   }
 }

@@ -270,13 +270,44 @@ describe('copy pull request ids', () => {
       [
         '👀 Still looking for review - 2 need review, oldest has been waiting 2 days',
         '',
-        '1. #412 Change 412 · +180 −12 · GitHub: https://github.com/initech/frontend/pull/412 · Graphite: https://app.graphite.com/github/pr/initech/frontend/412',
-        '2. #413 Change 413 · +1 −0 · ✅ approved · GitHub: https://github.com/initech/frontend/pull/413 · Graphite: https://app.graphite.com/github/pr/initech/frontend/413',
-        '3. #414 Change 414 · +180 −12 · GitHub: https://github.com/initech/frontend/pull/414 · Graphite: https://app.graphite.com/github/pr/initech/frontend/414',
+        '1) #412 Change 412 · +180 −12 · GitHub: https://github.com/initech/frontend/pull/412 · Graphite: https://app.graphite.com/github/pr/initech/frontend/412',
+        '2) #413 Change 413 · +1 −0 · ✅ approved · GitHub: https://github.com/initech/frontend/pull/413 · Graphite: https://app.graphite.com/github/pr/initech/frontend/413',
+        '3) #414 Change 414 · +180 −12 · GitHub: https://github.com/initech/frontend/pull/414 · Graphite: https://app.graphite.com/github/pr/initech/frontend/414',
       ].join('\n'),
     )
     expect(message?.html).toContain('<ol><li><code>#412</code> Change 412 · +180 −12 · <a href="https://github.com/initech/frontend/pull/412">GitHub</a>')
     expect(reviewChase([bottom, middle], now)?.text.split('\n')[0]).toBe('👀 Still looking for review - 1 needs review, waiting 2 days')
+  })
+
+  // Slack's own test for Markdown in pasted plain text, as of its client in 2026. When it matches, Slack drops the HTML.
+  function slackSeesMarkdown(text: string): boolean {
+    const bare = text.replace(/https?:\/\/[^\s)]+/g, '')
+    return (
+      /^`{3,}\S+\s*$/m.test(text) ||
+      /^#{2,6}\s+?\S/m.test(text) ||
+      /^#\s+\S/m.test(text) ||
+      /^---\s*$/m.test(text) ||
+      /(?<!\w)\*\*(?!\s)(.{2,}?)(?<!\s)\*\*/.test(text) ||
+      /(?<=\s)__(?!\s)(.{2,}?)(?<!\s)__(?=\s|$|[.,;:!?)])/.test(bare) ||
+      /(?<!\w|\*)\*(?!\*|\s)(.{2,}?)(?<!\s|\*)\*(?!\*)/.test(text) ||
+      /(?<=\s)_(?!_|\s)(.{2,}?)(?<!\s|_)_(?=\s|$|[.,;:!?)])/.test(bare) ||
+      /(?<=\s|^)~~(?!\s)(.{2,}?)(?<!\s)~~/.test(text) ||
+      /`[^\s`]/.test(text) ||
+      /(?<![\w'"\])])\[.+?\]\(.+?\)/.test(text) ||
+      /^[-*] [^\s]/m.test(text) ||
+      /^\d+?\. [^\s]/m.test(text) ||
+      /^> [^\s]/m.test(text)
+    )
+  }
+
+  it('keeps the plain text free of Markdown, so Slack pastes the rich version', () => {
+    const now = Date.parse('2026-10-10T12:00:00Z')
+    const first = { ...waitingPull(412, '2026-10-08T11:00:00Z'), title: 'fix(http): handle `retry-after` and *all* ~~old~~ callers' }
+    const second = waitingPull(413, '2026-10-09T11:00:00Z')
+    expect(slackSeesMarkdown('1. #412 Change')).toBe(true)
+    expect(slackSeesMarkdown(reviewChase([first, second], now)!.text)).toBe(false)
+    expect(slackSeesMarkdown(reviewChase([first], now)!.text)).toBe(false)
+    expect(reviewChase([first], now)!.html).toContain('handle `retry-after` and *all* ~~old~~ callers')
   })
 
   it('writes a review chase for one pull request and nothing once approved', () => {
@@ -302,7 +333,7 @@ describe('copy pull request ids', () => {
     expect(menuItem('Copy review chase for #1236')).toBeUndefined()
     await click(menuItem('Copy review chase for stack'))
     const stackText = writeText.mock.calls.at(-1)?.[0] ?? ''
-    expect(stackText.split('\n').slice(2).map((row) => row.slice(0, 8))).toEqual(['1. #1234', '2. #1236'])
+    expect(stackText.split('\n').slice(2).map((row) => row.slice(0, 8))).toEqual(['1) #1234', '2) #1236'])
     expect(toastSuccess).toHaveBeenCalledWith('Copied review chase')
     expect(document.querySelector('.popover')).toBeNull()
 
