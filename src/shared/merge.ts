@@ -76,11 +76,14 @@ export function stackReviewBar(bottom: PullRequest): ReviewBar {
   }
 }
 
+/**
+ * Whether an upstack pull request is ready to go into a downstack merge. Being behind its base does not block:
+ * the queue rebases each branch onto the trunk once the one below it merges.
+ */
 export function upstackBlock(pr: PullRequest, bar: ReviewBar): string | null {
   if (!pr.squashMergeAllowed) return `Squash merge is disabled for ${pr.repoName}.`
   if (pr.isDraft) return `#${pr.number} is still a draft.`
   if (pr.conflict) return `#${pr.number} has a merge conflict.`
-  if (pr.behind) return `#${pr.number} is behind its base branch.`
   if (pr.mergeable !== 'MERGEABLE') return `#${pr.number} is not mergeable yet.`
   if (pr.unresolvedCount > 0) return `#${pr.number} has unresolved threads.`
   if (pr.threadsTruncated) return `#${pr.number} has more review threads than this list loaded.`

@@ -118,6 +118,13 @@ describe('stack merge eligibility', () => {
     expect(upstackBlock({ ...stack[0]!, threadsTruncated: true }, { requiredApprovals: 1, dismissStale: false })).toMatch(/review threads/)
   })
 
+  it('offers the merge when an upstack pull request is behind its base, but not when it conflicts', () => {
+    const behind = stack.map((item) => (item.number === 2 ? { ...item, behind: true } : item))
+    expect(canMergeSlice(behind, behind[0]!.key)).toBe(3)
+    const conflicting = stack.map((item) => (item.number === 2 ? { ...item, behind: true, conflict: true } : item))
+    expect(canMergeSlice(conflicting, conflicting[0]!.key)).toBeNull()
+  })
+
   it('requires a fresh approval when the ruleset dismisses stale reviews', () => {
     const stale = pr({
       id: 'stale',
