@@ -33,6 +33,8 @@ export function SettingsPage({
   onPrLinks = () => {},
   sounds = true,
   onSounds = () => {},
+  mergeUnapproved = false,
+  onMergeUnapproved = () => {},
 }: {
   status: SyncStatus | null
   repos: string[]
@@ -58,6 +60,9 @@ export function SettingsPage({
   /** Whether buttons click when pressed. */
   sounds?: boolean
   onSounds?: (on: boolean) => void
+  /** Whether a pull request's menu offers to merge it without its required approval. */
+  mergeUnapproved?: boolean
+  onMergeUnapproved?: (on: boolean) => void
 }) {
   const [catalog, setCatalog] = useState<RepoCatalog | null>(null)
   const [draft, setDraft] = useState('')
@@ -292,6 +297,20 @@ export function SettingsPage({
                 On
               </button>
               <button type="button" aria-pressed={!sounds} onClick={() => onSounds(false)}>
+                Off
+              </button>
+            </div>
+          </div>
+          <div
+            className="panel-row setting"
+            title="Adds an option to a pull request's menu once everything but its required approval is in place. GitHub has to let you bypass the review rule."
+          >
+            <h3>Merge without approval</h3>
+            <div className="segmented" role="group" aria-label="Merge without approval">
+              <button type="button" aria-pressed={mergeUnapproved} onClick={() => onMergeUnapproved(true)}>
+                On
+              </button>
+              <button type="button" aria-pressed={!mergeUnapproved} onClick={() => onMergeUnapproved(false)}>
                 Off
               </button>
             </div>

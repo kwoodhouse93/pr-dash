@@ -304,11 +304,11 @@ app.get('/api/merge-queue', (c) => c.json(db.queue.snapshot()))
 
 app.post('/api/merge-queue', async (c) => {
   try {
-    const body = await c.req.json<{ key?: string; scope?: 'pr' | 'downstack' }>()
+    const body = await c.req.json<{ key?: string; scope?: 'pr' | 'downstack' | 'unapproved' }>()
     const key = body.key ?? ''
     if (!key) return c.json({ error: 'A pull request is required.' }, 400)
     if (body.scope === 'downstack') await enqueueDownstack(db, key)
-    else await enqueuePull(db, key)
+    else await enqueuePull(db, key, body.scope === 'unapproved')
     return c.json(db.queue.snapshot())
   } catch (error) {
     const status = error instanceof MergeRejected ? 409 : 502

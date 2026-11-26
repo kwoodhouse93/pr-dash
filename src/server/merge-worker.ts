@@ -1,12 +1,13 @@
 import { ciLevel } from '../shared/ci.ts'
 import { isBehindBase } from '../shared/map.ts'
-import { canSquashMerge, sliceParts, stackReviewBar, upstackBlock } from '../shared/merge.ts'
+import { canSquashMerge, sliceParts, stackReviewBar, unapprovedMergeBlock, upstackBlock } from '../shared/merge.ts'
+import { reviewBypassBlock } from '../shared/rules.ts'
 import { bootAction, cancelGrace, interpretWait, rebasesDue, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
 import { buildStacks, mergeLine, stackOf } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { abortRebases, GitCancelled, interruptGit, mirrorPath, rebaseOnto } from './git.ts'
-import { fetchLivePull, loadGithubToken, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
+import { fetchLivePull, loadGithubToken, readRulesets, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
 
 const POLL_MS = 20_000
 
@@ -33,20 +34,30 @@ export function kickMergeWorker() {
   void Promise.resolve(booted).then(() => pumpAll())
 }
 
-export async function enqueuePull(db: DashboardDb, key: string) {
+/** `unapproved` queues a pull request whose required approval is the one thing it lacks. */
+export async function enqueuePull(db: DashboardDb, key: string, unapproved = false) {
   const pr = findPull(db, key)
   if (db.queue.blocksKey(pr.key)) throw new MergeRejected(`#${pr.number} is already in the merge queue.`)
-  if (!canSquashMerge(pr)) throw new MergeRejected(`#${pr.number} is not ready to squash into ${pr.defaultBranch}.`)
-  const live = await fetchLivePull(loadGithubToken(), pr.repo, pr.number, pr.requiredCheckNames ?? [])
-  const fresh = withLive(pr, live)
-  if (!canSquashMerge(fresh)) throw new MergeRejected(`#${pr.number} is not ready to squash into ${pr.defaultBranch}.`)
-  db.queue.enqueue({
-    kind: 'pr',
+  const block = (item: PullRequest) =>
+    unapproved ? unapprovedMergeBlock(item) : canSquashMerge(item) ? null : `#${pr.number} is not ready to squash into ${pr.defaultBranch}.`
+  const stale = block(pr)
+  if (stale) throw new MergeRejected(stale)
+  const token = loadGithubToken()
+  const live = await fetchLivePull(token, pr.repo, pr.number, pr.requiredCheckNames ?? [])
+  const reason = block(withLive(pr, live))
+  if (reason) throw new MergeRejected(reason)
+  if (unapproved) {
+    const refused = reviewBypassBlock(await readRulesets(token, pr.repo))
+    if (refused) throw new MergeRejected(refused)
+  }
+  const entry = db.queue.enqueue({
+    kind: unapproved ? 'unapproved' : 'pr',
     repo: pr.repo,
     trunk: pr.defaultBranch,
     title: pr.title,
     steps: [stepOf(pr, live, 'merge', null)],
   })
+  if (unapproved) db.queue.log(entry.id, 'info', `Merging #${pr.number} without its required approval.`)
   db.queue.disarmWatch(key)
   kickMergeWorker()
 }
@@ -395,17 +406,27 @@ async function runEntry(entry: MergeEntry) {
 async function mergeOne(entry: MergeEntry, step: MergeStep): Promise<boolean> {
   const store = db().queue
   try {
-    const already = await waitUntilReady(entry, step)
-    if (already === 'stop') return false
-    if (already === 'merge') {
+    for (let moved = 0; ; moved += 1) {
+      const ready = await waitUntilReady(entry, step)
+      if (ready === 'stop') return false
+      if (ready === 'merged') break
       if (stopped(entry.id)) return false
       store.setStep(step.id, 'merging', null)
       store.log(entry.id, 'info', `Squash merging #${step.number}.`)
-      await squashMergePullRequest(loadGithubToken(), entry.repo, step.number)
-      store.setStep(step.id, 'merged', null)
-      store.log(entry.id, 'info', `Squash merged #${step.number}.`)
-      const saved = db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)
-      if (saved) store.retain(entry.id, saved)
+      // Only the commit that was just checked may merge. GitHub can report an old head for a while after a push.
+      if ((await squashMergePullRequest(loadGithubToken(), entry.repo, step.number, ready.headOid)) === 'merged') {
+        store.setStep(step.id, 'merged', null)
+        store.log(entry.id, 'info', `Squash merged #${step.number}.`)
+        const saved = db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)
+        if (saved) store.retain(entry.id, saved)
+        break
+      }
+      if (moved + 1 >= STALE_HEAD_LIMIT) {
+        store.fail(entry.id, step.id, `#${step.number} kept getting a new head before it could merge.`)
+        return false
+      }
+      store.log(entry.id, 'info', `#${step.number} has a newer head than the one that was checked. Checking again.`)
+      if (!(await pause(entry.id))) return !stopped(entry.id)
     }
     return !stopped(entry.id)
   } catch (error) {
@@ -484,7 +505,8 @@ function halt(entry: MergeEntry, activeId: string | null, error: unknown) {
 
 const STALE_HEAD_LIMIT = 5
 
-async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merge' | 'merged' | 'stop'> {
+/** Resolves with the head that passed every gate, which is the only commit that may then merge. */
+async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<{ headOid: string } | 'merged' | 'stop'> {
   const store = db().queue
   store.setStep(step.id, 'waiting', null)
   let unexplained = 0
@@ -506,8 +528,8 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merg
       if (!(await pause(entry.id))) return 'stop'
       continue
     }
-    const decision = interpretWait(live, entry.trunk, names)
-    if (decision.action === 'ready') return 'merge'
+    const decision = interpretWait(live, entry.trunk, names, entry.kind === 'unapproved')
+    if (decision.action === 'ready') return { headOid: live.headOid }
     if (decision.action === 'merged') {
       store.setStep(step.id, 'merged', null)
       store.log(entry.id, 'info', `#${step.number} is already merged.`)

@@ -104,6 +104,16 @@ export function upstackBlock(pr: PullRequest, bar: ReviewBar): string | null {
   return null
 }
 
+/**
+ * Why a pull request cannot merge without its required approval, or null when the approval is the
+ * only thing missing. GitHub reports such a pull request as blocked, so this reads the queue's own gates.
+ */
+export function unapprovedMergeBlock(pr: PullRequest): string | null {
+  if (pr.baseRef !== pr.defaultBranch) return `#${pr.number} does not target ${pr.defaultBranch}.`
+  if (pr.reviewDecision !== 'REVIEW_REQUIRED') return `#${pr.number} is not waiting on an approval.`
+  return upstackBlock(pr, { requiredApprovals: 0, dismissStale: false })
+}
+
 export function predictedReady(pr: PullRequest, bar: ReviewBar): boolean {
   return upstackBlock(pr, bar) === null
 }

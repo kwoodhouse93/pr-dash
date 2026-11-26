@@ -121,6 +121,7 @@ describe('merge action', () => {
     options: {
       pr?: Partial<PullRequest>
       onSetMergeWhenReady?: (key: string, scope: 'pr' | 'downstack', enabled: boolean) => Promise<void>
+      onMergeUnapproved?: (key: string) => Promise<void>
     } = {},
   ) {
     const pr = { ...pull(), ...options.pr }
@@ -145,6 +146,7 @@ describe('merge action', () => {
             onAssign={async () => {}}
             onCreateAssigned={async () => {}}
             onMerge={onMerge}
+            onMergeUnapproved={options.onMergeUnapproved}
             onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}
@@ -204,5 +206,42 @@ describe('merge action', () => {
       toggle!.click()
     })
     expect(changes).toEqual([['acme/app#7', 'pr', true]])
+  })
+
+  const unapproved: Partial<PullRequest> = { mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', mergeMark: 'unmet', reviewers: [] }
+
+  async function openRowMenu() {
+    await act(async () => {
+      document.querySelector<HTMLElement>('button.row-menu')!.click()
+    })
+    return [...document.querySelectorAll<HTMLButtonElement>('button.menu-item')]
+  }
+
+  it('offers to merge without approval only when that is turned on', async () => {
+    await render(async () => {}, { pr: unapproved })
+    expect((await openRowMenu()).some((item) => item.textContent?.includes('without approval'))).toBe(false)
+  })
+
+  it('does not offer to merge an approved pull request without approval', async () => {
+    await render(async () => {}, { onMergeUnapproved: async () => {} })
+    expect((await openRowMenu()).some((item) => item.textContent?.includes('without approval'))).toBe(false)
+  })
+
+  it('queues a merge without approval after a second press', async () => {
+    const queued: string[] = []
+    await render(async () => {}, {
+      pr: unapproved,
+      onMergeUnapproved: async (key) => {
+        queued.push(key)
+      },
+    })
+    const item = () => [...document.querySelectorAll<HTMLButtonElement>('button.menu-item')].find((button) => button.textContent?.includes('without approval'))!
+    await openRowMenu()
+    expect(item().textContent).toBe('Merge #7 without approval…')
+    await act(async () => item().click())
+    expect(queued).toEqual([])
+    expect(item().textContent).toBe('Confirm: merge #7 without approval')
+    await act(async () => item().click())
+    expect(queued).toEqual(['acme/app#7'])
   })
 })

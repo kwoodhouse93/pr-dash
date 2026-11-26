@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { markPullReadyForReview } from '../src/server/github.ts'
+import { markPullReadyForReview, squashMergePullRequest } from '../src/server/github.ts'
 
 function githubResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -53,5 +53,31 @@ describe('markPullReadyForReview', () => {
     )
 
     await expect(markPullReadyForReview('token', 'PR_node')).rejects.toThrow('Resource not accessible by integration')
+  })
+})
+
+describe('squashMergePullRequest', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('merges only the head that was checked', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(String(url)).toBe('https://api.github.com/repos/acme/app/pulls/7/merge')
+      expect(JSON.parse(String(init?.body))).toEqual({ merge_method: 'squash', sha: 'abc' })
+      return githubResponse({ merged: true })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await squashMergePullRequest('token', 'acme/app', 7, 'abc')).toBe('merged')
+  })
+
+  it('reports a head that moved without merging', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => githubResponse({ message: 'Head branch was modified. Review and try the merge again.' }, 409)))
+    expect(await squashMergePullRequest('token', 'acme/app', 7, 'abc')).toBe('moved')
+  })
+
+  it('fails with the reason GitHub gives', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => githubResponse({ message: 'Repository rule violations found' }, 405)))
+    await expect(squashMergePullRequest('token', 'acme/app', 7, 'abc')).rejects.toThrow('Repository rule violations found')
   })
 })

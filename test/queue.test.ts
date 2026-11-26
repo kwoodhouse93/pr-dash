@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { canMergeSlice, upstackBlock } from '../src/shared/merge.ts'
+import { canMergeSlice, unapprovedMergeBlock, upstackBlock } from '../src/shared/merge.ts'
 import { bootAction, cancelGrace, interpretWait, landedMergeVisible, queueSummary, rebasesDue, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
-import { reviewPolicy } from '../src/shared/rules.ts'
+import { reviewBypassBlock, reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
 import { rebaseOnto, rebaseOntoTip } from '../src/server/git.ts'
@@ -158,6 +158,60 @@ describe('review policy', () => {
   })
 })
 
+describe('merging without approval', () => {
+  const waiting = (over: Partial<PullRequest> = {}) =>
+    pr({ id: 'a', number: 1, baseRef: 'main', headRef: 'a', mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', reviewers: [], ...over })
+
+  it('is allowed when the approval is the only thing missing', () => {
+    expect(unapprovedMergeBlock(waiting())).toBeNull()
+  })
+
+  it('is refused for anything else that is not in place', () => {
+    expect(unapprovedMergeBlock(waiting({ reviewDecision: 'APPROVED' }))).toMatch(/not waiting on an approval/)
+    expect(unapprovedMergeBlock(waiting({ baseRef: 'below' }))).toMatch(/does not target main/)
+    expect(unapprovedMergeBlock(waiting({ isDraft: true }))).toMatch(/draft/)
+    expect(unapprovedMergeBlock(waiting({ conflict: true }))).toMatch(/conflict/)
+    expect(unapprovedMergeBlock(waiting({ unresolvedCount: 1 }))).toMatch(/unresolved/)
+    expect(unapprovedMergeBlock(waiting({ changesRequested: true }))).toMatch(/changes requested/)
+    expect(unapprovedMergeBlock(waiting({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }))).toMatch(/failing/)
+    expect(unapprovedMergeBlock(waiting({ checks: [check({ name: 'Check', conclusion: null, status: 'IN_PROGRESS', required: true })] }))).toMatch(/waiting on required checks/)
+    // GitHub blocks the pull request, so a required check that never reported cannot be waved through.
+    expect(unapprovedMergeBlock(waiting({ checks: [check({ name: 'Other', conclusion: 'SUCCESS' })] }))).toMatch(/waiting on required checks/)
+  })
+
+  const review = (bypass: string, extra: { type: string }[] = []) => ({
+    name: 'require review',
+    enforcement: 'active',
+    current_user_can_bypass: bypass,
+    rules: [{ type: 'pull_request', parameters: { required_approving_review_count: 1 } }, ...extra],
+  })
+
+  it('needs a review ruleset the viewer may bypass', () => {
+    expect(reviewBypassBlock([review('pull_requests_only')])).toBeNull()
+    expect(reviewBypassBlock([review('always'), { enforcement: 'active', current_user_can_bypass: 'never', rules: [{ type: 'deletion' }] }])).toBeNull()
+    expect(reviewBypassBlock([review('never')])).toMatch(/not allowed to bypass the ruleset "require review"/)
+    expect(reviewBypassBlock([review('always'), review('never')])).toMatch(/not allowed/)
+    expect(reviewBypassBlock([])).toMatch(/no review rule to bypass/)
+    expect(reviewBypassBlock([{ ...review('always'), enforcement: 'disabled' }])).toMatch(/no review rule to bypass/)
+  })
+
+  it('counts path reviewers and code owners as reviews', () => {
+    const paths = {
+      enforcement: 'active',
+      current_user_can_bypass: 'never',
+      rules: [{ type: 'pull_request', parameters: { required_approving_review_count: 0, required_reviewers: [{}] } }],
+    }
+    expect(reviewBypassBlock([review('always'), paths])).toMatch(/not allowed/)
+  })
+
+  it('is refused when the bypass would skip a rule the queue does not check', () => {
+    expect(reviewBypassBlock([review('always', [{ type: 'required_deployments' }])])).toMatch(/required_deployments/)
+    expect(reviewBypassBlock([review('always'), { enforcement: 'active', current_user_can_bypass: 'always', rules: [{ type: 'code_scanning' }] }])).toMatch(/code_scanning/)
+    // GitHub still enforces a ruleset the viewer cannot bypass.
+    expect(reviewBypassBlock([review('always'), { enforcement: 'active', current_user_can_bypass: 'never', rules: [{ type: 'code_scanning' }] }])).toBeNull()
+  })
+})
+
 function step(over: Partial<MergeStep> & Pick<MergeStep, 'id' | 'role' | 'headRef' | 'headOid'>): MergeStep {
   return {
     position: 0,
@@ -270,6 +324,19 @@ function live(over: Partial<LivePull> = {}): LivePull {
 }
 
 describe('wait decisions', () => {
+  it('lets an entry queued without approval through when the review is all that blocks it', () => {
+    const blocked = (over: Partial<LivePull> = {}) => live({ mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', behindBy: 0, ...over })
+    expect(interpretWait(blocked(), 'main', ['Check'], true).action).toBe('ready')
+    expect(interpretWait(blocked({ changesRequested: true }), 'main', ['Check'], true)).toMatchObject({ action: 'fail', reason: '#4 has changes requested.' })
+    expect(interpretWait(blocked({ unresolvedCount: 1 }), 'main', ['Check'], true).action).toBe('fail')
+    expect(interpretWait(blocked({ behindBy: 2 }), 'main', ['Check'], true).action).toBe('behind')
+    expect(interpretWait(blocked({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check'], true).action).toBe('fail')
+    expect(interpretWait(blocked({ checks: [check({ name: 'Other', conclusion: 'SUCCESS' })] }), 'main', ['Check'], true).action).toBe('wait')
+    // Approved since it was queued, so whatever still blocks it is not the review.
+    expect(interpretWait(blocked({ reviewDecision: 'APPROVED' }), 'main', ['Check'], true)).toMatchObject({ action: 'wait', unexplained: true })
+    expect(interpretWait(live(), 'main', ['Check'], true).action).toBe('ready')
+  })
+
   it('merges a clean pull request and waits for checks that have not finished', () => {
     expect(interpretWait(live(), 'main', ['Check']).action).toBe('ready')
     expect(interpretWait(live({ checks: [] }), 'main', ['Check'])).toMatchObject({ action: 'wait' })
@@ -318,6 +385,7 @@ describe('wait decisions', () => {
   it('stops on conflicts, missing reviews, and failed required checks', () => {
     expect(interpretWait(live({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }), 'main', ['Check']).action).toBe('fail')
     expect(interpretWait(live({ reviewDecision: 'REVIEW_REQUIRED' }), 'main', ['Check']).action).toBe('fail')
+    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' }), 'main', ['Check']).action).toBe('fail')
     expect(
       interpretWait(live({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check']).action,
     ).toBe('fail')

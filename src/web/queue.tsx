@@ -158,7 +158,10 @@ function NowCard({ entry, onCancel, onRetry }: { entry: MergeEntry; onCancel: Ca
   const failed = entry.status === 'failed'
   const [retrying, setRetrying] = useState(false)
   const merged = entry.steps.filter((step) => step.status === 'merged').length
-  const shape = entry.kind === 'stack' ? `stack of ${entry.steps.length} into ${entry.trunk}` : `pull request into ${entry.trunk}`
+  const shape =
+    entry.kind === 'stack'
+      ? `stack of ${entry.steps.length} into ${entry.trunk}`
+      : `pull request into ${entry.trunk}${entry.kind === 'unapproved' ? ', without approval' : ''}`
   return (
     <article className={`queue-now ${entry.status}`}>
       <header>
@@ -202,7 +205,7 @@ function NowCard({ entry, onCancel, onRetry }: { entry: MergeEntry; onCancel: Ca
 function EntryRow({ entry, lead, trail }: { entry: MergeEntry; lead: ReactNode; trail: ReactNode }) {
   const [open, setOpen] = useState(false)
   const host = usePrLinkHost()
-  const only = entry.kind === 'pr' ? entry.steps[0] : undefined
+  const only = entry.kind === 'stack' ? undefined : entry.steps[0]
   const toggle = () => setOpen((value) => !value)
   return (
     <li>

@@ -746,6 +746,8 @@ export function App() {
               onPrLinks={(prLinks) => setPrefs((current) => ({ ...current, prLinks }))}
               sounds={prefs.sounds}
               onSounds={(sounds) => setPrefs((current) => ({ ...current, sounds }))}
+              mergeUnapproved={prefs.mergeUnapproved}
+              onMergeUnapproved={(mergeUnapproved) => setPrefs((current) => ({ ...current, mergeUnapproved }))}
               onAddRepo={async (repo) => {
                 const snap = await api.addRepo(repo)
                 setData(adopt(snap))
@@ -868,6 +870,13 @@ export function App() {
               onMerge={async (key) => {
                 setQueue(await api.enqueue(key, 'pr'))
               }}
+              onMergeUnapproved={
+                prefs.mergeUnapproved
+                  ? async (key) => {
+                      setQueue(await api.enqueue(key, 'unapproved'))
+                    }
+                  : undefined
+              }
               onRetry={async (entryId) => {
                 setQueue(await api.retryMerge(entryId))
               }}

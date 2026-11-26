@@ -1,5 +1,5 @@
 import { isBehindBase, type ShadowedRun } from './map.ts'
-import { requiredCheckGate } from './merge.ts'
+import { mergeStateReady, requiredCheckGate } from './merge.ts'
 import type { Check, Mergeable, Reviewer } from './types.ts'
 import type { ReviewDecision } from './approval.ts'
 
@@ -39,10 +39,13 @@ export type MergeLog = {
   message: string
 }
 
+/** `unapproved` is one pull request that merges without its required approval. */
+export type EntryKind = 'pr' | 'stack' | 'unapproved'
+
 export type MergeEntry = {
   id: string
   position: number
-  kind: 'pr' | 'stack'
+  kind: EntryKind
   repo: string
   trunk: string
   title: string
@@ -224,7 +227,11 @@ export function cancelGrace(since: number | null, now: number, restarting: boole
   return { since: started, expired: now - started >= CANCEL_GRACE_MS }
 }
 
-export function interpretWait(live: LivePull, trunk: string, requiredNames: string[]): WaitDecision {
+/**
+ * `unapproved` lets a pull request through while its required review is the one thing missing. GitHub
+ * only says such a pull request is blocked, so every other gate here has to hold on its own.
+ */
+export function interpretWait(live: LivePull, trunk: string, requiredNames: string[], unapproved = false): WaitDecision {
   if (live.state === 'MERGED') return { action: 'merged' }
   if (live.state === 'CLOSED') return { action: 'fail', reason: `#${live.number} is closed.` }
   if (live.baseRef !== trunk) {
@@ -240,10 +247,11 @@ export function interpretWait(live: LivePull, trunk: string, requiredNames: stri
   if (live.threadsTruncated) {
     return { action: 'fail', reason: `#${live.number} has more review threads than this check loaded.` }
   }
-  if (live.reviewDecision === 'CHANGES_REQUESTED') {
+  // A review that does not count towards the requirement leaves the decision at "review required".
+  if (live.reviewDecision === 'CHANGES_REQUESTED' || (unapproved && live.changesRequested)) {
     return { action: 'fail', reason: `#${live.number} has changes requested.` }
   }
-  if (live.reviewDecision === 'REVIEW_REQUIRED') {
+  if (live.reviewDecision === 'REVIEW_REQUIRED' && !unapproved) {
     return { action: 'fail', reason: `#${live.number} is missing a required review.` }
   }
   if (isBehindBase(live.mergeStateStatus, live.behindBy)) return { action: 'behind', headOid: live.headOid }
@@ -264,7 +272,8 @@ export function interpretWait(live: LivePull, trunk: string, requiredNames: stri
   if (live.mergeable === 'UNKNOWN' || live.mergeStateStatus === 'UNKNOWN' || live.mergeStateStatus == null) {
     return { action: 'wait', reason: `Waiting for GitHub to finish checking #${live.number}.` }
   }
-  if (live.mergeable === 'MERGEABLE' && (live.mergeStateStatus === 'CLEAN' || live.mergeStateStatus === 'UNSTABLE' || live.mergeStateStatus === 'HAS_HOOKS')) {
+  if (mergeStateReady(live.mergeable, live.mergeStateStatus)) return { action: 'ready' }
+  if (unapproved && live.mergeable === 'MERGEABLE' && live.mergeStateStatus === 'BLOCKED' && live.reviewDecision === 'REVIEW_REQUIRED') {
     return { action: 'ready' }
   }
   if (live.mergeStateStatus === 'BLOCKED') {

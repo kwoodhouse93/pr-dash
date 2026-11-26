@@ -13,7 +13,7 @@ import {
   type AgentRequest,
 } from '../shared/agents.ts'
 import { approvedByLogin } from '../shared/approval.ts'
-import { canMergeSlice, canSquashMerge, sliceParts } from '../shared/merge.ts'
+import { canMergeSlice, canSquashMerge, sliceParts, unapprovedMergeBlock } from '../shared/merge.ts'
 import { stepLabel, type MergeWatch, type RowMark, type StepStatus } from '../shared/queue.ts'
 import type { Rail } from '../shared/rails.ts'
 import { downstackKeys, mergeLineKeys, upstackKeys, type Parents, type StackSummary } from '../shared/stacks.ts'
@@ -53,6 +53,9 @@ function useStackLock(): StackLock {
 const COLUMNS = 17
 
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
+
+/** Queues a pull request to merge without its required approval. Null when that is not offered. */
+const UnapprovedMergeContext = createContext<((key: string) => Promise<void>) | null>(null)
 const EMPTY_HOLDS: CheckHold[] = []
 
 /** Pull requests whose state just changed, and the ones that just merged and are on their way off the list. */
@@ -93,6 +96,7 @@ export function PrTable({
   onAssign,
   onCreateAssigned,
   onMerge,
+  onMergeUnapproved,
   onRetry,
   onStackMerge,
   onMarkReady,
@@ -129,6 +133,8 @@ export function PrTable({
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
+  /** Left out, a pull request's menu does not offer to merge it without approval. */
+  onMergeUnapproved?: (key: string) => Promise<void>
   onRetry: (entryId: string) => Promise<void>
   onStackMerge: (key: string) => Promise<void>
   onMarkReady: (key: string) => Promise<void>
@@ -189,6 +195,7 @@ export function PrTable({
   return (
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
     <AgentProvider start={onStartAgent} routing={agentRouting} t3Origin={t3Origin}>
+    <UnapprovedMergeContext.Provider value={mode === 'mine' ? (onMergeUnapproved ?? null) : null}>
     <HoldContext.Provider value={holds}>
     <MotionContext.Provider value={motion}>
     <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
@@ -250,6 +257,7 @@ export function PrTable({
     </table>
     </MotionContext.Provider>
     </HoldContext.Provider>
+    </UnapprovedMergeContext.Provider>
     </AgentProvider>
     </FeedbackProvider>
   )
@@ -825,6 +833,7 @@ function DataRow({
         stackKeys={block.stackKeys}
         parents={block.parents}
         defaultWholeStack={false}
+        queued={mark !== null}
         initiatives={initiatives}
         prByKey={prByKey}
         onAssign={onAssign}
@@ -1550,6 +1559,8 @@ type RowMenuProps = {
   stackKeys: string[]
   parents: Parents
   defaultWholeStack: boolean
+  /** The row's pull request is already in the merge queue. */
+  queued?: boolean
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
@@ -1585,9 +1596,12 @@ function RowMenuBody(props: RowMenuProps) {
   const [view, setView] = useState<'menu' | 'initiative' | 'prompt' | 'issue'>('menu')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const close = useMenuClose()
   const agents = useAgentLaunch()
+  const mergeUnapproved = useContext(UnapprovedMergeContext)
   const pr = props.prByKey.get(props.primaryKey)
+  const unapproved = mergeUnapproved && pr && !props.defaultWholeStack && !props.queued && unapprovedMergeBlock(pr) === null ? pr : null
   const name = useAgentName(pr?.repo ?? props.prs[0]?.repo ?? null)
   const promptTargets = props.prs.length ? props.prs : pr ? [pr] : []
   const failing = props.prs.filter((item) => failingChecks(item).length > 0)
@@ -1673,6 +1687,33 @@ function RowMenuBody(props: RowMenuProps) {
           </button>
         )
       })}
+      {unapproved && mergeUnapproved ? (
+        <button
+          type="button"
+          className="menu-item"
+          disabled={pending}
+          title="Queues this pull request to merge without its required approval. Checks, threads and conflicts still have to be clear."
+          onClick={() => {
+            if (!confirming) {
+              setConfirming(true)
+              return
+            }
+            setPending(true)
+            setError(null)
+            void mergeUnapproved(unapproved.key)
+              .then(() => close())
+              .catch((caught: unknown) => {
+                setError(caught instanceof Error ? caught.message : 'Could not queue that merge')
+              })
+              .finally(() => {
+                setPending(false)
+                setConfirming(false)
+              })
+          }}
+        >
+          {confirming ? `Confirm: merge #${unapproved.number} without approval` : `Merge #${unapproved.number} without approval…`}
+        </button>
+      ) : null}
       {promptTargets.length ? (
         <button type="button" className="menu-item" onClick={() => setView('prompt')}>
           Work on {promptTargets.length > 1 ? 'a pull request' : `#${promptTargets[0]!.number}`} with {name}…

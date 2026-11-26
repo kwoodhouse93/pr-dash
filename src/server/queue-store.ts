@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import type { PullRequest } from '../shared/types.ts'
-import type { EntryStatus, MergeEntry, MergeLog, MergeStep, MergeWatch, QueueSnapshot, StepStatus } from '../shared/queue.ts'
+import type { EntryKind, EntryStatus, MergeEntry, MergeLog, MergeStep, MergeWatch, QueueSnapshot, StepStatus } from '../shared/queue.ts'
 
 export type NewStep = {
   prKey: string
@@ -17,7 +17,7 @@ export type NewStep = {
 }
 
 export type NewEntry = {
-  kind: 'pr' | 'stack'
+  kind: EntryKind
   repo: string
   trunk: string
   title: string
@@ -27,7 +27,7 @@ export type NewEntry = {
 type EntryRow = {
   id: string
   position: number
-  kind: 'pr' | 'stack'
+  kind: EntryKind
   repo: string
   trunk: string
   title: string

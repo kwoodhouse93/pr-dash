@@ -22,7 +22,7 @@ import {
 import { checksFromRaw, mapPullRequest, shadowedRuns, type GitHubPull, type RawCheck, type RawCheckSuite, type ThreadDetail } from '../shared/map.ts'
 import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { authoredSearchQueries, reviewSearchQueries } from '../shared/repos.ts'
-import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy } from '../shared/rules.ts'
+import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy, type Ruleset } from '../shared/rules.ts'
 import type { CheckCursor, CheckRollup, PullRequest } from '../shared/types.ts'
 import { requestSignal } from './request-signal.ts'
 
@@ -503,17 +503,33 @@ export async function fetchRepoRules(token: string, repos: string[], onProgress:
   return rules
 }
 
-async function readRulesets(token: string, repo: string): Promise<Parameters<typeof reviewPolicy>[0]> {
-  const listResponse = await rest(token, `/repos/${repo}/rulesets?per_page=100`)
+/** The rulesets that apply to the repository's default branch. Every ruleset, when GitHub will not say which apply. */
+export async function readRulesets(token: string, repo: string): Promise<Ruleset[]> {
+  const [listResponse, applying] = await Promise.all([rest(token, `/repos/${repo}/rulesets?per_page=100`), trunkRulesetIds(token, repo)])
   if (!listResponse.ok) return []
   const list = (await listResponse.json()) as { id: number }[]
   const rulesets = await Promise.all(
-    list.map(async (item) => {
-      const response = await rest(token, `/repos/${repo}/rulesets/${item.id}`)
-      return response.ok ? response.json() : null
-    }),
+    list
+      .filter((item) => applying == null || applying.has(item.id))
+      .map(async (item) => {
+        const response = await rest(token, `/repos/${repo}/rulesets/${item.id}`)
+        return response.ok ? response.json() : null
+      }),
   )
-  return rulesets.filter((ruleset) => ruleset != null) as Parameters<typeof reviewPolicy>[0]
+  return rulesets.filter((ruleset) => ruleset != null) as Ruleset[]
+}
+
+async function trunkRulesetIds(token: string, repo: string): Promise<Set<number> | null> {
+  const repoResponse = await rest(token, `/repos/${repo}`)
+  if (!repoResponse.ok) return null
+  const trunk = ((await repoResponse.json()) as { default_branch?: string }).default_branch
+  if (!trunk) return null
+  const response = await rest(token, `/repos/${repo}/rules/branches/${encodeURIComponent(trunk)}?per_page=100`)
+  if (!response.ok) return null
+  const rules = (await response.json()) as { ruleset_id?: number }[]
+  // A full page may not be every rule, and a ruleset left out would drop its required checks.
+  if (rules.length >= 100) return null
+  return new Set(rules.flatMap((rule) => (typeof rule.ruleset_id === 'number' ? [rule.ruleset_id] : [])))
 }
 
 function keptBehind(previous: PullRequest): number {
@@ -801,20 +817,16 @@ export async function viewerFor(token: string): Promise<{ login: string; teams: 
   return { login: viewer.login, teams: viewer.teams }
 }
 
-export async function squashMergePullRequest(token: string, repo: string, number: number): Promise<void> {
-  const response = await rest(token, `/repos/${repo}/pulls/${number}/merge`, 'PUT', { merge_method: 'squash' })
+/**
+ * Squash merges the pull request if its head is still `headSha`, the commit whose checks and reviews
+ * were just read. `moved` means the branch has a different head, and nothing was merged.
+ */
+export async function squashMergePullRequest(token: string, repo: string, number: number, headSha: string): Promise<'merged' | 'moved'> {
+  const response = await rest(token, `/repos/${repo}/pulls/${number}/merge`, 'PUT', { merge_method: 'squash', sha: headSha })
   const text = await response.text()
-  let payload: { message?: string; merged?: boolean } = {}
-  if (text) {
-    try {
-      payload = JSON.parse(text) as { message?: string; merged?: boolean }
-    } catch {
-      payload = {}
-    }
-  }
-  if (!response.ok || payload.merged === false) {
-    throw new Error(payload.message || text.slice(0, 280) || `GitHub ${response.status}`)
-  }
+  if (response.status === 409 && /head branch was modified/i.test(text)) return 'moved'
+  if (!response.ok || /"merged"\s*:\s*false/.test(text)) throw new Error(messageFrom(text, response.status))
+  return 'merged'
 }
 
 export async function rerunWorkflows(
