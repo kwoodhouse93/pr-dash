@@ -105,12 +105,23 @@ export function upstackBlock(pr: PullRequest, bar: ReviewBar): string | null {
 }
 
 /**
+ * Whether a required approval is missing. GitHub leaves the review decision empty on some pull requests
+ * that its rulesets still block for want of a review, so those are judged by counting approvals.
+ */
+export function awaitingApproval(pr: Pick<PullRequest, 'reviewDecision' | 'reviewers'>, requiredApprovals: number): boolean {
+  if (pr.reviewDecision === 'REVIEW_REQUIRED') return true
+  return pr.reviewDecision == null && pr.reviewers.filter((reviewer) => reviewer.state === 'APPROVED').length < requiredApprovals
+}
+
+/**
  * Why a pull request cannot merge without its required approval, or null when the approval is the
  * only thing missing. GitHub reports such a pull request as blocked, so this reads the queue's own gates.
  */
 export function unapprovedMergeBlock(pr: PullRequest): string | null {
   if (pr.baseRef !== pr.defaultBranch) return `#${pr.number} does not target ${pr.defaultBranch}.`
-  if (pr.reviewDecision !== 'REVIEW_REQUIRED') return `#${pr.number} is not waiting on an approval.`
+  if (pr.mergeStateStatus !== 'BLOCKED' || !awaitingApproval(pr, pr.requiredApprovals)) {
+    return `#${pr.number} is not waiting on an approval.`
+  }
   return upstackBlock(pr, { requiredApprovals: 0, dismissStale: false })
 }
 

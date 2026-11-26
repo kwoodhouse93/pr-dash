@@ -1,5 +1,5 @@
 import { isBehindBase, type ShadowedRun } from './map.ts'
-import { mergeStateReady, requiredCheckGate } from './merge.ts'
+import { awaitingApproval, mergeStateReady, requiredCheckGate } from './merge.ts'
 import type { Check, Mergeable, Reviewer } from './types.ts'
 import type { ReviewDecision } from './approval.ts'
 
@@ -228,10 +228,16 @@ export function cancelGrace(since: number | null, now: number, restarting: boole
 }
 
 /**
- * `unapproved` lets a pull request through while its required review is the one thing missing. GitHub
- * only says such a pull request is blocked, so every other gate here has to hold on its own.
+ * `unapproved` lets a pull request through while its required review is the one thing missing, and carries
+ * how many approvals the trunk asks for. GitHub only says such a pull request is blocked, so every other
+ * gate here has to hold on its own.
  */
-export function interpretWait(live: LivePull, trunk: string, requiredNames: string[], unapproved = false): WaitDecision {
+export function interpretWait(
+  live: LivePull,
+  trunk: string,
+  requiredNames: string[],
+  unapproved: { requiredApprovals: number } | null = null,
+): WaitDecision {
   if (live.state === 'MERGED') return { action: 'merged' }
   if (live.state === 'CLOSED') return { action: 'fail', reason: `#${live.number} is closed.` }
   if (live.baseRef !== trunk) {
@@ -273,7 +279,7 @@ export function interpretWait(live: LivePull, trunk: string, requiredNames: stri
     return { action: 'wait', reason: `Waiting for GitHub to finish checking #${live.number}.` }
   }
   if (mergeStateReady(live.mergeable, live.mergeStateStatus)) return { action: 'ready' }
-  if (unapproved && live.mergeable === 'MERGEABLE' && live.mergeStateStatus === 'BLOCKED' && live.reviewDecision === 'REVIEW_REQUIRED') {
+  if (unapproved && live.mergeable === 'MERGEABLE' && live.mergeStateStatus === 'BLOCKED' && awaitingApproval(live, unapproved.requiredApprovals)) {
     return { action: 'ready' }
   }
   if (live.mergeStateStatus === 'BLOCKED') {

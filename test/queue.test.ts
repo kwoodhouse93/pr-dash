@@ -166,8 +166,19 @@ describe('merging without approval', () => {
     expect(unapprovedMergeBlock(waiting())).toBeNull()
   })
 
+  it('is allowed when GitHub blocks the pull request without giving a review decision', () => {
+    expect(unapprovedMergeBlock(waiting({ reviewDecision: null }))).toBeNull()
+    const approved = [{ login: 'ada', human: true, state: 'APPROVED' as const, submittedAt: '2026-10-02T01:00:00Z' }]
+    expect(unapprovedMergeBlock(waiting({ reviewDecision: null, reviewers: approved }))).toMatch(/not waiting on an approval/)
+    expect(unapprovedMergeBlock(waiting({ reviewDecision: null, reviewers: approved, requiredApprovals: 2 }))).toBeNull()
+    expect(unapprovedMergeBlock(waiting({ reviewDecision: null, requiredApprovals: 0 }))).toMatch(/not waiting on an approval/)
+    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: null, behindBy: 0 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('ready')
+    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: null, behindBy: 0 }), 'main', ['Check'], { requiredApprovals: 0 })).toMatchObject({ action: 'wait', unexplained: true })
+  })
+
   it('is refused for anything else that is not in place', () => {
     expect(unapprovedMergeBlock(waiting({ reviewDecision: 'APPROVED' }))).toMatch(/not waiting on an approval/)
+    expect(unapprovedMergeBlock(waiting({ mergeStateStatus: 'CLEAN' }))).toMatch(/not waiting on an approval/)
     expect(unapprovedMergeBlock(waiting({ baseRef: 'below' }))).toMatch(/does not target main/)
     expect(unapprovedMergeBlock(waiting({ isDraft: true }))).toMatch(/draft/)
     expect(unapprovedMergeBlock(waiting({ conflict: true }))).toMatch(/conflict/)
@@ -326,15 +337,15 @@ function live(over: Partial<LivePull> = {}): LivePull {
 describe('wait decisions', () => {
   it('lets an entry queued without approval through when the review is all that blocks it', () => {
     const blocked = (over: Partial<LivePull> = {}) => live({ mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', behindBy: 0, ...over })
-    expect(interpretWait(blocked(), 'main', ['Check'], true).action).toBe('ready')
-    expect(interpretWait(blocked({ changesRequested: true }), 'main', ['Check'], true)).toMatchObject({ action: 'fail', reason: '#4 has changes requested.' })
-    expect(interpretWait(blocked({ unresolvedCount: 1 }), 'main', ['Check'], true).action).toBe('fail')
-    expect(interpretWait(blocked({ behindBy: 2 }), 'main', ['Check'], true).action).toBe('behind')
-    expect(interpretWait(blocked({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check'], true).action).toBe('fail')
-    expect(interpretWait(blocked({ checks: [check({ name: 'Other', conclusion: 'SUCCESS' })] }), 'main', ['Check'], true).action).toBe('wait')
+    expect(interpretWait(blocked(), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('ready')
+    expect(interpretWait(blocked({ changesRequested: true }), 'main', ['Check'], { requiredApprovals: 1 })).toMatchObject({ action: 'fail', reason: '#4 has changes requested.' })
+    expect(interpretWait(blocked({ unresolvedCount: 1 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('fail')
+    expect(interpretWait(blocked({ behindBy: 2 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('behind')
+    expect(interpretWait(blocked({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('fail')
+    expect(interpretWait(blocked({ checks: [check({ name: 'Other', conclusion: 'SUCCESS' })] }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('wait')
     // Approved since it was queued, so whatever still blocks it is not the review.
-    expect(interpretWait(blocked({ reviewDecision: 'APPROVED' }), 'main', ['Check'], true)).toMatchObject({ action: 'wait', unexplained: true })
-    expect(interpretWait(live(), 'main', ['Check'], true).action).toBe('ready')
+    expect(interpretWait(blocked({ reviewDecision: 'APPROVED' }), 'main', ['Check'], { requiredApprovals: 1 })).toMatchObject({ action: 'wait', unexplained: true })
+    expect(interpretWait(live(), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('ready')
   })
 
   it('merges a clean pull request and waits for checks that have not finished', () => {

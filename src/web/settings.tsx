@@ -303,10 +303,10 @@ export function SettingsPage({
           </div>
           <div
             className="panel-row setting"
-            title="Adds an option to a pull request's menu once everything but its required approval is in place. GitHub has to let you bypass the review rule."
+            title="Turns on a menu option to merge a pull request that has not been approved. It does not change how Merge works: an unapproved pull request only merges when you choose that option for it."
           >
-            <h3>Merge without approval</h3>
-            <div className="segmented" role="group" aria-label="Merge without approval">
+            <h3>Allow merge without approval</h3>
+            <div className="segmented" role="group" aria-label="Allow merge without approval">
               <button type="button" aria-pressed={mergeUnapproved} onClick={() => onMergeUnapproved(true)}>
                 On
               </button>

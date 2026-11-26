@@ -417,7 +417,7 @@ async function mergeOne(entry: MergeEntry, step: MergeStep): Promise<boolean> {
       if ((await squashMergePullRequest(loadGithubToken(), entry.repo, step.number, ready.headOid)) === 'merged') {
         store.setStep(step.id, 'merged', null)
         store.log(entry.id, 'info', `Squash merged #${step.number}.`)
-        const saved = db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)
+        const saved = savedPull(step)
         if (saved) store.retain(entry.id, saved)
         break
       }
@@ -528,12 +528,12 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<{ hea
       if (!(await pause(entry.id))) return 'stop'
       continue
     }
-    const decision = interpretWait(live, entry.trunk, names, entry.kind === 'unapproved')
+    const decision = interpretWait(live, entry.trunk, names, entry.kind === 'unapproved' ? { requiredApprovals: savedPull(step)?.requiredApprovals ?? 1 } : null)
     if (decision.action === 'ready') return { headOid: live.headOid }
     if (decision.action === 'merged') {
       store.setStep(step.id, 'merged', null)
       store.log(entry.id, 'info', `#${step.number} is already merged.`)
-      const saved = db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)
+      const saved = savedPull(step)
       if (saved) store.retain(entry.id, saved)
       return 'merged'
     }
@@ -660,8 +660,12 @@ async function pause(entryId: string): Promise<boolean> {
   return !db().queue.isCancelRequested(entryId)
 }
 
+function savedPull(step: MergeStep): PullRequest | undefined {
+  return db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)
+}
+
 function namesFor(step: MergeStep): string[] {
-  return db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)?.requiredCheckNames ?? []
+  return savedPull(step)?.requiredCheckNames ?? []
 }
 
 function settle(database: DashboardDb, entry: MergeEntry) {
