@@ -78,7 +78,7 @@ describe('departed pull requests', () => {
     })
     const entry = db.queue.enqueue({
       kind: 'pr', repo: 'acme/app', trunk: 'main', title: 'PR 5',
-      steps: [{ prKey: 'acme/app#5', number: 5, title: 'PR 5', url: 'https://example.test', headRef: 'a', headOid: 'a'.repeat(40), baseRef: 'main', role: 'merge' }],
+      steps: [{ prKey: 'acme/app#5', number: 5, title: 'PR 5', url: 'https://example.test', headRef: 'a', headOid: 'a'.repeat(40), baseRef: 'main', baseOid: null, role: 'merge' }],
     })
     db.queue.setStep(entry.steps[0]!.id, 'merged', null)
     const [gone] = db.snapshot().departed!

@@ -36,6 +36,7 @@ function entry(logs: MergeEntry['logs']): MergeEntry {
         headRef: 'queue',
         headOid: 'abc',
         baseRef: 'main',
+        baseOid: null,
         role: 'merge',
         status: 'failed',
         detail: null,

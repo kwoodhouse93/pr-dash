@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { canMergeSlice, upstackBlock } from '../src/shared/merge.ts'
-import { bootAction, cancelGrace, interpretWait, landedMergeVisible, queueSummary, rebasesAfter, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
+import { bootAction, cancelGrace, interpretWait, landedMergeVisible, queueSummary, rebasesDue, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
 import { reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
@@ -159,6 +159,7 @@ function step(over: Partial<MergeStep> & Pick<MergeStep, 'id' | 'role' | 'headRe
     title: over.headRef,
     url: 'https://example.test',
     baseRef: 'main',
+    baseOid: null,
     status: 'queued',
     detail: null,
     ...over,
@@ -166,24 +167,36 @@ function step(over: Partial<MergeStep> & Pick<MergeStep, 'id' | 'role' | 'headRe
 }
 
 describe('rebase plan', () => {
+  // main ← c ← b ← a      merging c then b, a sits above b
+  const oid = (letter: string) => letter.repeat(40)
   const steps = [
-    step({ id: 'c', role: 'merge', headRef: 'c', headOid: 'c'.repeat(40), position: 0 }),
-    step({ id: 'b', role: 'merge', headRef: 'b', headOid: 'b'.repeat(40), position: 1 }),
-    step({ id: 'a', role: 'restack', headRef: 'a', headOid: 'a'.repeat(40), position: 2 }),
+    step({ id: 'c', role: 'merge', headRef: 'c', headOid: oid('c') }),
+    step({ id: 'b', role: 'merge', headRef: 'b', headOid: oid('b'), baseRef: 'c', baseOid: oid('c') }),
+    step({ id: 'a', role: 'restack', headRef: 'a', headOid: oid('a'), baseRef: 'b', baseOid: oid('b') }),
   ]
+  const shape = (plan: ReturnType<typeof rebasesDue>) =>
+    plan.map((item) => [item.branch, item.cutoffOid[0], item.expectedOid[0], item.finishRestack])
+  const after = (list: MergeStep[], changes: Record<string, Partial<MergeStep>>) =>
+    list.map((item) => ({ ...item, ...changes[item.id] }))
 
-  it('keeps the chain stacked while a later pull request still has to merge', () => {
-    expect(rebasesAfter(steps, 'c', 'main').map((item) => [item.branch, item.onto, item.finishRestack])).toEqual([
-      ['b', 'main', false],
-      ['a', 'b', false],
-    ])
+  it('rebases nothing before the first merge', () => {
+    expect(rebasesDue(steps)).toEqual([])
   })
 
-  it('moves leftover branches onto trunk after the last squash', () => {
-    const merged = steps.map((item) => (item.id === 'c' ? { ...item, status: 'merged' as const } : item))
-    expect(rebasesAfter(merged, 'b', 'main').map((item) => [item.branch, item.onto, item.setBaseTo, item.cutoffOid])).toEqual([
-      ['a', 'main', 'main', 'b'.repeat(40)],
-    ])
+  it('moves only the next pull request after a merge, leaving the branch above it alone', () => {
+    expect(shape(rebasesDue(after(steps, { c: { status: 'merged' } })))).toEqual([['b', 'c', 'b', false]])
+  })
+
+  it('cuts the branch above from the head it was built on, not the head its parent was rewritten to', () => {
+    const moved = after(steps, {
+      c: { status: 'merged' },
+      b: { status: 'merged', headOid: oid('9'), baseOid: null },
+    })
+    expect(shape(rebasesDue(moved))).toEqual([['a', 'b', 'a', true]])
+  })
+
+  it('does not move a branch that already sits on the trunk', () => {
+    expect(rebasesDue(after(steps, { c: { status: 'merged' }, b: { baseOid: null } }))).toEqual([])
   })
 })
 
@@ -194,44 +207,36 @@ describe('rebase plan for a stack with branches', () => {
   const oid = (letter: string) => letter.repeat(40)
   const steps = [
     step({ id: 'r', role: 'merge', headRef: 'r', headOid: oid('1'), baseRef: 'main', status: 'merged' }),
-    step({ id: 'f', role: 'merge', headRef: 'f', headOid: oid('2'), baseRef: 'r' }),
-    step({ id: 'x', role: 'merge', headRef: 'x', headOid: oid('3'), baseRef: 'f' }),
-    step({ id: 's', role: 'restack', headRef: 's', headOid: oid('4'), baseRef: 'f' }),
-    step({ id: 't', role: 'restack', headRef: 't', headOid: oid('5'), baseRef: 's' }),
-    step({ id: 'y', role: 'restack', headRef: 'y', headOid: oid('6'), baseRef: 'x' }),
+    step({ id: 'f', role: 'merge', headRef: 'f', headOid: oid('2'), baseRef: 'r', baseOid: oid('1') }),
+    step({ id: 'x', role: 'merge', headRef: 'x', headOid: oid('3'), baseRef: 'f', baseOid: oid('2') }),
+    step({ id: 's', role: 'restack', headRef: 's', headOid: oid('4'), baseRef: 'f', baseOid: oid('2') }),
+    step({ id: 't', role: 'restack', headRef: 't', headOid: oid('5'), baseRef: 's', baseOid: oid('4') }),
+    step({ id: 'y', role: 'restack', headRef: 'y', headOid: oid('6'), baseRef: 'x', baseOid: oid('3') }),
   ]
-  const shape = (plan: ReturnType<typeof rebasesAfter>) =>
-    plan.map((item) => [item.branch, item.onto, item.cutoffOid[0], item.setBaseTo, item.finishRestack])
+  const shape = (plan: ReturnType<typeof rebasesDue>) => plan.map((item) => [item.branch, item.cutoffOid[0], item.finishRestack])
 
-  it('keeps every branch on its own parent while pull requests below it still have to merge', () => {
-    expect(shape(rebasesAfter(steps, 'r', 'main'))).toEqual([
-      ['f', 'main', '1', 'main', false],
-      ['x', 'f', '2', null, false],
-      ['s', 'f', '2', null, false],
-      ['t', 's', '4', null, false],
-      ['y', 'x', '3', null, false],
-    ])
+  it('moves only the branch on the merged one while pull requests above it still have to merge', () => {
+    expect(shape(rebasesDue(steps))).toEqual([['f', '1', false]])
   })
 
-  it('moves a side branch onto trunk once its parent has merged, and leaves the merging branch stacked', () => {
-    const merged = steps.map((item) => (item.id === 'f' ? { ...item, status: 'merged' as const } : item))
-    expect(shape(rebasesAfter(merged, 'f', 'main'))).toEqual([
-      ['x', 'main', '2', 'main', false],
-      ['s', 'main', '2', 'main', true],
-      ['t', 'main', '4', 'main', true],
-      ['y', 'x', '3', null, false],
+  it('moves a side branch and what sits on it once their parent has merged, and leaves the merging branch above alone', () => {
+    const merged = steps.map((item) => (item.id === 'f' ? { ...item, status: 'merged' as const, baseOid: null } : item))
+    expect(shape(rebasesDue(merged))).toEqual([
+      ['x', '2', false],
+      ['s', '2', true],
+      ['t', '4', true],
     ])
   })
 
   it('finishes with only what sits above the last merge', () => {
     const done = steps.map((item) =>
       item.id === 'f' || item.id === 'x'
-        ? { ...item, status: 'merged' as const }
+        ? { ...item, status: 'merged' as const, baseOid: null }
         : item.id === 's' || item.id === 't'
-          ? { ...item, status: 'restacked' as const }
+          ? { ...item, status: 'restacked' as const, baseOid: null }
           : item,
     )
-    expect(shape(rebasesAfter(done, 'x', 'main'))).toEqual([['y', 'main', '3', 'main', true]])
+    expect(shape(rebasesDue(done))).toEqual([['y', '3', true]])
   })
 })
 
@@ -365,21 +370,21 @@ describe('queue store', () => {
       repo: 'acme/app',
       trunk: 'main',
       title: 'First',
-      steps: [{ prKey: 'acme/app#1', number: 1, title: 'First', url: 'https://example.test', headRef: 'a', headOid: 'a'.repeat(40), baseRef: 'main', role: 'merge' }],
+      steps: [{ prKey: 'acme/app#1', number: 1, title: 'First', url: 'https://example.test', headRef: 'a', headOid: 'a'.repeat(40), baseRef: 'main', baseOid: null, role: 'merge' }],
     })
     const second = db.queue.enqueue({
       kind: 'pr',
       repo: 'acme/app',
       trunk: 'main',
       title: 'Second',
-      steps: [{ prKey: 'acme/app#2', number: 2, title: 'Second', url: 'https://example.test', headRef: 'b', headOid: 'b'.repeat(40), baseRef: 'main', role: 'merge' }],
+      steps: [{ prKey: 'acme/app#2', number: 2, title: 'Second', url: 'https://example.test', headRef: 'b', headOid: 'b'.repeat(40), baseRef: 'main', baseOid: null, role: 'merge' }],
     })
     db.queue.fail(first.id, first.steps[0]!.id, 'Check failed.')
     expect(db.queue.nextRunnable('acme/app')?.id).toBe(second.id)
     expect(db.queue.blocksKey('acme/app#1')).toBe(true)
     expect(() => db.queue.retry(second.id, [])).toThrow(/held/)
 
-    db.queue.retry(first.id, [{ stepId: first.steps[0]!.id, headOid: 'C'.repeat(40), baseRef: 'main', restacked: false }])
+    db.queue.retry(first.id, [{ stepId: first.steps[0]!.id, headOid: 'C'.repeat(40), onTrunk: false, restacked: false }])
     const retried = db.queue.get(first.id)!
     expect(retried).toMatchObject({ status: 'queued', error: null, finishedAt: null })
     expect(retried.steps[0]).toMatchObject({ status: 'queued', detail: null, headOid: 'c'.repeat(40) })
@@ -413,6 +418,7 @@ describe('queue store', () => {
           headRef: landed.headRef,
           headOid: 'a'.repeat(40),
           baseRef: 'main',
+          baseOid: null,
           role: 'merge',
         },
         {
@@ -423,6 +429,7 @@ describe('queue store', () => {
           headRef: kept.headRef,
           headOid: 'b'.repeat(40),
           baseRef: 'main',
+          baseOid: null,
           role: 'merge',
         },
       ],
@@ -496,6 +503,7 @@ function entry(title: string, number: number) {
         headRef: `branch-${number}`,
         headOid: number.toString(16).padStart(40, 'a'),
         baseRef: 'main',
+        baseOid: null,
         role: 'merge' as const,
       },
     ],
@@ -663,5 +671,37 @@ describe('queueSummary', () => {
   it('reads as failed when a held merge is all that is left to act on', () => {
     expect(queueSummary([{ status: 'failed' }, { status: 'queued' }]).state).toBe('failed')
     expect(queueSummary([{ status: 'queued' }]).label).toBe('Merge queue: 1 queued, waiting')
+  })
+})
+
+describe('queue store upgrade', () => {
+  it('records the head each queued branch was built on, from its parent in the same merge', async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-upgrade-'))
+    const file = path.join(dir, 'dash.sqlite')
+    const old = new DatabaseSync(file)
+    old.exec(`
+      CREATE TABLE merge_entries (
+        id TEXT PRIMARY KEY, position INTEGER NOT NULL, kind TEXT NOT NULL, repo TEXT NOT NULL, trunk TEXT NOT NULL,
+        title TEXT NOT NULL, status TEXT NOT NULL, error TEXT, archived INTEGER NOT NULL DEFAULT 0,
+        cancel_requested INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        started_at TEXT, finished_at TEXT
+      );
+      CREATE TABLE merge_steps (
+        id TEXT PRIMARY KEY, entry_id TEXT NOT NULL, position INTEGER NOT NULL, pr_key TEXT NOT NULL,
+        number INTEGER NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL, head_ref TEXT NOT NULL, head_oid TEXT NOT NULL,
+        base_ref TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, detail TEXT, updated_at TEXT NOT NULL
+      );
+      INSERT INTO merge_entries (id, position, kind, repo, trunk, title, status, created_at, updated_at)
+        VALUES ('e', 1, 'stack', 'acme/app', 'main', 'Stack', 'queued', 'now', 'now');
+      INSERT INTO merge_steps VALUES
+        ('1', 'e', 0, 'acme/app#1', 1, 'One', 'u', 'one', '${'1'.repeat(40)}', 'main', 'merge', 'queued', NULL, 'now'),
+        ('2', 'e', 1, 'acme/app#2', 2, 'Two', 'u', 'two', '${'2'.repeat(40)}', 'one', 'merge', 'queued', NULL, 'now'),
+        ('3', 'e', 2, 'acme/app#3', 3, 'Three', 'u', 'three', '${'3'.repeat(40)}', 'two', 'restack', 'queued', NULL, 'now');
+    `)
+    old.close()
+    const db = openDatabase(file)
+    expect(db.queue.get('e')!.steps.map((item) => item.baseOid)).toEqual([null, '1'.repeat(40), '2'.repeat(40)])
+    rmSync(dir, { recursive: true, force: true })
   })
 })

@@ -11,6 +11,8 @@ export type NewStep = {
   headRef: string
   headOid: string
   baseRef: string
+  /** The head of the branch below this one, as this branch was built on it. Null when it sits on the trunk. */
+  baseOid: string | null
   role: 'merge' | 'restack'
 }
 
@@ -48,6 +50,7 @@ type StepRow = {
   head_ref: string
   head_oid: string
   base_ref: string
+  base_oid: string | null
   role: 'merge' | 'restack'
   status: StepStatus
   detail: string | null
@@ -86,6 +89,7 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
       head_ref TEXT NOT NULL,
       head_oid TEXT NOT NULL,
       base_ref TEXT NOT NULL,
+      base_oid TEXT,
       role TEXT NOT NULL,
       status TEXT NOT NULL,
       detail TEXT,
@@ -117,12 +121,25 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
     );
   `)
 
+  const stepColumns = db.prepare('PRAGMA table_info(merge_steps)').all() as { name: string }[]
+  if (!stepColumns.some((column) => column.name === 'base_oid')) {
+    // Steps queued before this column existed were rebased after every merge, so each sits on its parent's recorded head.
+    db.exec(`
+      ALTER TABLE merge_steps ADD COLUMN base_oid TEXT;
+      UPDATE merge_steps SET base_oid = (
+        SELECT parent.head_oid FROM merge_steps AS parent
+        WHERE parent.entry_id = merge_steps.entry_id AND parent.head_ref = merge_steps.base_ref AND parent.id != merge_steps.id
+      )
+      WHERE status NOT IN ('merged', 'restacked', 'cancelled');
+    `)
+  }
+
   const readEntries = db.prepare(
     `SELECT id, position, kind, repo, trunk, title, status, error, created_at, updated_at, started_at, finished_at
      FROM merge_entries ORDER BY position ASC`,
   )
   const readSteps = db.prepare(
-    `SELECT id, entry_id, position, pr_key, number, title, url, head_ref, head_oid, base_ref, role, status, detail
+    `SELECT id, entry_id, position, pr_key, number, title, url, head_ref, head_oid, base_ref, base_oid, role, status, detail
      FROM merge_steps ORDER BY position ASC`,
   )
   const readLogs = db.prepare(
@@ -143,6 +160,7 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
         headRef: row.head_ref,
         headOid: row.head_oid,
         baseRef: row.base_ref,
+        baseOid: row.base_oid,
         role: row.role,
         status: row.status,
         detail: row.detail,
@@ -334,8 +352,8 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
       ).next
       const insertStep = db.prepare(
         `INSERT INTO merge_steps (
-           id, entry_id, position, pr_key, number, title, url, head_ref, head_oid, base_ref, role, status, detail, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL, ?)`,
+           id, entry_id, position, pr_key, number, title, url, head_ref, head_oid, base_ref, base_oid, role, status, detail, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL, ?)`,
       )
       db.exec('BEGIN')
       try {
@@ -356,6 +374,7 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
             step.headRef,
             step.headOid.toLowerCase(),
             step.baseRef,
+            step.baseOid?.toLowerCase() ?? null,
             step.role,
             now,
           )
@@ -402,8 +421,9 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
       )
     },
 
-    setHeadOid(id: string, oid: string) {
-      db.prepare('UPDATE merge_steps SET head_oid = ?, updated_at = ? WHERE id = ?').run(
+    /** The branch now sits on the trunk at this head. */
+    setRebased(id: string, oid: string) {
+      db.prepare('UPDATE merge_steps SET head_oid = ?, base_oid = NULL, updated_at = ? WHERE id = ?').run(
         oid.toLowerCase(),
         new Date().toISOString(),
         id,
@@ -432,10 +452,11 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
     },
 
     /**
-     * Puts a held entry back in line where it stood. Unfinished steps take the head and base
-     * GitHub reports now, so a fix pushed since the failure is what gets merged.
+     * Puts a held entry back in line where it stood. Unfinished steps take the head GitHub
+     * reports now, so a fix pushed since the failure is what gets merged. A step marked
+     * onTrunk was moved onto the trunk by someone else and is not rebased again.
      */
-    retry(id: string, live: { stepId: string; headOid: string; baseRef: string; restacked: boolean }[]) {
+    retry(id: string, live: { stepId: string; headOid: string; onTrunk: boolean; restacked: boolean }[]) {
       const entry = load(id)
       if (!entry) throw new Error('That merge is no longer in the queue.')
       if (entry.status !== 'failed') throw new Error('Only a held merge can be retried.')
@@ -448,9 +469,9 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
         ).run(now, id)
         for (const step of live) {
           db.prepare(
-            `UPDATE merge_steps SET head_oid = ?, base_ref = ?, status = ?, updated_at = ?
+            `UPDATE merge_steps SET head_oid = ?, base_oid = CASE WHEN ? THEN NULL ELSE base_oid END, status = ?, updated_at = ?
              WHERE id = ? AND entry_id = ? AND status = 'queued'`,
-          ).run(step.headOid.toLowerCase(), step.baseRef, step.restacked ? 'restacked' : 'queued', now, step.stepId, id)
+          ).run(step.headOid.toLowerCase(), step.onTrunk ? 1 : 0, step.restacked ? 'restacked' : 'queued', now, step.stepId, id)
         }
         db.prepare(
           `UPDATE merge_entries SET status = 'queued', error = NULL, finished_at = NULL, cancel_requested = 0, updated_at = ? WHERE id = ?`,

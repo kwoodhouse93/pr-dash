@@ -25,6 +25,8 @@ export type MergeStep = {
   headRef: string
   headOid: string
   baseRef: string
+  /** The head of the branch below this one, as this branch was built on it. Null once it sits on the trunk. */
+  baseOid: string | null
   role: 'merge' | 'restack'
   status: StepStatus
   detail: string | null
@@ -116,10 +118,8 @@ export function landedMergeVisible(state: RemotePullState): boolean {
 export type RebaseInstruction = {
   stepId: string
   branch: string
-  onto: string
   cutoffOid: string
   expectedOid: string
-  setBaseTo: string | null
   finishRestack: boolean
 }
 
@@ -188,40 +188,29 @@ export function rowMarks(entries: MergeEntry[]): Map<string, RowMark> {
 }
 
 /**
- * After a squash, rewrite every branch above it, each after the branch it is based on.
- * A pull request that still has to merge, and anything stacked above one, stays stacked:
- * the next to merge lands on trunk and the rest follow their parent. Every other leftover
- * branch is moved onto trunk so it no longer depends on a merged branch.
- * A step's parent is the step whose branch it is based on, so a stack with several branches
- * keeps each one on its own parent. Without that link the step before it stands in.
+ * The branches that have to move onto the trunk now: each one built directly on a branch that
+ * has merged, plus any leftover branch above one of those. A pull request that still has to
+ * merge further up is left alone until the one below it has merged, so a merge rewrites one
+ * branch and starts CI once, not once for every branch above it.
+ * A step's parent is the step whose branch it was based on when it was queued, and the cutoff
+ * is that parent's head as the step was built on it, which stays right after the parent is rewritten.
  */
-export function rebasesAfter(steps: MergeStep[], mergedId: string, trunk: string): RebaseInstruction[] {
-  const index = steps.findIndex((step) => step.id === mergedId)
-  if (index < 0) return []
-  const merged = steps[index]!
-  const remaining = steps.slice(index + 1).filter((step) => !DONE.has(step.status))
-  const pending = new Set(remaining.map((step) => step.id))
+export function rebasesDue(steps: MergeStep[]): RebaseInstruction[] {
   const byHead = new Map(steps.map((step) => [step.headRef, step]))
-  const held = new Map<string, boolean>()
+  const onTrunk = new Set(steps.filter((step) => step.status === 'merged' || step.status === 'restacked').map((step) => step.id))
   const plan: RebaseInstruction[] = []
-  let previous = merged
-  for (const step of remaining) {
-    const linked = byHead.get(step.baseRef)
-    const parent = linked && linked.id !== step.id ? linked : previous
-    const stacked = pending.has(parent.id)
-    const waits = step.role === 'merge' || (stacked && held.get(parent.id) === true)
-    held.set(step.id, waits)
-    const onto = waits && stacked ? parent.headRef : trunk
+  for (const step of steps) {
+    if (DONE.has(step.status) || step.baseOid == null) continue
+    const parent = byHead.get(step.baseRef)
+    if (!parent || parent.id === step.id || !onTrunk.has(parent.id)) continue
     plan.push({
       stepId: step.id,
       branch: step.headRef,
-      onto,
-      cutoffOid: parent.headOid,
+      cutoffOid: step.baseOid,
       expectedOid: step.headOid,
-      setBaseTo: onto === trunk ? trunk : null,
-      finishRestack: !waits,
+      finishRestack: step.role === 'restack',
     })
-    previous = step
+    if (step.role === 'restack') onTrunk.add(step.id)
   }
   return plan
 }

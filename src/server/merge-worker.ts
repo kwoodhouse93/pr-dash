@@ -1,7 +1,7 @@
 import { ciLevel } from '../shared/ci.ts'
 import { isBehindBase } from '../shared/map.ts'
 import { canSquashMerge, sliceParts, stackReviewBar, upstackBlock } from '../shared/merge.ts'
-import { bootAction, cancelGrace, interpretWait, rebasesAfter, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
+import { bootAction, cancelGrace, interpretWait, rebasesDue, type LivePull, type MergeEntry, type MergeStep } from '../shared/queue.ts'
 import { buildStacks, mergeLine, stackOf } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
@@ -45,7 +45,7 @@ export async function enqueuePull(db: DashboardDb, key: string) {
     repo: pr.repo,
     trunk: pr.defaultBranch,
     title: pr.title,
-    steps: [stepOf(pr, live, 'merge')],
+    steps: [stepOf(pr, live, 'merge', null)],
   })
   db.queue.disarmWatch(key)
   kickMergeWorker()
@@ -71,14 +71,20 @@ export async function enqueueDownstack(db: DashboardDb, key: string) {
   assertSliceReady(parts.merge.map((pr) => withLive(pr, live.get(pr.key)!)))
   const bottom = parts.merge[parts.merge.length - 1]!
   const top = parts.merge[0]!
+  const affected = [...parts.merge, ...parts.restack]
+  // Each branch records the head it is built on, so it can be cut from that commit after its parent is rewritten.
+  const baseOid = (pr: PullRequest) => {
+    const parent = affected.find((item) => item.headRef === pr.baseRef && item.key !== pr.key)
+    return parent ? live.get(parent.key)!.headOid : null
+  }
   db.queue.enqueue({
     kind: 'stack',
     repo: top.repo,
     trunk: bottom.defaultBranch,
     title: top.title,
     steps: [
-      ...[...parts.merge].reverse().map((pr) => stepOf(pr, live.get(pr.key)!, 'merge')),
-      ...[...parts.restack].reverse().map((pr) => stepOf(pr, live.get(pr.key)!, 'restack')),
+      ...[...parts.merge].reverse().map((pr) => stepOf(pr, live.get(pr.key)!, 'merge', baseOid(pr))),
+      ...[...parts.restack].reverse().map((pr) => stepOf(pr, live.get(pr.key)!, 'restack', baseOid(pr))),
     ],
   })
   db.queue.disarmWatch(key)
@@ -215,17 +221,20 @@ export async function retryEntry(db: DashboardDb, id: string) {
   if (entry.status !== 'failed') throw new MergeRejected('Only a held merge can be retried.')
   const token = loadGithubToken()
   const pulls = db.snapshot().pullRequests
-  const live: { stepId: string; headOid: string; baseRef: string; restacked: boolean }[] = []
+  const live: { stepId: string; headOid: string; onTrunk: boolean; restacked: boolean }[] = []
   for (const step of entry.steps) {
     if (step.status === 'merged' || step.status === 'restacked' || step.status === 'cancelled') continue
     const names = pulls.find((pr) => pr.key === step.prKey)?.requiredCheckNames ?? []
     const now = await fetchLivePull(token, entry.repo, step.number, names)
+    // GitHub moves a pull request onto the trunk by itself when the branch below it merges and is deleted,
+    // without rebasing it. Only a new head on the trunk means someone moved it there themselves.
+    const onTrunk = now.baseRef === entry.trunk && (step.baseOid == null || now.headOid !== step.headOid)
     live.push({
       stepId: step.id,
       headOid: now.headOid,
-      baseRef: now.baseRef,
-      // A branch that only needed moving off the stack is finished once it targets trunk, or is no longer open.
-      restacked: step.role === 'restack' && (now.state !== 'OPEN' || now.baseRef === entry.trunk),
+      onTrunk,
+      // A branch that only needed moving off the stack is finished once it is on trunk, or is no longer open.
+      restacked: step.role === 'restack' && (now.state !== 'OPEN' || onTrunk),
     })
   }
   try {
@@ -259,7 +268,7 @@ function assertSliceReady(mergeTopToBottom: PullRequest[]) {
   }
 }
 
-function stepOf(pr: PullRequest, live: LivePull, role: 'merge' | 'restack') {
+function stepOf(pr: PullRequest, live: LivePull, role: 'merge' | 'restack', baseOid: string | null) {
   return {
     prKey: pr.key,
     number: pr.number,
@@ -268,6 +277,7 @@ function stepOf(pr: PullRequest, live: LivePull, role: 'merge' | 'restack') {
     headRef: pr.headRef,
     headOid: live.headOid,
     baseRef: pr.baseRef,
+    baseOid,
     role,
   }
 }
@@ -366,10 +376,11 @@ async function runEntry(entry: MergeEntry) {
   let current = store.get(entry.id) ?? entry
   for (const step of current.steps) {
     if (step.role !== 'merge' || step.status === 'merged') continue
-    const ok = await mergeOne(current, step)
-    if (!ok) return
+    if (!(await moveDue(entry.id))) return
     current = store.get(entry.id) ?? current
+    if (!(await mergeOne(current, step))) return
   }
+  if (!(await moveDue(entry.id))) return
   current = store.get(entry.id) ?? current
   const unfinished = current.steps.some((step) => step.role === 'restack' && step.status !== 'restacked')
   if (unfinished) {
@@ -383,13 +394,11 @@ async function runEntry(entry: MergeEntry) {
 
 async function mergeOne(entry: MergeEntry, step: MergeStep): Promise<boolean> {
   const store = db().queue
-  let activeId = step.id
   try {
     const already = await waitUntilReady(entry, step)
     if (already === 'stop') return false
     if (already === 'merge') {
       if (stopped(entry.id)) return false
-      activeId = step.id
       store.setStep(step.id, 'merging', null)
       store.log(entry.id, 'info', `Squash merging #${step.number}.`)
       await squashMergePullRequest(loadGithubToken(), entry.repo, step.number)
@@ -398,54 +407,79 @@ async function mergeOne(entry: MergeEntry, step: MergeStep): Promise<boolean> {
       const saved = db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)
       if (saved) store.retain(entry.id, saved)
     }
-    const fresh = store.get(entry.id)
-    if (!fresh) return false
-    const plan = rebasesAfter(fresh.steps, step.id, entry.trunk)
-    for (const item of plan) {
+    return !stopped(entry.id)
+  } catch (error) {
+    halt(entry, step.id, error)
+    return false
+  }
+}
+
+/**
+ * Moves onto the trunk each branch built directly on one that has merged. Branches further up
+ * stay where they are until the one below them merges, so their CI only runs once they are next.
+ */
+async function moveDue(entryId: string): Promise<boolean> {
+  const store = db().queue
+  const entry = store.get(entryId)
+  if (!entry) return false
+  let activeId: string | null = null
+  try {
+    for (const item of rebasesDue(entry.steps)) {
       if (stopped(entry.id)) return false
-      const target = fresh.steps.find((candidate) => candidate.id === item.stepId)
+      const target = entry.steps.find((candidate) => candidate.id === item.stepId)
       if (!target) continue
       activeId = target.id
-      store.setStep(target.id, 'rebasing', `Onto ${item.onto}`)
-      store.log(entry.id, 'info', `Rebasing ${item.branch} onto ${item.onto}.`)
+      store.setStep(target.id, 'rebasing', `Onto ${entry.trunk}`)
+      // Retarget before rewriting: done twice it is harmless, and a rebase that fails leaves the step to rebase again.
+      await retarget(entry, target)
+      store.log(entry.id, 'info', `Rebasing ${item.branch} onto ${entry.trunk}.`)
       const oid = await rebaseOnto({
         mirror: mirrorFor(entry.repo),
         remote: `https://github.com/${entry.repo}.git`,
         token: loadGithubToken(),
-        trunk: item.onto,
+        trunk: entry.trunk,
         branch: item.branch,
         cutoffOid: item.cutoffOid,
-        expectedOid: target.headOid,
+        expectedOid: item.expectedOid,
         shouldStop: () => store.isCancelRequested(entry.id),
       })
-      store.setHeadOid(target.id, oid)
-      if (item.setBaseTo) {
-        store.log(entry.id, 'info', `Setting #${target.number} to target ${item.setBaseTo}.`)
-        await updatePullBase(loadGithubToken(), entry.repo, target.number, item.setBaseTo)
-      }
+      store.setRebased(target.id, oid)
       if (item.finishRestack) {
         store.setStep(target.id, 'restacked', null)
         store.log(entry.id, 'info', `Rebased #${target.number} onto ${entry.trunk}.`)
       } else {
-        store.setStep(target.id, 'queued', `Rebased onto ${item.onto}.`)
-      }
-      const updated = store.get(entry.id)
-      if (updated) {
-        const rewritten = updated.steps.find((candidate) => candidate.id === target.id)
-        if (rewritten) target.headOid = rewritten.headOid
+        store.setStep(target.id, 'queued', `Rebased onto ${entry.trunk}.`)
       }
     }
     return !stopped(entry.id)
   } catch (error) {
-    if (error instanceof GitCancelled || store.isCancelRequested(entry.id)) {
-      store.finishCancelled(entry.id)
-      settle(db(), store.get(entry.id) ?? entry)
-      return false
-    }
-    const message = error instanceof Error ? error.message : 'Merge failed'
-    store.fail(entry.id, activeId, message)
+    halt(entry, activeId, error)
     return false
   }
+}
+
+/** Points the pull request at the trunk. GitHub may already have, when the branch below it was deleted on merge. */
+async function retarget(entry: MergeEntry, step: MergeStep) {
+  const token = loadGithubToken()
+  try {
+    await updatePullBase(token, entry.repo, step.number, entry.trunk)
+  } catch (error) {
+    const live = await fetchLivePull(token, entry.repo, step.number, namesFor(step)).catch(() => null)
+    if (live?.baseRef !== entry.trunk) throw error
+    return
+  }
+  db().queue.log(entry.id, 'info', `Set #${step.number} to target ${entry.trunk}.`)
+}
+
+function halt(entry: MergeEntry, activeId: string | null, error: unknown) {
+  const queue = db().queue
+  if (error instanceof GitCancelled || queue.isCancelRequested(entry.id)) {
+    queue.finishCancelled(entry.id)
+    settle(db(), queue.get(entry.id) ?? entry)
+    return
+  }
+  const message = error instanceof Error ? error.message : 'Merge failed'
+  queue.fail(entry.id, activeId, message)
 }
 
 async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merge' | 'merged' | 'stop'> {
