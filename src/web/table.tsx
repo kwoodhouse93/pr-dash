@@ -1334,6 +1334,8 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
   const { launch, pending, error } = useAgentLaunch()
   const name = useAgentName(prs[0]?.repo ?? null)
   const { locked } = useStackLock()
+  const request: AgentRequest = { kind: 'conflict' }
+  const idle = conflicts.filter((pr) => !activeSession(pr, 'conflict'))
 
   if (conflicts.length === 0) {
     return (
@@ -1359,33 +1361,37 @@ function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
             </>
           }
         >
-          <PopHead title={`Resolve with ${name}`} />
+          <PopHead title={conflicts.length === 1 ? `Resolve conflict on #${conflicts[0]!.number}` : 'Resolve conflicts'} />
           <PopBody>
-          <p>{name} will resolve the conflict and push to this pull request’s existing branch.</p>
-          {conflicts.map((pr) => {
-            const running = activeSession(pr, 'conflict')
-            const request: AgentRequest = { kind: 'conflict' }
-            return (
-              <div key={pr.key} className="resolve-action">
-                {conflicts.length > 1 ? <p>#{pr.number}</p> : null}
-                {running ? (
-                  <RunningNote session={running} />
-                ) : (
-                  <button
-                    type="button"
-                    className="primary resolve-cta"
-                    disabled={locked || pending !== null}
-                    aria-label={conflicts.length > 1 ? `Resolve #${pr.number} with ${name}` : undefined}
-                    onClick={() => void launch(pr, request)}
-                  >
-                    {pending === launchTag(pr.key, request) ? `Starting ${name}…` : `Resolve with ${name}`}
-                  </button>
-                )}
-              </div>
-            )
-          })}
-          {error ? <p className="launch-error">{error}</p> : null}
+            <p>
+              {name} resolves the conflict and pushes to {conflicts.length === 1 ? 'this pull request’s' : 'each pull request’s'} existing branch.
+            </p>
+            {conflicts.map((pr) => {
+              const running = activeSession(pr, 'conflict')
+              return running ? <RunningNote key={pr.key} session={running} prefix={conflicts.length > 1 ? `#${pr.number}` : null} /> : null
+            })}
+            {error ? <p className="launch-error">{error}</p> : null}
           </PopBody>
+          {idle.length ? (
+            <PopFoot>
+              {idle.map((pr) => (
+                <button
+                  key={pr.key}
+                  type="button"
+                  className="primary"
+                  disabled={locked || pending !== null}
+                  aria-busy={pending === launchTag(pr.key, request)}
+                  onClick={() => void launch(pr, request)}
+                >
+                  {pending === launchTag(pr.key, request)
+                    ? `Starting ${name}…`
+                    : conflicts.length > 1
+                      ? `Resolve #${pr.number} with ${name}`
+                      : `Resolve with ${name}`}
+                </button>
+              ))}
+            </PopFoot>
+          ) : null}
         </ClickCard>
       </span>
     </td>

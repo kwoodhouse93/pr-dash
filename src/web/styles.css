@@ -1482,8 +1482,6 @@ td.agents { width: 1%; text-align: center; padding-left: 4px; padding-right: 4px
 }
 .cursor-result th { color: var(--muted); font-weight: 650; }
 .cursor-result hr { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
-.resolve-action + .resolve-action { margin-top: 10px; }
-.resolve-cta { width: 100%; font-size: 14px; }
 .launch-error { color: var(--red) !important; margin-top: 8px !important; }
 
 .ci, .marks {
