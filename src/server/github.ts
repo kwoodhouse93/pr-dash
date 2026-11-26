@@ -1015,12 +1015,22 @@ export async function markPullReadyForReview(token: string, pullRequestId: strin
   }
 }
 
-export async function updatePullBranch(token: string, repo: string, number: number, expectedHeadSha: string): Promise<void> {
+/**
+ * Merges the base into the pull request's branch. `moved` means the branch head is no longer
+ * `expectedHeadSha`, as when GitHub reported a head that a push had just replaced.
+ */
+export async function updatePullBranch(
+  token: string,
+  repo: string,
+  number: number,
+  expectedHeadSha: string,
+): Promise<'updated' | 'moved'> {
   const response = await rest(token, `/repos/${repo}/pulls/${number}/update-branch`, 'PUT', {
     expected_head_sha: expectedHeadSha,
   })
-  if (response.ok || response.status === 202) return
+  if (response.ok || response.status === 202) return 'updated'
   const text = await response.text()
+  if (response.status === 422 && /expected head sha/i.test(text)) return 'moved'
   throw new Error(messageFrom(text, response.status))
 }
 

@@ -482,11 +482,14 @@ function halt(entry: MergeEntry, activeId: string | null, error: unknown) {
   queue.fail(entry.id, activeId, message)
 }
 
+const STALE_HEAD_LIMIT = 5
+
 async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merge' | 'merged' | 'stop'> {
   const store = db().queue
   store.setStep(step.id, 'waiting', null)
   let unexplained = 0
   let updatedFor = ''
+  let staleHeads = 0
   let lastReason = ''
   let cancelledSince: number | null = null
   const rerun = new Set<number>()
@@ -524,12 +527,25 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<'merg
       }
       updatedFor = decision.headOid
       store.log(entry.id, 'info', `Updating #${step.number} with ${entry.trunk}.`)
+      let result: 'updated' | 'moved'
       try {
-        await updatePullBranch(loadGithubToken(), entry.repo, step.number, decision.headOid)
+        result = await updatePullBranch(loadGithubToken(), entry.repo, step.number, decision.headOid)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not update the branch'
         store.fail(entry.id, step.id, message)
         return 'stop'
+      }
+      if (result === 'moved') {
+        // GitHub reads a branch's old head for a short while after a push, such as the rebase that just moved it onto the trunk.
+        updatedFor = ''
+        staleHeads += 1
+        if (staleHeads >= STALE_HEAD_LIMIT) {
+          store.fail(entry.id, step.id, `GitHub kept reporting an old head for #${step.number}.`)
+          return 'stop'
+        }
+        store.log(entry.id, 'info', `#${step.number} has a newer head than GitHub reported. Checking again.`)
+      } else {
+        staleHeads = 0
       }
       if (!(await pause(entry.id))) {
         stopped(entry.id)
