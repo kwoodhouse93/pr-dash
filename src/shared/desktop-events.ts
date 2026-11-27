@@ -13,8 +13,11 @@ export type DesktopEvents = {
   'pr-dash:page': DesktopPage
   /** Pairing with T3 Code moved on in a tab: it paired with `origin`, it failed, or the user asked not to be offered it again. */
   'pr-dash:t3': { origin?: string; prompt?: false; failed?: true }
-  /** The sign-in to T3 Code that Settings started has ended in a tab, approved or not, so Settings should look again. */
-  'pr-dash:t3-connect': { ended: true }
+  /**
+   * The sign-in to T3 Code that Settings started has ended in a tab, approved or not, so Settings should look again.
+   * `unanswered` is an approval the dashboard's server never took, which leaves PR Dash signed out with nothing to show why.
+   */
+  'pr-dash:t3-connect': { ended: true; unanswered: boolean }
   /** Where a task that was just started lands in the window, in the page's own units, and when the flight to it begins. */
   'pr-dash:flight': { to: PressBox | null; at: number }
 }

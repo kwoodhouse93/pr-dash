@@ -310,7 +310,10 @@ function T3Environments({
   useEffect(() => {
     if (!waiting) return
     window.addEventListener('focus', onCheck)
-    const stop = onDesktopEvent(window, 'pr-dash:t3-connect', onCheck)
+    const stop = onDesktopEvent(window, 'pr-dash:t3-connect', (detail) => {
+      if ((detail as { unanswered?: unknown } | null)?.unanswered === true) setError('PR Dash did not get T3 Code’s approval. Press Connect to try again.')
+      onCheck()
+    })
     return () => {
       window.removeEventListener('focus', onCheck)
       stop()

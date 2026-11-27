@@ -8,7 +8,7 @@ import type { AgentSession } from '../src/shared/types.ts'
 import { AgentUnavailable, refreshSessions, type AgentProvider } from '../src/server/agent-provider.ts'
 import { openDatabase } from '../src/server/db.ts'
 import { t3Origin } from '../src/server/t3-home.ts'
-import { parseRpc, readConnection, saveConnection } from '../src/server/t3-mcp.ts'
+import { parseRpc, readConnection, readPending, saveConnection, savePending } from '../src/server/t3-mcp.ts'
 import { originRepo, remoteThread, remoteThreadLink, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
 
 function session(patch: Partial<AgentSession> = {}): AgentSession {
@@ -356,6 +356,26 @@ describe('T3 Code threads on a linked environment', () => {
     expect(readConnection(file, Date.parse('2026-12-28T00:00:00Z'))).toBeNull()
     saveConnection(null, file)
     expect(readConnection(file)).toBeNull()
+  })
+
+  it('keeps a sign-in that was started on disk, so it outlives a restart of the server, for a quarter of an hour', () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'pr-dash-t3-')), 't3-connect-pending.json')
+    expect(readPending(file)).toBeNull()
+    const at = Date.parse('2026-11-27T17:00:00Z')
+    const started = {
+      state: 'state-1',
+      verifier: 'verifier-1',
+      clientId: 'client-1',
+      redirectUri: 'http://127.0.0.1:4317/agents/t3/connected',
+      origin: 'http://127.0.0.1:3773',
+      at,
+    }
+    savePending(started, file)
+    expect(statSync(file).mode & 0o777).toBe(0o600)
+    expect(readPending(file, at + 60_000)).toEqual(started)
+    expect(readPending(file, at + 16 * 60_000)).toBeNull()
+    savePending(null, file)
+    expect(readPending(file, at)).toBeNull()
   })
 
   it('reads a tool reply sent as JSON or as an event stream', () => {

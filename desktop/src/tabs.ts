@@ -56,6 +56,9 @@ const REST_CHECK_MS = 60_000
 const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 /** Chromium's code for a load that was called off, as a navigation this window stopped is. */
 const LOAD_ABORTED = -3
+/** How often, and how many times, an approval the dashboard's server did not answer is put to it again. A restart takes a few seconds. */
+const CONNECT_RETRY_MS = 1500
+const CONNECT_RETRIES = 10
 
 type Tab = {
   id: number
@@ -90,6 +93,8 @@ type T3Connect = {
   code: Promise<string | null>
   /** The user closed the note, so the next page does not bring it back. */
   dismissed: boolean
+  /** How many times the dashboard's server has been asked again for an approval it did not answer. */
+  retries: number
 }
 
 /**
@@ -564,7 +569,7 @@ export class Tabs {
     const code = this.pairLink()
       .then(({ pairUrl }) => pairingCode(pairUrl))
       .catch(() => null)
-    tab.connect = { origin: new URL(url).origin, code, dismissed: false }
+    tab.connect = { origin: new URL(url).origin, code, dismissed: false, retries: 0 }
     void code.then((made) => {
       if (made) clipboard.writeText(made)
     })
@@ -599,20 +604,36 @@ export class Tabs {
   }
 
   /** The sign-in is over, approved or not: back to Settings, which looks again at whether PR Dash is connected. */
-  private connectEnded() {
+  private connectEnded(unanswered = false) {
     if (this.win.isDestroyed() || this.dash.isDestroyed()) return
     this.showDashboard('settings')
-    void this.dash.executeJavaScript(raiseInPage('pr-dash:t3-connect', { ended: true })).catch(() => undefined)
+    void this.dash.executeJavaScript(raiseInPage('pr-dash:t3-connect', { ended: true, unanswered })).catch(() => undefined)
   }
 
   /** Closes the sign-in's tab, which has nothing left to show, and goes back to Settings. */
-  private connectDone(tab: Tab) {
+  private connectDone(tab: Tab, unanswered = false) {
     tab.connect = null
     // Not `close`, which would keep the address to reopen, and it works once.
     const contents = tab.view?.webContents
     this.forget(tab.id)
     contents?.close()
-    this.connectEnded()
+    this.connectEnded(unanswered)
+  }
+
+  /**
+   * The dashboard's server did not answer when T3 Code sent the tab back to it. It restarts for an update
+   * as tabs change, so an approval is put to it again for a while: the code it carries is what signs PR Dash in.
+   */
+  private connectUnanswered(tab: Tab, url: string) {
+    const connect = tab.connect
+    if (!connect || !connectAnswer(url, this.dashboardUrl)) return
+    const answer = connectAnswer(url, this.dashboardUrl)
+    if (answer === 'denied' || connect.retries >= CONNECT_RETRIES) return this.connectDone(tab, answer === 'approved')
+    connect.retries += 1
+    setTimeout(() => {
+      const contents = tab.view?.webContents
+      if (tab.connect === connect && contents && !contents.isDestroyed()) void contents.loadURL(url).catch(() => undefined)
+    }, CONNECT_RETRY_MS)
   }
 
   /** Where the sign-in's tab went. Once T3 Code has sent it back with an answer, the tab has nothing left to show. */
@@ -1010,9 +1031,8 @@ export class Tabs {
         void this.explainConnect(tab)
       })
       contents.on('did-navigate', (_event, url, status) => this.connectMoved(tab, url, status))
-      // The dashboard's server did not answer T3 Code's reply, so the tab is on nothing. Settings says how things stand.
       contents.on('did-fail-load', (_event, code, _text, url, isMainFrame) => {
-        if (isMainFrame && code !== LOAD_ABORTED && tab.connect && connectAnswer(url, this.dashboardUrl)) this.connectDone(tab)
+        if (isMainFrame && code !== LOAD_ABORTED) this.connectUnanswered(tab, url)
       })
       contents.on('page-title-updated', (_event, title) => {
         tab.title = title

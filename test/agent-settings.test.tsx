@@ -305,7 +305,7 @@ describe('agent settings and launch', () => {
     expect(api.pairT3).not.toHaveBeenCalled()
     vi.mocked(api.agentChecks).mockResolvedValue(signedIn())
     await act(async () => {
-      window.dispatchEvent(new CustomEvent('pr-dash:t3-connect', { detail: { ended: true } }))
+      window.dispatchEvent(new CustomEvent('pr-dash:t3-connect', { detail: { ended: true, unanswered: false } }))
     })
     expect(document.querySelector('.agent-connection')?.textContent).toMatch(/^Threads on other machines: connected until /)
     delete page.prDashDesktop

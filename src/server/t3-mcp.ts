@@ -21,8 +21,6 @@ const PENDING_MS = 15 * 60 * 1000
 type Connection = { clientId: string; accessToken: string; expiresAt: string }
 type Pending = { state: string; verifier: string; clientId: string; redirectUri: string; origin: string; at: number }
 
-let pending: Pending | null = null
-
 /** T3 Code refused a tool call, or could not carry it out. */
 export class T3ToolError extends Error {
   readonly code: string | null
@@ -36,6 +34,35 @@ export class T3ToolError extends Error {
 
 function connectionFile(): string {
   return path.join(path.dirname(databasePath()), 't3-connection.json')
+}
+
+function pendingFile(): string {
+  return path.join(path.dirname(databasePath()), 't3-connect-pending.json')
+}
+
+/**
+ * A sign-in that was started and not yet answered. It is kept on disk, not in memory: the user answers on
+ * T3 Code's page, and the desktop app restarts this server for an update at just such a change of tab.
+ */
+export function readPending(file = pendingFile(), now = Date.now()): Pending | null {
+  try {
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as Partial<Pending>
+    const texts = [saved.state, saved.verifier, saved.clientId, saved.redirectUri, saved.origin]
+    if (!texts.every((text) => typeof text === 'string') || typeof saved.at !== 'number') return null
+    return now - saved.at > PENDING_MS ? null : (saved as Pending)
+  } catch {
+    return null
+  }
+}
+
+export function savePending(started: Pending | null, file = pendingFile()): void {
+  if (!started) {
+    rmSync(file, { force: true })
+    return
+  }
+  mkdirSync(path.dirname(file), { recursive: true })
+  // It holds the secret half of the sign-in, so only this user may read it.
+  writeFileSync(file, JSON.stringify(started), { mode: 0o600 })
 }
 
 /** The saved sign-in, or null when there is none or it has run out. */
@@ -85,7 +112,8 @@ export async function beginT3Connect(redirectUri: string): Promise<string> {
   const clientId = ((await registered.json().catch(() => null)) as { client_id?: unknown } | null)?.client_id
   if (!registered.ok || typeof clientId !== 'string') throw new Error('T3 Code would not register PR Dash as a client.')
   const verifier = randomBytes(32).toString('base64url')
-  pending = { state: randomBytes(16).toString('base64url'), verifier, clientId, redirectUri, origin, at: Date.now() }
+  const pending: Pending = { state: randomBytes(16).toString('base64url'), verifier, clientId, redirectUri, origin, at: Date.now() }
+  savePending(pending)
   const url = new URL(`${origin}/oauth/mcp/authorize`)
   url.search = new URLSearchParams({
     response_type: 'code',
@@ -102,10 +130,10 @@ export async function beginT3Connect(redirectUri: string): Promise<string> {
 
 /** Trades the code T3 Code sent back for a token and saves it. `state` proves the answer is to the sign-in started here. */
 export async function finishT3Connect(code: string, state: string): Promise<void> {
-  const started = pending
-  if (!started || started.state !== state || Date.now() - started.at > PENDING_MS)
-    throw new Error('That sign-in was not started here, or took too long. Start it again from Settings.')
-  pending = null
+  const started = readPending()
+  if (!started || started.state !== state) throw new Error('That sign-in was not started here, or took too long. Start it again from Settings.')
+  // The code works once, so the sign-in it answers is spent whether or not T3 Code takes it.
+  savePending(null)
   const traded = await send(`${started.origin}/oauth/mcp/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
