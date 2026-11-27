@@ -809,6 +809,7 @@ export class Tabs {
     contents.on('did-navigate', navigated)
     contents.on('did-navigate-in-page', navigated)
     contents.on('context-menu', (_event, params) => this.contextMenu(tab, params))
+    contents.once('destroyed', () => this.forget(tab.id))
   }
 
   private contextMenu(tab: Tab, params: Electron.ContextMenuParams) {
@@ -857,13 +858,27 @@ export class Tabs {
     const index = this.tabs.findIndex((tab) => tab.id === id)
     const tab = this.tabs[index]
     if (!tab || tab.pinned) return
-    const url = tab.view.webContents.getURL()
+    const contents = tab.view.webContents
+    const url = contents.getURL()
     if (isWebUrl(url)) this.closed.push(shareUrl(url))
+    this.forget(id)
+    contents.close()
+  }
+
+  /**
+   * Takes a tab off the list. A page can also close a tab it opened, as the dashboard
+   * does when an agent fails to start, and the view then has no contents left to ask.
+   */
+  private forget(id: number) {
+    const index = this.tabs.findIndex((tab) => tab.id === id)
+    const tab = this.tabs[index]
+    if (!tab || tab.pinned) return
+    // The window is going, and its pages with it. The tabs are kept as they were saved.
+    if (this.win.isDestroyed() || this.dashboard.view.webContents?.isDestroyed() !== false) return
     this.tabs.splice(index, 1)
     for (const other of this.tabs) if (other.parent === id) other.parent = null
     this.visited.splice(0, this.visited.length, ...this.visited.filter((item) => item !== id))
     this.win.contentView.removeChildView(tab.view)
-    tab.view.webContents.close()
     // Closing a tab goes back to the one looked at before it.
     if (this.activeId === id) this.activate(this.visited.at(-1) ?? (this.tabs[index] ?? this.tabs[index - 1])!.id)
     else this.changed()
