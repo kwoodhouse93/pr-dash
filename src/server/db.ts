@@ -10,6 +10,7 @@ import type { Activity, ActivityEvent } from '../shared/activity.ts'
 import type { AgentProviderId, AgentRouting, AgentSession, DepartedPull, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
 import { pullGone, Refused } from './errors.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
+import { migrate, reviewLogger } from './schema.ts'
 
 export type CachedRules = {
   repo: string
@@ -98,143 +99,9 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   const db = new DatabaseSync(file)
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
-  const hadReviewLog = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_log'").get() != null
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS snapshot (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      viewer TEXT,
-      synced_at TEXT,
-      linear_configured INTEGER NOT NULL DEFAULT 0,
-      warning TEXT,
-      pull_requests TEXT NOT NULL DEFAULT '[]',
-      review_pull_requests TEXT NOT NULL DEFAULT '[]'
-    );
-    CREATE TABLE IF NOT EXISTS initiatives (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS initiative_pull_requests (
-      initiative_id TEXT NOT NULL REFERENCES initiatives(id) ON DELETE CASCADE,
-      pr_key TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY (initiative_id, pr_key)
-    );
-    CREATE TABLE IF NOT EXISTS repo_rules (
-      repo TEXT PRIMARY KEY,
-      checks TEXT NOT NULL,
-      required_approvals INTEGER NOT NULL,
-      dismiss_stale INTEGER NOT NULL,
-      fetched_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS watched_repos (
-      repo TEXT PRIMARY KEY,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS repo_marks (
-      repo TEXT PRIMARY KEY,
-      icon TEXT NOT NULL,
-      color TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS agent_sessions (
-      agent_id TEXT PRIMARY KEY,
-      pr_key TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      prompt TEXT,
-      run_id TEXT NOT NULL,
-      status TEXT NOT NULL,
-      result TEXT,
-      branch TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS agent_sessions_pr ON agent_sessions (pr_key, created_at);
-    CREATE TABLE IF NOT EXISTS agent_settings (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      default_provider TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS repo_agents (
-      repo TEXT PRIMARY KEY,
-      provider TEXT,
-      environment_id TEXT,
-      checkout TEXT
-    );
-    CREATE TABLE IF NOT EXISTS departed_pulls (
-      pr_key TEXT PRIMARY KEY,
-      list TEXT NOT NULL,
-      outcome TEXT NOT NULL,
-      at TEXT NOT NULL,
-      pull_request TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS review_log (
-      pr_key TEXT NOT NULL,
-      at TEXT NOT NULL,
-      pull_request TEXT NOT NULL,
-      PRIMARY KEY (pr_key, at)
-    );
-    CREATE TABLE IF NOT EXISTS local_resolutions (
-      item_id TEXT PRIMARY KEY,
-      pr_key TEXT NOT NULL,
-      at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS linear_links (
-      pr_key TEXT NOT NULL,
-      identifier TEXT NOT NULL,
-      PRIMARY KEY (pr_key, identifier)
-    );
-  `)
-
-  const legacySessions = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cursor_sessions'").get()
-  if (legacySessions) {
-    db.exec('BEGIN')
-    try {
-      db.exec(`
-        INSERT OR IGNORE INTO agent_sessions (agent_id, pr_key, kind, prompt, run_id, status, result, branch, created_at, updated_at)
-        SELECT agent_id, pr_key, 'conflict', NULL, run_id, status, result, branch, updated_at, updated_at FROM cursor_sessions;
-        DROP TABLE cursor_sessions;
-      `)
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      throw error
-    }
-  }
-
-  const sessionColumns = db.prepare('PRAGMA table_info(agent_sessions)').all() as { name: string }[]
-  if (!sessionColumns.some((column) => column.name === 'provider')) {
-    db.exec(`
-      ALTER TABLE agent_sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'cursor';
-      ALTER TABLE agent_sessions ADD COLUMN environment_id TEXT;
-      ALTER TABLE agent_sessions ADD COLUMN url TEXT;
-      ALTER TABLE agent_sessions ADD COLUMN unreachable_since TEXT;
-    `)
-  }
-
-  const columns = db.prepare('PRAGMA table_info(snapshot)').all() as { name: string }[]
-  if (!columns.some((column) => column.name === 'review_pull_requests')) {
-    db.exec(`ALTER TABLE snapshot ADD COLUMN review_pull_requests TEXT NOT NULL DEFAULT '[]'`)
-  }
-  if (!columns.some((column) => column.name === 'mine_synced_at')) {
-    db.exec('ALTER TABLE snapshot ADD COLUMN mine_synced_at TEXT')
-  }
-  if (!columns.some((column) => column.name === 'review_synced_at')) {
-    db.exec('ALTER TABLE snapshot ADD COLUMN review_synced_at TEXT')
-  }
-
-  // A review is logged as a refresh sees it. What was known before the log existed is the one review each stored pull request carries.
-  const writeReview = db.prepare('INSERT OR IGNORE INTO review_log (pr_key, at, pull_request) VALUES (?, ?, ?)')
-  function logReview(pr: Pick<PullRequest, 'key' | 'repo' | 'repoName' | 'number' | 'title' | 'url' | 'viewerReviewedAt' | 'readyAt'>) {
-    if (!pr.viewerReviewedAt) return
-    const event: ActivityEvent = { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, at: pr.viewerReviewedAt, readyAt: pr.readyAt ?? null }
-    writeReview.run(pr.key, pr.viewerReviewedAt, JSON.stringify(event))
-  }
-  if (!hadReviewLog) {
-    const gone = db.prepare(`SELECT pull_request FROM departed_pulls WHERE list = 'review' AND outcome <> 'pending'`).all() as { pull_request: string }[]
-    for (const row of gone) logReview(JSON.parse(row.pull_request) as StoredDeparture)
-    const stored = db.prepare('SELECT review_pull_requests FROM snapshot WHERE id = 1').get() as { review_pull_requests: string | null } | undefined
-    for (const pr of parseList(stored?.review_pull_requests)) logReview(pr)
-  }
+  migrate(db)
+  // A review is logged as a refresh sees it.
+  const logReview = reviewLogger(db)
 
   const queue = attachQueue(db, {
     // The merge queue knows a merge landed before a refresh notices the pull request has gone.
