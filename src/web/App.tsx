@@ -11,7 +11,7 @@ import { agentsSummary, providerFor, startingSession, withStartingSessions } fro
 import { pullKeyRepo } from '../shared/repos.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { ActivityPage } from './activity.tsx'
-import { api } from './api.ts'
+import { api, syncCancelled } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
 import { formatExact } from './format.ts'
 import { FilterBar, activeFilterLabels } from './filter-bar.tsx'
@@ -198,13 +198,13 @@ export function App() {
           }
         } catch (caught) {
           const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
-          if (message !== 'Sync cancelled' && id === applyId.current) toastError(message, { heading: 'Could not load thread replies' })
+          if (!syncCancelled(caught) && id === applyId.current) toastError(message, { heading: 'Could not load thread replies' })
         }
       }
       return true
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Refresh failed'
-      if (message !== 'Sync cancelled' && id === applyId.current) {
+      if (!syncCancelled(caught) && id === applyId.current) {
         toastError(message, { heading: 'Refresh failed', onRetry: () => void refresh({ ...options, force: true }) })
       }
       return false
@@ -223,7 +223,7 @@ export function App() {
       await loadFeedback(focus)
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
-      if (message !== 'Sync cancelled' && id === applyId.current) {
+      if (!syncCancelled(caught) && id === applyId.current) {
         toastError(message, { heading: 'Could not load thread replies', onRetry: () => void showFeedback(focus) })
       }
     } finally {

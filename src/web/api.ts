@@ -3,15 +3,16 @@ import type { AgentRequest, AgentSettings } from '../shared/agents.ts'
 import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import type { RepoCatalog } from '../shared/repos.ts'
+import { SYNC_CANCELLED, type FeedbackLoad, type SyncStatus } from '../shared/sync.ts'
 import type { AgentProviderId, LinearAssignee, LinearStatus, RepoMark, Snapshot } from '../shared/types.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   const text = await response.text()
-  let body: { error?: string } = {}
+  let body: { error?: string; code?: string } = {}
   if (text) {
     try {
-      body = JSON.parse(text) as { error?: string }
+      body = JSON.parse(text) as { error?: string; code?: string }
     } catch {
       if (!response.ok) throw new Error(text.slice(0, 240))
       throw new Error('The server returned an unreadable response.')
@@ -22,50 +23,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+/** A refresh that was cancelled to make way for another. Nothing went wrong, so nothing is said. */
+export function syncCancelled(caught: unknown): boolean {
+  return (caught as { body?: { code?: unknown } } | null)?.body?.code === SYNC_CANCELLED
+}
+
 function post<T>(path: string, payload: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 }
 
-export type SyncKind = 'full' | 'rules' | 'list' | 'pull' | 'threads'
-
-export type SyncJob = {
-  id: string
-  kind: SyncKind
-}
-
-export type SyncHistoryEntry = {
-  id: string
-  kind: 'full' | 'rules'
-  outcome: 'done' | 'failed' | 'cancelled'
-  message: string
-  startedAt: string | null
-  finishedAt: string
-}
-
-export type SyncStatus = {
-  running: boolean
-  message: string
-  completed: number
-  total: number
-  activity: SyncJob | null
-  queue: SyncJob[]
-  history: SyncHistoryEntry[]
-  graphql: {
-    paused: boolean
-    limit: number | null
-    remaining: number | null
-    resetAt: string | null
-    message: string | null
-    windows: { limit: number; remaining: number; resetAt: string }[]
-  }
-  rules: { repo: string; fetchedAt: string }[]
-}
-
-export type FeedbackLoad = {
-  snapshot: Snapshot
-  pending: number
-  paused: boolean
-}
+export type { FeedbackLoad, SyncHistoryEntry, SyncJob, SyncKind, SyncStatus } from '../shared/sync.ts'
 
 export const api = {
   snapshot: (focus?: 'mine' | 'review') => request<Snapshot>(focus ? `/api/snapshot?focus=${focus}` : '/api/snapshot'),

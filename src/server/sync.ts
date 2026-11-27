@@ -10,6 +10,7 @@ import { rulesFresh } from '../shared/rules.ts'
 import { refreshSessions } from './agent-provider.ts'
 import { agentProviders } from './agents.ts'
 import type { DashboardDb } from './db.ts'
+import { pullGone } from './errors.ts'
 import {
   GraphqlPaused,
   assertGraphql,
@@ -29,7 +30,8 @@ import {
 } from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
 import { withRequestSignal } from './request-signal.ts'
-import { createSyncQueue, SyncCancelled, type SyncKind } from './sync-queue.ts'
+import type { FeedbackLoad, SyncKind, SyncStatus } from '../shared/sync.ts'
+import { createSyncQueue, SyncCancelled } from './sync-queue.ts'
 
 export { SyncCancelled }
 
@@ -69,7 +71,7 @@ function startMessage(kind: SyncKind): string {
   }
 }
 
-export function describeSync(db: DashboardDb) {
+export function describeSync(db: DashboardDb): SyncStatus {
   const queue = jobs.view()
   return {
     running: queue.activity != null,
@@ -175,7 +177,7 @@ export function cancelQueuedSync(db: DashboardDb, id: string) {
   return describeSync(db)
 }
 
-export function loadThreadFeedback(db: DashboardDb, next: RefreshFocus): Promise<{ snapshot: Snapshot; pending: number; paused: boolean }> {
+export function loadThreadFeedback(db: DashboardDb, next: RefreshFocus): Promise<FeedbackLoad> {
   return jobs.enqueue({
     kind: 'threads',
     key: `threads:${next}`,
@@ -489,7 +491,7 @@ async function readFeedback(
   db: DashboardDb,
   next: RefreshFocus,
   signal: AbortSignal,
-): Promise<{ snapshot: Snapshot; pending: number; paused: boolean }> {
+): Promise<FeedbackLoad> {
   const snap = db.snapshot()
   const watched = new Set(snap.repos)
   const list = (next === 'review' ? snap.reviewPullRequests : snap.pullRequests).filter((pr) => watched.has(pr.repo))
@@ -535,7 +537,7 @@ async function readOne(db: DashboardDb, key: string, signal: AbortSignal): Promi
   assertGraphql()
   const snap = db.snapshot()
   const current = [...snap.pullRequests, ...snap.reviewPullRequests].find((pr) => pr.key === key)
-  if (!current) throw new Error('That pull request is no longer in this list.')
+  if (!current) throw pullGone()
   if (signal.aborted) throw new SyncCancelled()
   note(`Refreshing #${current.number}`)
   try {

@@ -9,12 +9,13 @@ import type { DashboardDb } from './db.ts'
 import { abortRebases, GitCancelled, interruptGit, mirrorPath, rebaseOnto } from './git.ts'
 import { commitContains, fetchLivePull, loadGithubToken, readRulesets, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
 
+import { PULL_GONE, Refused } from './errors.ts'
+
 const POLL_MS = 20_000
 
-export class MergeRejected extends Error {
+export class MergeRejected extends Refused {
   constructor(message: string) {
-    super(message)
-    this.name = 'MergeRejected'
+    super(message, 409)
   }
 }
 
@@ -64,7 +65,7 @@ export async function enqueuePull(db: DashboardDb, key: string, unapproved = fal
 export async function enqueueDownstack(db: DashboardDb, key: string) {
   const snap = db.snapshot()
   const line = mergeLineFor(snap.pullRequests, key)
-  if (!line) throw new MergeRejected('That pull request is no longer in this list.')
+  if (!line) throw new MergeRejected(PULL_GONE)
   const parts = sliceParts(line, key)
   if (!parts) throw new MergeRejected('The bottom pull request merges on its own.')
   assertSliceReady(parts.merge)
@@ -164,7 +165,7 @@ export function moveEntry(db: DashboardDb, id: string, direction: 'up' | 'down')
 
 function findPull(db: DashboardDb, key: string): PullRequest {
   const pr = db.snapshot().pullRequests.find((item) => item.key === key)
-  if (!pr) throw new MergeRejected('That pull request is no longer in this list.')
+  if (!pr) throw new MergeRejected(PULL_GONE)
   return pr
 }
 

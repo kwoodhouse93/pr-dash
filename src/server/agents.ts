@@ -5,6 +5,7 @@ import { AgentUnavailable, type AgentProvider } from './agent-provider.ts'
 import { agentTask } from './agent-tasks.ts'
 import { cursorProvider } from './cursor.ts'
 import type { DashboardDb } from './db.ts'
+import { Refused } from './errors.ts'
 import { checkoutProblem, shortFolder, t3Origin, t3Provider, t3ProjectsByRepo } from './t3.ts'
 
 export const agentProviders: Record<AgentProviderId, AgentProvider> = {
@@ -13,15 +14,18 @@ export const agentProviders: Record<AgentProviderId, AgentProvider> = {
 }
 
 /** The chosen provider could not be used. `fallback` is another that is ready now. */
-export class AgentLaunchUnavailable extends Error {
+export class AgentLaunchUnavailable extends Refused {
   readonly provider: AgentProviderId
   readonly fallback: AgentProviderId | null
 
   constructor(message: string, provider: AgentProviderId, fallback: AgentProviderId | null) {
-    super(message)
-    this.name = 'AgentLaunchUnavailable'
+    super(message, 503)
     this.provider = provider
     this.fallback = fallback
+  }
+
+  override get detail() {
+    return { provider: this.provider, fallback: this.fallback }
   }
 }
 

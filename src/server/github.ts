@@ -24,6 +24,7 @@ import type { LivePull, RemotePullState } from '../shared/queue.ts'
 import { authoredSearchQueries, reviewSearchQueries } from '../shared/repos.ts'
 import { RULES_MAX_AGE_MS, requiredCheckNames, reviewPolicy, type Ruleset } from '../shared/rules.ts'
 import type { CheckCursor, CheckRollup, PullRequest } from '../shared/types.ts'
+import { COMMENT_GONE, Refused } from './errors.ts'
 import { requestSignal } from './request-signal.ts'
 
 export function loadGithubToken(): string {
@@ -38,10 +39,9 @@ export function loadGithubToken(): string {
   throw new Error('No GitHub token. Set GITHUB_TOKEN, or run gh auth login.')
 }
 
-export class GraphqlPaused extends Error {
+export class GraphqlPaused extends Refused {
   constructor(message: string) {
-    super(message)
-    this.name = 'GraphqlPaused'
+    super(message, 503)
   }
 }
 
@@ -1252,9 +1252,7 @@ export async function fetchPullFeedback(token: string, repo: string, number: num
 function requireReply(body: string): string {
   const text = body.trim()
   if (!text) {
-    const error = new Error('Write a reply first.')
-    error.name = 'FeedbackRejected'
-    throw error
+    throw new Refused('Write a reply first.')
   }
   return text
 }
@@ -1281,9 +1279,7 @@ export async function replyToPullNote(token: string, repo: string, number: numbe
   const current = await fetchPullFeedback(token, repo, number)
   const note = current.notes.find((item) => item.id === noteId)
   if (!note) {
-    const error = new Error('That comment is no longer on the pull request.')
-    error.name = 'FeedbackRejected'
-    throw error
+    throw new Refused(COMMENT_GONE, 404)
   }
   const quoted = quoteReply({ authorLogin: note.author?.login ?? null, body: note.body, url: note.url }, text)
   await graphql(token, ADD_COMMENT, { subjectId: current.pullId, body: quoted })

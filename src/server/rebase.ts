@@ -3,12 +3,12 @@ import { buildStacks, restackChain, stackOf } from '../shared/stacks.ts'
 import type { PullRequest, Snapshot } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { AlreadyBased, mirrorPath, rebaseOnto, rebaseOntoTip } from './git.ts'
+import { PULL_GONE, Refused } from './errors.ts'
 import { fetchLivePull, loadGithubToken } from './github.ts'
 
-export class RebaseRejected extends Error {
+export class RebaseRejected extends Refused {
   constructor(message: string) {
-    super(message)
-    this.name = 'RebaseRejected'
+    super(message, 409)
   }
 }
 
@@ -20,12 +20,12 @@ export async function rebasePull(db: DashboardDb, key: string): Promise<Snapshot
       ? snap.reviewPullRequests
       : null
   const pr = list?.find((item) => item.key === key)
-  if (!list || !pr) throw new RebaseRejected('That pull request is no longer in this list.')
+  if (!list || !pr) throw new RebaseRejected(PULL_GONE)
   if (!pr.behind) throw new RebaseRejected(`#${pr.number} is already up to date with ${pr.baseRef}.`)
 
   const family = stackOf(buildStacks(list), key)
   const stack = family ? restackChain(family, key) : null
-  if (!stack) throw new RebaseRejected('That pull request is no longer in this list.')
+  if (!stack) throw new RebaseRejected(PULL_GONE)
   if (db.queue.repoActive(pr.repo)) throw new RebaseRejected('A merge is in progress for this repo.')
   for (const item of stack) {
     if (db.queue.blocksKey(item.key)) throw new RebaseRejected(`#${item.number} is in the merge queue.`)

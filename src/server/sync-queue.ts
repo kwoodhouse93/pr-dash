@@ -1,28 +1,12 @@
-export type SyncKind = 'full' | 'rules' | 'list' | 'pull' | 'threads'
-export type UserSyncKind = 'full' | 'rules'
-export type SyncOutcome = 'done' | 'failed' | 'cancelled'
+import { SYNC_CANCELLED, type SyncHistoryEntry, type SyncJob, type SyncKind, type SyncOutcome, type UserSyncKind } from '../shared/sync.ts'
+import { Refused } from './errors.ts'
 
 /** Lower runs first. Interactive (row refresh) preempts user/background; user preempts background. */
 export type SyncPriority = 'interactive' | 'user' | 'background'
 
-export type SyncQueueItem = {
-  id: string
-  kind: SyncKind
-}
-
-export type SyncHistoryEntry = {
-  id: string
-  kind: UserSyncKind
-  outcome: SyncOutcome
-  message: string
-  startedAt: string | null
-  finishedAt: string
-}
-
-export class SyncCancelled extends Error {
+export class SyncCancelled extends Refused {
   constructor() {
-    super('Sync cancelled')
-    this.name = 'SyncCancelled'
+    super('Sync cancelled', 409, SYNC_CANCELLED)
   }
 }
 
@@ -64,7 +48,7 @@ type EnqueueUser<T> = {
 export function createSyncQueue(options?: {
   historyLimit?: number
   now?: () => string
-  onStart?: (job: SyncQueueItem) => void
+  onStart?: (job: SyncJob) => void
   onIdle?: () => void
 }) {
   const historyLimit = options?.historyLimit ?? 20
@@ -248,7 +232,7 @@ export function createSyncQueue(options?: {
       }
       return false
     },
-    view(): { activity: SyncQueueItem | null; upcoming: SyncQueueItem[]; history: SyncHistoryEntry[] } {
+    view(): { activity: SyncJob | null; upcoming: SyncJob[]; history: SyncHistoryEntry[] } {
       return {
         activity: active ? { id: active.id, kind: active.kind } : null,
         upcoming: orderedWaiting().map((job) => ({ id: job.id, kind: job.kind })),

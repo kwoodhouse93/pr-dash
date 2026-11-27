@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { Refused } from './errors.ts'
 import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { EntryKind, EntryStatus, MergeEntry, MergeLog, MergeStep, QueueSnapshot, StepStatus } from '../shared/queue.ts'
@@ -407,8 +408,8 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
      */
     retry(id: string, live: { stepId: string; headOid: string; onTrunk: boolean; restacked: boolean }[]) {
       const entry = load(id)
-      if (!entry) throw new Error('That merge is no longer in the queue.')
-      if (entry.status !== 'failed') throw new Error('Only a held merge can be retried.')
+      if (!entry) throw new Refused('That merge is no longer in the queue.', 404)
+      if (entry.status !== 'failed') throw new Refused('Only a held merge can be retried.', 409)
       const now = new Date().toISOString()
       db.exec('BEGIN')
       try {
@@ -435,14 +436,14 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
 
     requestCancel(id: string): 'later' | 'now' {
       const entry = load(id)
-      if (!entry) throw new Error('That merge is no longer in the queue.')
+      if (!entry) throw new Refused('That merge is no longer in the queue.', 404)
       if (entry.status === 'active') {
         db.prepare('UPDATE merge_entries SET cancel_requested = 1, updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
         store.log(id, 'info', 'Cancel requested. Stopping before the next change.')
         return 'later'
       }
       if (entry.status !== 'queued' && entry.status !== 'failed') {
-        throw new Error('That merge has already finished.')
+        throw new Refused('That merge has already finished.', 409)
       }
       store.finishCancelled(id)
       return 'now'
@@ -463,8 +464,8 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
 
     move(id: string, direction: 'up' | 'down') {
       const entry = load(id)
-      if (!entry) throw new Error('That merge is no longer in the queue.')
-      if (entry.status !== 'queued') throw new Error('Only a queued merge can be reordered.')
+      if (!entry) throw new Refused('That merge is no longer in the queue.', 404)
+      if (entry.status !== 'queued') throw new Refused('Only a queued merge can be reordered.', 409)
       const neighbor = db.prepare(
         direction === 'up'
           ? `SELECT id, position FROM merge_entries

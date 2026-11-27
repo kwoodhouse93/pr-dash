@@ -8,6 +8,7 @@ import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
 import type { Activity, ActivityEvent } from '../shared/activity.ts'
 import type { AgentProviderId, AgentRouting, AgentSession, DepartedPull, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
+import { pullGone, Refused } from './errors.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 
 export type CachedRules = {
@@ -485,9 +486,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   function assertUniqueName(name: string, ignoreId?: string) {
     const existing = db.prepare('SELECT id FROM initiatives WHERE lower(name) = lower(?)').get(name) as { id: string } | undefined
     if (existing && existing.id !== ignoreId) {
-      const error = new Error(`An initiative named "${name}" already exists.`)
-      error.name = 'DuplicateInitiative'
-      throw error
+      throw new Refused(`An initiative named "${name}" already exists.`, 409)
     }
   }
 
@@ -576,9 +575,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     forgetRepo(repo) {
       if (queue.repoActive(repo)) {
-        const error = new Error(`A merge is in progress for ${repo}. Cancel it before removing the repository.`)
-        error.name = 'RepoBusy'
-        throw error
+        throw new Refused(`A merge is in progress for ${repo}. Cancel it before removing the repository.`, 409)
       }
       const like = repoKeyLike(repo)
       const row = readSnapshotRow.get() as SnapshotRow | undefined
@@ -611,7 +608,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     createInitiative(name) {
       const trimmed = name.trim()
-      if (!trimmed || trimmed.length > 80) throw new Error('Initiative name must be 1–80 characters.')
+      if (!trimmed || trimmed.length > 80) throw new Refused('Initiative name must be 1–80 characters.')
       assertUniqueName(trimmed)
       const now = new Date().toISOString()
       const initiative: Initiative = { id: crypto.randomUUID(), name: trimmed, createdAt: now, updatedAt: now }
@@ -625,11 +622,11 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     renameInitiative(id, name) {
       const trimmed = name.trim()
-      if (!trimmed || trimmed.length > 80) throw new Error('Initiative name must be 1–80 characters.')
+      if (!trimmed || trimmed.length > 80) throw new Refused('Initiative name must be 1–80 characters.')
       assertUniqueName(trimmed, id)
       const now = new Date().toISOString()
       const result = db.prepare('UPDATE initiatives SET name = ?, updated_at = ? WHERE id = ?').run(trimmed, now, id)
-      if (Number(result.changes) === 0) throw new Error('Initiative not found.')
+      if (Number(result.changes) === 0) throw new Refused('Initiative not found.', 404)
       return { id, name: trimmed, createdAt: now, updatedAt: now }
     },
     deleteInitiative(id) {
@@ -637,7 +634,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     setAssignments(initiativeId, prKeys, action) {
       const found = db.prepare('SELECT id FROM initiatives WHERE id = ?').get(initiativeId)
-      if (!found) throw new Error('Initiative not found.')
+      if (!found) throw new Refused('Initiative not found.', 404)
       const now = new Date().toISOString()
       const insert = db.prepare(
         'INSERT INTO initiative_pull_requests (initiative_id, pr_key, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
@@ -785,7 +782,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         })
       const pullRequests = add(parseList(row.pull_requests))
       const reviewPullRequests = add(parseList(row.review_pull_requests))
-      if (!found) throw new Error('That pull request is no longer in this list.')
+      if (!found) throw pullGone()
       const strip = (list: PullRequest[]) => list.map((pr) => ({ ...pr, initiativeIds: [] }))
       db.exec('BEGIN')
       try {
