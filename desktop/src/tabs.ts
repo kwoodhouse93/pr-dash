@@ -25,8 +25,22 @@ import {
   type SidebarModel,
   type TabInfo,
 } from './sidebar.ts'
-import { isT3Handoff, isT3PairLink, T3_PROMPT_CSS, T3_PROMPT_SCRIPT, t3PromptAction, t3PromptUpdate, type T3PromptAction } from './t3-prompt.ts'
-import { agentKindLabel, startingAgent, t3ThreadUrl, type StartingAgent } from '../../src/shared/agents.ts'
+import {
+  connectOutcome,
+  isConnectAction,
+  isT3ConnectLink,
+  isT3Handoff,
+  isT3PairLink,
+  T3_CONNECT_COPIED,
+  T3_CONNECT_SCRIPT,
+  T3_PROMPT_CSS,
+  T3_PROMPT_SCRIPT,
+  t3PromptAction,
+  t3PromptUpdate,
+  type T3ConnectAction,
+  type T3PromptAction,
+} from './t3-prompt.ts'
+import { agentKindLabel, pairingCode, startingAgent, t3ThreadUrl, type StartingAgent } from '../../src/shared/agents.ts'
 
 export const STRIP_HEIGHT = 40
 const SIDEBAR_WIDTH = 264
@@ -62,6 +76,17 @@ type Tab = {
   starting: StartingAgent | null
   /** When that tab first reached a page. */
   landedAt: number | null
+  /** Set while the tab shows T3 Code's approval page for the sign-in Settings started. */
+  connect: T3Connect | null
+}
+
+type T3Connect = {
+  /** The T3 Code whose pages carry the note. */
+  origin: string
+  /** The pairing code put on the clipboard for that page, once it is made. Null when none could be made. */
+  code: Promise<string | null>
+  /** The user closed the note, so the next page does not bring it back. */
+  dismissed: boolean
 }
 
 /**
@@ -515,6 +540,82 @@ export class Tabs {
       .catch(() => undefined)
   }
 
+  /** A pairing link from the dashboard's server, which only makes one for a page of its own. So the dashboard page asks. */
+  private async pairLink(): Promise<{ pairUrl: string; origin: string }> {
+    const made = (await this.dash.executeJavaScript(
+      `fetch('/api/agents/t3/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) }))`,
+    )) as { ok: boolean; body: { pairUrl?: unknown; origin?: unknown; error?: unknown } }
+    const { pairUrl, origin } = made.body
+    if (!made.ok || typeof pairUrl !== 'string' || typeof origin !== 'string' || !isWebUrl(origin) || !pairUrl.startsWith(`${origin}/`)) {
+      throw new Error(typeof made.body.error === 'string' ? made.body.error : 'Could not pair with T3 Code.')
+    }
+    return { pairUrl, origin }
+  }
+
+  /**
+   * Opens T3 Code's approval page for the sign-in Settings started. That page asks a browser it does
+   * not know for a pairing code, so one is put on the clipboard and a note on the page says to paste it.
+   */
+  private connectT3(url: string, from: Tab) {
+    const tab = this.create(url, { after: from })
+    const code = this.pairLink()
+      .then(({ pairUrl }) => pairingCode(pairUrl))
+      .catch(() => null)
+    tab.connect = { origin: new URL(url).origin, code, dismissed: false }
+    void code.then((made) => {
+      if (made) clipboard.writeText(made)
+    })
+    this.activate(tab.id)
+  }
+
+  /** Lays the note about the pairing code over T3 Code's pages while the sign-in is in this tab. */
+  private async explainConnect(tab: Tab) {
+    const connect = tab.connect
+    // With no code on the clipboard there is nothing to paste, and the note would mislead.
+    if (!connect || !(await connect.code)) return
+    const contents = tab.view?.webContents
+    if (!contents || contents.isDestroyed() || tab.connect !== connect || connect.dismissed || !contents.getURL().startsWith(`${connect.origin}/`)) return
+    await contents
+      .insertCSS(T3_PROMPT_CSS)
+      .then(() => contents.executeJavaScript(T3_CONNECT_SCRIPT))
+      .catch(() => undefined)
+  }
+
+  private async connectAction(tab: Tab, action: T3ConnectAction) {
+    const connect = tab.connect
+    if (!connect) return
+    if (action === 'dismiss') {
+      connect.dismissed = true
+      return
+    }
+    const code = await connect.code
+    if (!code) return
+    clipboard.writeText(code)
+    void tab.view?.webContents.executeJavaScript(T3_CONNECT_COPIED).catch(() => undefined)
+  }
+
+  /** The sign-in is over, approved or not: back to Settings, which looks again at whether PR Dash is connected. */
+  private connectEnded() {
+    if (this.win.isDestroyed() || this.dash.isDestroyed()) return
+    this.showDashboard('settings')
+    void this.dash.executeJavaScript(raiseInPage('pr-dash:t3-connect', { ended: true })).catch(() => undefined)
+  }
+
+  /** Where the sign-in's tab went. Once T3 Code has sent it back with an answer, the tab has nothing left to show. */
+  private connectMoved(tab: Tab, url: string, status: number) {
+    if (!tab.connect) return
+    const outcome = connectOutcome(url, status, this.dashboardUrl)
+    if (!outcome) return
+    tab.connect = null
+    // A sign-in that was approved and still did not take stays, since its page says why.
+    if (outcome === 'failed') return
+    // Not `close`, which would keep the address to reopen, and it works once.
+    const contents = tab.view?.webContents
+    this.forget(tab.id)
+    contents?.close()
+    this.connectEnded()
+  }
+
   private async pairingAction(tab: Tab, action: T3PromptAction) {
     const contents = this.awake(tab).webContents
     const update = (change: Parameters<typeof t3PromptUpdate>[0]) => contents.executeJavaScript(t3PromptUpdate(change)).catch(() => undefined)
@@ -527,14 +628,7 @@ export class Tabs {
     const handoff = contents.getURL()
     await update({ busy: true })
     try {
-      // The dashboard page asks its own server, which only makes a pairing link for a page of its own.
-      const made = (await this.dash.executeJavaScript(
-        `fetch('/api/agents/t3/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) }))`,
-      )) as { ok: boolean; body: { pairUrl?: unknown; origin?: unknown; error?: unknown } }
-      const { pairUrl, origin } = made.body
-      if (!made.ok || typeof pairUrl !== 'string' || typeof origin !== 'string' || !isWebUrl(origin) || !pairUrl.startsWith(`${origin}/`)) {
-        throw new Error(typeof made.body.error === 'string' ? made.body.error : 'Could not pair with T3 Code.')
-      }
+      const { pairUrl, origin } = await this.pairLink()
       await contents.loadURL(pairUrl)
       if (!(await leftPairing(contents))) throw new Error('T3 Code did not take the pairing link.')
       this.prefs = { ...this.prefs, t3Origin: origin }
@@ -781,6 +875,7 @@ export class Tabs {
       origin,
       starting: options.starting ?? null,
       landedAt: null,
+      connect: null,
     }
     const at = options.after ? this.tabs.indexOf(options.after) + 1 : this.tabs.length
     this.tabs.splice(at, 0, tab)
@@ -841,6 +936,11 @@ export class Tabs {
         void this.pairUnseen(url)
         return { action: 'deny' }
       }
+      // The dashboard signing in to T3 Code, which the user approves on T3 Code's own page.
+      if (tab.pinned && isT3ConnectLink(url)) {
+        this.connectT3(url, tab)
+        return { action: 'deny' }
+      }
       // A script-opened popup (a sign-in window, say) needs to stay a real
       // window so it can talk to the page that opened it.
       if (disposition === 'new-window') return { action: 'allow' }
@@ -878,18 +978,23 @@ export class Tabs {
     } else {
       // A page handing off to T3 Code or Cursor. A tab cannot load such a link, so the system opens it.
       contents.on('will-navigate', (event) => {
-        // A button on the pairing note. Only T3 Code's hand-off page carries one.
+        // A button on a note. Only T3 Code's hand-off page carries the pairing one, and only a sign-in's tab the other.
         const action = t3PromptAction(event.url)
         if (action) {
           event.preventDefault()
-          if (isT3Handoff(contents.getURL())) void this.pairingAction(tab, action)
+          if (isConnectAction(action)) void this.connectAction(tab, action)
+          else if (isT3Handoff(contents.getURL())) void this.pairingAction(tab, action)
           return
         }
         if (!isAppLink(event.url)) return
         event.preventDefault()
         void shell.openExternal(event.url)
       })
-      contents.on('did-finish-load', () => this.offerPairing(tab))
+      contents.on('did-finish-load', () => {
+        this.offerPairing(tab)
+        void this.explainConnect(tab)
+      })
+      contents.on('did-navigate', (_event, url, status) => this.connectMoved(tab, url, status))
       contents.on('page-title-updated', (_event, title) => {
         tab.title = title
         this.publish()
@@ -925,7 +1030,12 @@ export class Tabs {
     contents.on('context-menu', (_event, params) => this.contextMenu(tab, contents, params))
     // A page put away is destroyed too, and its tab stays.
     contents.once('destroyed', () => {
-      if (tab.view === view) this.forget(tab.id)
+      if (tab.view !== view) return
+      // T3 Code's page closes itself when the sign-in is turned down, and so may the user.
+      const connecting = tab.connect !== null
+      tab.connect = null
+      this.forget(tab.id)
+      if (connecting) this.connectEnded()
     })
   }
 

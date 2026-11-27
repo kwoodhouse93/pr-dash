@@ -15,7 +15,17 @@ import {
   type TabInfo,
 } from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
-import { isT3Handoff, isT3PairLink, t3PromptAction, t3PromptUpdate } from '../desktop/src/t3-prompt.ts'
+import {
+  connectOutcome,
+  isConnectAction,
+  isT3ConnectLink,
+  isT3Handoff,
+  isT3PairLink,
+  T3_CONNECT_SCRIPT,
+  T3_PROMPT_SCRIPT,
+  t3PromptAction,
+  t3PromptUpdate,
+} from '../desktop/src/t3-prompt.ts'
 import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
 import { pullRequest } from './support/pull.ts'
 
@@ -148,6 +158,37 @@ describe('the pairing note on T3 Code’s hand-off page', () => {
     expect(t3PromptAction('pr-dash-t3:never')).toBe('never')
     expect(t3PromptAction('pr-dash-t3:anything-else')).toBeNull()
     expect(t3PromptAction('https://app.t3.codes/threads/x')).toBeNull()
+  })
+
+  it("tells the sign-in note's buttons from the pairing note's", () => {
+    expect(t3PromptAction('pr-dash-t3:copy')).toBe('copy')
+    expect(t3PromptAction('pr-dash-t3:dismiss')).toBe('dismiss')
+    expect(isConnectAction('copy')).toBe(true)
+    expect(isConnectAction('pair')).toBe(false)
+    // Each note offers only its own buttons.
+    expect(T3_PROMPT_SCRIPT).toContain('"action":"pair"')
+    expect(T3_PROMPT_SCRIPT).not.toContain('"action":"copy"')
+    expect(T3_CONNECT_SCRIPT).toContain('"action":"copy"')
+    expect(T3_CONNECT_SCRIPT).toContain('"closed":"dismiss"')
+  })
+
+  it("knows the page where PR Dash's sign-in is approved, on this machine only", () => {
+    expect(isT3ConnectLink('http://127.0.0.1:3773/oauth/mcp/authorize?client_id=x')).toBe(true)
+    expect(isT3ConnectLink('http://127.0.0.1:3773/pair#token=ABC')).toBe(false)
+    expect(isT3ConnectLink('https://evil.example/oauth/mcp/authorize')).toBe(false)
+  })
+
+  it('knows when a sign-in has ended, and the one that is left to explain itself', () => {
+    const dash = 'http://127.0.0.1:4317/'
+    const back = 'http://127.0.0.1:4317/agents/t3/connected'
+    expect(connectOutcome(`${back}?code=abc&state=xyz`, 200, dash)).toBe('done')
+    // Turned down in T3 Code: nothing to explain, so back to Settings.
+    expect(connectOutcome(`${back}?error=access_denied`, 400, dash)).toBe('done')
+    expect(connectOutcome('about:blank', 0, dash)).toBe('done')
+    // Approved and still refused: its page says why, so it stays.
+    expect(connectOutcome(`${back}?code=abc&state=stale`, 400, dash)).toBe('failed')
+    expect(connectOutcome('http://127.0.0.1:3773/oauth/mcp/approval', 200, dash)).toBeNull()
+    expect(connectOutcome('https://evil.example/agents/t3/connected?code=abc', 200, dash)).toBeNull()
   })
 
   it('carries a failure onto the note as text, not as markup or script', () => {

@@ -1,16 +1,9 @@
-import { agentBlocker, isAgentProvider, LOCAL_ENVIRONMENT, parseAgentRequest } from '../../shared/agents.ts'
+import { agentBlocker, isAgentProvider, LOCAL_ENVIRONMENT, parseAgentRequest, T3_CONNECTED_PATH } from '../../shared/agents.ts'
 import { agentChecks, launchAgent } from '../agents.ts'
 import { messageOf, Refused } from '../errors.ts'
 import { beginT3Connect, disconnectT3, finishT3Connect } from '../t3-mcp.ts'
-import { pairingCode, t3Environments, t3PairLink } from '../t3.ts'
+import { t3Environments, t3PairLink } from '../t3.ts'
 import { listedPull, read, repoNamed, type Routes } from './http.ts'
-
-/**
- * Where T3 Code sends the browser once the user has answered its approval page. It is outside
- * `/api` because it arrives from T3 Code's page, which the API refuses as another site.
- * The `state` it carries is what shows the answer belongs to a sign-in started here.
- */
-const T3_CONNECTED = '/agents/t3/connected'
 
 export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
   app.post('/api/pulls/agents', async (c) => {
@@ -48,12 +41,7 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
   app.post('/api/agents/t3/connect', async (c) => {
     // The sign-in runs threads in T3 Code on this machine, so like pairing it is only made for a dashboard here.
     if (!loopbackOnly) throw new Refused('Connecting to T3 Code is only offered when the dashboard runs on this machine.', 403)
-    const authorizeUrl = await beginT3Connect(`${address}${T3_CONNECTED}`)
-    // T3 Code's approval page asks a browser it does not know for a pairing code. One is made here so the user has it to hand.
-    const code = await t3PairLink()
-      .then((made) => pairingCode(made.pairUrl))
-      .catch(() => null)
-    return c.json({ authorizeUrl, pairingCode: code })
+    return c.json({ authorizeUrl: await beginT3Connect(`${address}${T3_CONNECTED_PATH}`) })
   })
 
   app.post('/api/agents/t3/disconnect', async (c) => {
@@ -61,7 +49,7 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
     return c.json(db.snapshot())
   })
 
-  app.get(T3_CONNECTED, async (c) => {
+  app.get(T3_CONNECTED_PATH, async (c) => {
     const { code, state, error, error_description: said } = c.req.query()
     try {
       if (!code || !state) throw new Error(said || (error === 'access_denied' ? 'The request was turned down in T3 Code.' : 'T3 Code sent back no answer.'))

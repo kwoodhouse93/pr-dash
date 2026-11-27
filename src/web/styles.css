@@ -1017,7 +1017,6 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .agent-provider-line .text-btn:last-child { margin-right: -8px; }
 .agent-provider-line .search { min-width: 140px; padding: 3px 8px; font-family: "Source Code Pro", ui-monospace, monospace; font-size: 13px; }
 .agent-provider-line .select { font-size: 14px; }
-.agent-code { font-family: "Source Code Pro", ui-monospace, monospace; font-size: 13px; color: var(--text); user-select: all; }
 .agent-pairing[data-state="unpaired"], .agent-connection[data-state="unconnected"] { color: var(--muted); }
 .agent-pairing[data-flagged], .agent-connection[data-flagged] { color: var(--yellow); }
 .agent-repos-head { align-items: baseline; padding: 10px 16px 8px; }

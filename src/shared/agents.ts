@@ -23,6 +23,21 @@ export function providerFor(routing: AgentRouting | null | undefined, repo: stri
   return (repo ? chosen.repos[repo] : undefined) ?? chosen.defaultProvider
 }
 
+/**
+ * Where T3 Code sends the browser once the user has answered its approval page for PR Dash's sign-in.
+ * It is outside `/api` because it arrives from T3 Code's page, which the API refuses as another site.
+ */
+export const T3_CONNECTED_PATH = '/agents/t3/connected'
+
+/** The code inside a pairing link, for a T3 Code page that asks for one. Null when the link carries none. */
+export function pairingCode(pairUrl: string): string | null {
+  try {
+    return new URLSearchParams(new URL(pairUrl).hash.slice(1)).get('token')
+  } catch {
+    return null
+  }
+}
+
 /** A repository's environment setting that means this machine, whatever the default is. */
 export const LOCAL_ENVIRONMENT = 'local'
 

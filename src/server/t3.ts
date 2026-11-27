@@ -345,15 +345,6 @@ export async function checkoutProblem(repo: string, folder: string): Promise<str
 /** What a browser paired from here may do in T3 Code: read threads and take part in them. Nothing wider. */
 const PAIR_SCOPES = ['orchestration:read', 'orchestration:operate']
 
-/** The code inside a pairing link, for a T3 Code page that asks for one. Null when the link carries none. */
-export function pairingCode(pairUrl: string): string | null {
-  try {
-    return new URLSearchParams(new URL(pairUrl).hash.slice(1)).get('token')
-  } catch {
-    return null
-  }
-}
-
 /**
  * A link that pairs whichever browser opens it with the T3 Code on this machine, so that
  * browser can show T3 Code's threads. It works once, and for five minutes.

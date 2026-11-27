@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { environmentFor, LOCAL_ENVIRONMENT, providerFor, sessionActive, sessionLinks, leadingStatus, t3ThreadUrl } from '../src/shared/agents.ts'
+import { environmentFor, LOCAL_ENVIRONMENT, pairingCode, providerFor, sessionActive, sessionLinks, leadingStatus, t3ThreadUrl } from '../src/shared/agents.ts'
 import type { AgentSession } from '../src/shared/types.ts'
 import { AgentUnavailable, refreshSessions, type AgentProvider } from '../src/server/agent-provider.ts'
 import { openDatabase } from '../src/server/db.ts'
 import { t3Origin } from '../src/server/t3-home.ts'
 import { parseRpc, readConnection, saveConnection } from '../src/server/t3-mcp.ts'
-import { originRepo, pairingCode, remoteThread, remoteThreadLink, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
+import { originRepo, remoteThread, remoteThreadLink, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
 
 function session(patch: Partial<AgentSession> = {}): AgentSession {
   return {

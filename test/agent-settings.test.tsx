@@ -176,7 +176,7 @@ describe('agent settings and launch', () => {
     await render(<Panel routing={routing({ defaultEnvironmentId: 'env-1' })} />)
     const fallback = document.querySelector<HTMLSelectElement>('[aria-label="Where T3 Code threads start"]')
     expect([fallback?.value, fallback?.disabled]).toEqual(['env-1', true])
-    expect(document.querySelector('.agent-connection')?.textContent).toBe('Checking…')
+    expect(document.querySelector('.agent-connection')?.textContent).toBe('Threads on other machines: checking…')
     expect(document.querySelector('.agent-connection')?.hasAttribute('data-flagged')).toBe(false)
     expect(document.querySelectorAll('.agent-repo [aria-label^="Where T3 Code threads start"]').length).toBe(2)
   })
@@ -225,7 +225,7 @@ describe('agent settings and launch', () => {
     expect(rows[0]?.querySelector('[aria-label^="Where T3 Code threads start"]')).toBeNull()
     await act(async () => pick(rows[2]?.querySelector('[aria-label^="Where T3 Code threads start"]'), 'local'))
     expect(api.setRepoAgent).toHaveBeenCalledWith('acme/api', { provider: 't3', checkout: null, environmentId: 'local' })
-    expect(document.querySelector('.agent-connection[data-state="connected"]')?.textContent).toMatch(/^Connected to T3 Code until /)
+    expect(document.querySelector('.agent-connection[data-state="connected"]')?.textContent).toMatch(/^Threads on other machines: connected until /)
   })
 
   it('shows the project a repository has on another environment, and no folder to set', async () => {
@@ -253,25 +253,62 @@ describe('agent settings and launch', () => {
     expect(button(rows[2], 'Change')).toBeDefined()
     // Threads start on the devbox and PR Dash is not signed in to T3 Code, so T3 Code is flagged.
     expect(document.querySelectorAll('.agent-provider')[1]?.hasAttribute('data-flagged')).toBe(true)
-    expect(document.querySelector('.agent-connection[data-state="unconnected"][data-flagged]')?.textContent).toBe('Not connected to T3 Code')
+    expect(document.querySelector('.agent-connection[data-state="unconnected"][data-flagged]')?.textContent).toBe('Threads on other machines: not connected')
   })
 
-  it('opens the T3 Code approval page and gives the pairing code it may ask for', async () => {
+  it('speaks of its sign-in to T3 Code only once a thread somewhere else needs it', async () => {
+    // Everything runs on this machine, which needs no sign-in, so being without one is not mentioned.
     vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: null, environments: [devbox] } }))
-    vi.mocked(api.connectT3).mockResolvedValue({ authorizeUrl: 'http://127.0.0.1:3773/oauth/mcp/authorize?x=1', pairingCode: 'abc123' })
+    await render(<Panel />)
+    expect(document.querySelector('[aria-label="Where T3 Code threads start"]')).not.toBeNull()
+    expect(document.querySelector('.agent-connection')).toBeNull()
+    expect(button(document, 'Connect')).toBeUndefined()
+  })
+
+  const onDevbox = () => routing({ defaultEnvironmentId: 'env-1' })
+  const signedOut = () => checks({ t3: { connectedUntil: null, environments: [devbox] } })
+  const signedIn = () => checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox] } })
+
+  it('in a browser, opens the approval page, puts the pairing code on the clipboard and says so', async () => {
+    vi.mocked(api.agentChecks).mockResolvedValue(signedOut())
+    vi.mocked(api.connectT3).mockResolvedValue({ authorizeUrl: 'http://127.0.0.1:3773/oauth/mcp/authorize?x=1' })
+    vi.mocked(api.pairT3).mockResolvedValue({ pairUrl: 'http://127.0.0.1:3773/pair#token=abc123', origin: 'http://127.0.0.1:3773' })
     const tab = { location: { replace: vi.fn() }, close: vi.fn() }
     vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
-    await render(<Panel repos={[]} />)
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    await render(<Panel routing={onDevbox()} />)
     await act(async () => button(document, 'Connect').click())
     expect(tab.location.replace).toHaveBeenCalledWith('http://127.0.0.1:3773/oauth/mcp/authorize?x=1')
-    expect(document.querySelector('.agent-code')?.textContent).toBe('abc123')
-    // Coming back from that tab looks again, and being connected clears the prompt.
-    vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox] } }))
+    expect(writeText).toHaveBeenCalledWith('abc123')
+    expect(toasts.toastSuccess).toHaveBeenCalledWith('If T3 Code asks for a pairing code, paste it. It is on your clipboard.')
+    // The code is for T3 Code's page, so Settings does not show it.
+    expect(document.body.textContent).not.toMatch(/abc123|Approve PR Dash/)
+    // Coming back from that tab looks again.
+    vi.mocked(api.agentChecks).mockResolvedValue(signedIn())
     await act(async () => {
       window.dispatchEvent(new Event('focus'))
     })
-    expect(document.querySelector('.agent-code')).toBeNull()
     expect(button(document, 'Disconnect')).toBeDefined()
+    vi.unstubAllGlobals()
+  })
+
+  it('in the desktop app, leaves the pairing code to the window and looks again when the window says the sign-in ended', async () => {
+    const page = window as { prDashDesktop?: boolean }
+    page.prDashDesktop = true
+    vi.mocked(api.agentChecks).mockResolvedValue(signedOut())
+    vi.mocked(api.connectT3).mockResolvedValue({ authorizeUrl: 'http://127.0.0.1:3773/oauth/mcp/authorize?x=1' })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    await render(<Panel routing={onDevbox()} />)
+    await act(async () => button(document, 'Connect').click())
+    expect(open).toHaveBeenCalledWith('http://127.0.0.1:3773/oauth/mcp/authorize?x=1', '_blank')
+    expect(api.pairT3).not.toHaveBeenCalled()
+    vi.mocked(api.agentChecks).mockResolvedValue(signedIn())
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('pr-dash:t3-connect', { detail: { ended: true } }))
+    })
+    expect(document.querySelector('.agent-connection')?.textContent).toMatch(/^Threads on other machines: connected until /)
+    delete page.prDashDesktop
   })
 
   it('changes a folder starting from the one in use, and cancels without saving', async () => {

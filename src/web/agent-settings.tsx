@@ -7,12 +7,15 @@ import {
   environmentFor,
   environmentName,
   LOCAL_ENVIRONMENT,
+  pairingCode,
   providerLabel,
   type T3Environment,
 } from '../shared/agents.ts'
 import type { AgentProviderId, AgentRouting, Snapshot } from '../shared/types.ts'
 import { api } from './api.ts'
+import { onDesktopEvent } from '../shared/desktop-events.ts'
 import { Icon } from './icons.tsx'
+import { toastSuccess } from './toasts.tsx'
 
 /** One repository's line: what was chosen for it, and what T3 Code said about that, or null until it has. */
 type Row = {
@@ -297,29 +300,38 @@ function T3Environments({
   onDisconnect: () => void
   onCheck: () => void
 }) {
-  const [asked, setAsked] = useState<{ code: string | null } | null>(null)
+  const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const connected = t3.connectedUntil !== null
 
-  // The approval happens in another tab. Coming back to this one is the moment to look again.
+  // The approval happens in another tab. Coming back to this one is the moment to look again,
+  // and the desktop app says when its tab for it has gone.
   useEffect(() => {
-    if (!asked) return
+    if (!waiting) return
     window.addEventListener('focus', onCheck)
-    return () => window.removeEventListener('focus', onCheck)
+    const stop = onDesktopEvent(window, 'pr-dash:t3-connect', onCheck)
+    return () => {
+      window.removeEventListener('focus', onCheck)
+      stop()
+    }
   })
-  useEffect(() => setAsked(null), [t3.connectedUntil])
+  // A change to the sign-in is what ends the wait.
+  useEffect(() => setWaiting(false), [t3.connectedUntil])
 
   async function connect() {
     setConnecting(true)
     setError(null)
-    // A browser only allows a tab opened during the click. The desktop app opens one whenever asked.
-    const tab = inDesktopApp() ? null : window.open('', '_blank')
+    // A browser only allows a tab opened during the click. The desktop app opens one whenever asked,
+    // and sees to the pairing code itself, on T3 Code's page.
+    const desktop = inDesktopApp()
+    const tab = desktop ? null : window.open('', '_blank')
     try {
       const made = await api.connectT3()
       if (tab) tab.location.replace(made.authorizeUrl)
       else window.open(made.authorizeUrl, '_blank')
-      setAsked({ code: made.pairingCode })
+      setWaiting(true)
+      if (!desktop) void offerPairingCode()
     } catch (caught) {
       tab?.close()
       setError(caught instanceof Error ? caught.message : 'Could not connect to T3 Code')
@@ -353,49 +365,51 @@ function T3Environments({
         </select>
       </div>
       {chosen && !chosen.reachable && chosen.detail ? <p className="agent-provider-line agent-problem">{chosen.detail}</p> : null}
-      <div className="agent-provider-line">
-        <span
-          className="agent-connection"
-          data-state={connected ? 'connected' : 'unconnected'}
-          data-flagged={needed && !connected && !unknown ? '' : undefined}
-          title="PR Dash signs in to T3 Code on this machine to start threads on a linked environment. T3 Code asks again about once a month."
-        >
-          {t3.connectedUntil
-            ? `Connected to T3 Code until ${new Date(t3.connectedUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
-            : unknown
-              ? 'Checking…'
-              : 'Not connected to T3 Code'}
-        </span>
-        <button type="button" className="ghost" disabled={busy || connecting || !running} title={stopped} onClick={() => void connect()}>
-          {connecting ? 'Connecting…' : connected ? 'Connect again' : 'Connect'}
-        </button>
-        {connected ? (
-          <button type="button" className="text-btn" disabled={busy} onClick={onDisconnect}>
-            Disconnect
-          </button>
-        ) : null}
-      </div>
-      {asked ? (
-        <p className="agent-provider-line panel-note">
-          <span>
-            Approve PR Dash in the T3 Code tab that opened.
-            {asked.code ? (
-              <>
-                {' '}
-                If it asks for a pairing code, use <code className="agent-code">{asked.code}</code>
-              </>
-            ) : null}
+      {/* Threads on this machine need no sign-in, so it is only spoken of once it exists or something needs it. */}
+      {connected || needed ? (
+        <div className="agent-provider-line">
+          <span
+            className="agent-connection"
+            data-state={connected ? 'connected' : 'unconnected'}
+            data-flagged={needed && !connected && !unknown ? '' : undefined}
+            title="PR Dash signs in to T3 Code on this machine to start threads on another one. Threads on this machine do not need it. T3 Code asks again about once a month."
+          >
+            {t3.connectedUntil
+              ? `Threads on other machines: connected until ${new Date(t3.connectedUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
+              : unknown
+                ? 'Threads on other machines: checking…'
+                : 'Threads on other machines: not connected'}
           </span>
-          {asked.code ? (
-            <button type="button" className="text-btn" onClick={() => void navigator.clipboard?.writeText(asked.code ?? '')}>
-              Copy code
+          <button type="button" className="ghost" disabled={busy || connecting || !running} title={stopped} onClick={() => void connect()}>
+            {connecting ? 'Connecting…' : connected ? 'Connect again' : 'Connect'}
+          </button>
+          {connected ? (
+            <button type="button" className="text-btn" disabled={busy} onClick={onDisconnect}>
+              Disconnect
             </button>
           ) : null}
-        </p>
+        </div>
       ) : null}
       {error ? <p className="agent-provider-line repo-error">{error}</p> : null}
     </>
   )
+}
+
+/**
+ * In a browser there is no putting a note on T3 Code's page, so the pairing code that page may ask for
+ * goes on the clipboard and a toast says so. A browser that will not take it gets the code to copy by hand.
+ */
+async function offerPairingCode() {
+  const code = await api
+    .pairT3()
+    .then((made) => pairingCode(made.pairUrl))
+    .catch(() => null)
+  if (!code) return
+  const copied = await navigator.clipboard.writeText(code).then(
+    () => true,
+    () => false,
+  )
+  toastSuccess(copied ? 'If T3 Code asks for a pairing code, paste it. It is on your clipboard.' : `If T3 Code asks for a pairing code, use ${code}`)
 }
 
 function environmentOption(environment: T3Environment): string {
