@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { Filters, Initiative, ListName, PullRequest } from '../shared/types.ts'
 import { attentionOf, prMatches } from '../shared/view.ts'
 import { ClickCard, PopBody, PopHead, useMenuClose } from './menus.tsx'
+import { Icon } from './icons.tsx'
 
 type Option<T> = { value: T; label: string; count: number }
 
@@ -133,10 +134,7 @@ export function FilterBar({
   return (
     <div className="filters">
       <label className="search-box">
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
-          <path d="m10.5 10.5 3 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
+        <Icon name="search" />
         <input
           ref={input}
           value={filters.query}
@@ -260,9 +258,7 @@ function FilterChip<T extends string | null>({
           ) : (
             <>
               {label}
-              <svg className="chip-caret" viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <Icon name="caret" className="chip-caret" />
             </>
           )
         }

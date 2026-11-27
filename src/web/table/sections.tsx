@@ -6,6 +6,7 @@ import { useViewer } from '../feedback.tsx'
 import { isLinearIdentifier, IssueControls } from '../issue-controls.tsx'
 import { COLUMNS, mergeLineOf, useTable } from './context.tsx'
 import { BlockRows } from './rows.tsx'
+import { Icon } from '../icons.tsx'
 
 export function SectionBand({ id, title, action, children }: { id: string; title: string; action?: ReactNode; children: ReactNode }) {
   const { collapsed, onToggleSection: onToggle } = useTable()
@@ -109,9 +110,7 @@ export function GroupToggle({ id }: { id: string }) {
       title="Group this section's pull requests under each Linear issue"
       onClick={() => onToggle(id)}
     >
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <Icon name="tick" />
       Group by issue
     </button>
   )
@@ -141,9 +140,7 @@ function SectionHead({
         aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
         onClick={onToggle}
       >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <Icon name="fold" />
       </button>
     </div>
   )

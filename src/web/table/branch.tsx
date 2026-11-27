@@ -6,6 +6,7 @@ import { launchTag, useAgentLaunch, useAgentName } from '../agent-launch.tsx'
 import { ClickCard, PopBody, PopFoot, PopHead, useMenuClose } from '../menus.tsx'
 import { RunningNote } from './agents-cell.tsx'
 import { useStackLock, useTable } from './context.tsx'
+import { Icon } from '../icons.tsx'
 
 export function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
   const conflicts = prs.filter((pr) => pr.conflict)
@@ -33,9 +34,7 @@ export function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
           label={
             <>
               <span className="sr">Resolve merge conflict with {name}</span>
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
+              <Icon name="cross" />
             </>
           }
         >
@@ -128,9 +127,7 @@ export function UpToDate({
         label={
           <>
             <span className="sr">Not up to date. Rebase onto the base branch</span>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 4 12 12 M12 4 4 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
+            <Icon name="cross" />
           </>
         }
       >

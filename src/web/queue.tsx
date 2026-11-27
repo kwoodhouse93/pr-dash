@@ -4,6 +4,7 @@ import { RepoIcon } from './repo-mark.tsx'
 import { formatClock, formatDuration, formatExact, formatWhen } from './format.ts'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 import { Fold } from './motion.tsx'
+import { Icon, type IconName } from './icons.tsx'
 
 
 type CancelFn = (id: string) => Promise<void>
@@ -73,7 +74,7 @@ export function MergeQueuePage({
                     <>
                       <IconButton label="Move up" icon="up" disabled={index === 0} onClick={() => void onMove(entry.id, 'up')} />
                       <IconButton label="Move down" icon="down" disabled={index === group.next.length - 1} onClick={() => void onMove(entry.id, 'down')} />
-                      <IconButton label="Remove from the queue" icon="x" onClick={() => void onCancel(entry.id)} />
+                      <IconButton label="Remove from the queue" icon="cross" onClick={() => void onCancel(entry.id)} />
                     </>
                   }
                 />
@@ -278,9 +279,7 @@ function QueueLogs({ logs, latest = false }: { logs: MergeLog[]; latest?: boolea
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <Icon name="fold" />
           Logs
           <span className="count">{count}</span>
         </button>
@@ -292,18 +291,10 @@ function QueueLogs({ logs, latest = false }: { logs: MergeLog[]; latest?: boolea
   )
 }
 
-const ICONS = {
-  up: 'M8 12.5v-9M4 7l4-4 4 4',
-  down: 'M8 3.5v9M4 9l4 4 4-4',
-  x: 'M4 4l8 8M12 4l-8 8',
-}
-
-function IconButton({ label, icon, disabled, onClick }: { label: string; icon: keyof typeof ICONS; disabled?: boolean; onClick: () => void }) {
+function IconButton({ label, icon, disabled, onClick }: { label: string; icon: IconName; disabled?: boolean; onClick: () => void }) {
   return (
     <button type="button" className="queue-ic" aria-label={label} title={label} disabled={disabled} onClick={onClick}>
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d={ICONS[icon]} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <Icon name={icon} />
     </button>
   )
 }

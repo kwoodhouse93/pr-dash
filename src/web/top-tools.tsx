@@ -4,6 +4,7 @@ import type { AgentSessionStatus } from '../shared/types.ts'
 import { formatExact } from './format.ts'
 import { Roll } from './motion.tsx'
 import type { RefreshProgress } from './use-snapshot.ts'
+import { Icon } from './icons.tsx'
 
 // The buttons at the right of the header that say how things stand: the refresh, the agents and the merge queue.
 
@@ -68,7 +69,7 @@ export function RefreshControl({
         title={label}
         onClick={onRefresh}
       >
-        <SyncArrows spinning={refreshing} />
+        <Icon name="sync" className={refreshing ? 'refresh-spin' : undefined} />
         {refreshing ? null : <span className={`pip ${freshness(syncedAt, now)}`} />}
       </button>
     </div>
@@ -79,11 +80,7 @@ export function AgentsButton({ statuses, pressed, onClick }: { statuses: AgentSe
   const { running, waiting, label } = agentsSummary(statuses)
   return (
     <button type="button" className="tool-btn agents-tool" data-state={running > 0 ? 'active' : undefined} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="9" width="16" height="11" rx="3" />
-        <path d="M12 5v4M9 14v1.5M15 14v1.5M2 13.5v3M22 13.5v3" />
-        <circle cx="12" cy="3.5" r="1.5" />
-      </svg>
+      <Icon name="agents" />
       {running > 0 ? <Roll className="tool-count" value={running} /> : null}
       {waiting > 0 ? <span className="pip waiting" /> : null}
     </button>
@@ -94,24 +91,9 @@ export function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot 
   const { count, held, state, label } = queueSummary(queue?.entries ?? [])
   return (
     <button type="button" className="tool-btn queue-tool" data-state={state} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="18" cy="18" r="3" />
-        <circle cx="6" cy="6" r="3" />
-        <path d="M6 21V9a9 9 0 0 0 9 9" />
-      </svg>
+      <Icon name="queue" />
       {count > 0 ? <span className="tool-count">{count}</span> : null}
       {held > 0 ? <span className="pip held" /> : null}
     </button>
-  )
-}
-
-function SyncArrows({ spinning }: { spinning: boolean }) {
-  return (
-    <svg className={spinning ? 'refresh-spin' : undefined} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 3v5h5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 16h5v5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   )
 }

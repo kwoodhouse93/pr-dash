@@ -25,6 +25,7 @@ import { linkHostName, noteAnchor, prHref, threadAnchor, usePrHref, usePrLinkHos
 import { ClickCard, CloseButton, PopBody, PopFoot, PopHead, useMenuClose, useMenuOpen } from './menus.tsx'
 import { Fold, useClosing } from './motion.tsx'
 import { dismiss } from './sounds.ts'
+import { Icon } from './icons.tsx'
 
 export type FeedbackFocus = 'awaiting' | 'unread' | 'unresolved' | 'resolved' | 'all' | 'comments'
 
@@ -162,41 +163,8 @@ export function Feedback({ mode, targets }: { mode: ListName; targets: FeedbackT
   )
 }
 
-const FOCUS_ICON: Record<FeedbackFocus, ReactNode> = {
-  awaiting: (
-    <>
-      <path d="M6.5 4 3 7.5 6.5 11" />
-      <path d="M3 7.5h6a4 4 0 0 1 4 4v1" />
-    </>
-  ),
-  unread: (
-    <>
-      <path d="M9 3.5H2.5V11H5v2.5L8 11h5.5V7.5" />
-      <circle cx="12.6" cy="3.6" r="2" fill="currentColor" stroke="none" />
-    </>
-  ),
-  comments: <path d="M2.5 3.5h11V11H8l-3 2.5V11H2.5z" />,
-  unresolved: (
-    <>
-      <circle cx="8" cy="8" r="5.5" />
-      <circle cx="8" cy="8" r="1.7" fill="currentColor" stroke="none" />
-    </>
-  ),
-  resolved: (
-    <>
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M5.6 8.2 7.3 9.9l3.1-3.5" />
-    </>
-  ),
-  all: <path d="M3 4.5h10M3 8h10M3 11.5h6" />,
-}
-
 function FocusIcon({ focus }: { focus: FeedbackFocus }) {
-  return (
-    <svg className="feedback-icon" viewBox="0 0 16 16" aria-hidden="true">
-      {FOCUS_ICON[focus]}
-    </svg>
-  )
+  return <Icon name={focus} className="feedback-icon" />
 }
 
 function sum(targets: FeedbackTarget[], pick: (target: FeedbackTarget) => number): number {
@@ -508,9 +476,7 @@ function ThreadCard({
           aria-expanded={open}
           aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <Icon name="fold" />
         </button>
         <a className="file-link external" href={href} target="_blank" rel="noreferrer" title={`Open this diff on ${hostName}`}>
           {label}

@@ -7,9 +7,9 @@ import { blockRails, type Bucket, LOOSE_SECTION, type Outline } from '../shared/
 import { AgentProvider, type StartAgent } from './agent-launch.tsx'
 import { FeedbackProvider } from './feedback.tsx'
 import { useChanged, useSlidingRows } from './motion.tsx'
-import { RobotIcon } from './table/cells.tsx'
 import { COLUMNS, HoldContext, type IssuePatch, MotionContext, TableContext, type TableShared, UnapprovedMergeContext } from './table/context.tsx'
 import { BucketRows, GroupToggle, ProjectRows, SectionBand } from './table/sections.tsx'
+import { Icon } from './icons.tsx'
 
 /** What a row shows of a pull request's state. When this changes, the row is washed warm for a moment. */
 function rowSignature(pr: PullRequest): string {
@@ -148,7 +148,7 @@ export function PrTable({
           <th>Feedback</th>
           <th className="agents" title="Agents started from this dashboard">
             <span className="sr">Agents</span>
-            <RobotIcon />
+            <Icon name="robot" className="robot-icon" />
           </th>
           {mode === 'mine' ? <th className="merge">Merge</th> : null}
           <th className="open">Open</th>
@@ -225,7 +225,7 @@ export function SkeletonTable({ mode, note }: { mode: ListName; note: string }) 
             <th className="branch">Branch</th>
             <th>Review</th>
             <th>Feedback</th>
-            <th className="agents"><RobotIcon /></th>
+            <th className="agents"><Icon name="robot" className="robot-icon" /></th>
             {mode === 'mine' ? <th className="merge">Merge</th> : null}
             <th className="open">Open</th>
             <th />
