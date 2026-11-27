@@ -58,8 +58,11 @@ export type AgentHealth =
   /** Set up, but not answering now. */
   | { state: 'unreachable'; detail: string }
 
-export type AgentSettings = {
-  defaultProvider: AgentProviderId
+/**
+ * What Settings has to ask the providers for, which takes a while. The choices themselves, which provider,
+ * environment and folder, come with the snapshot as its routing and are there at once.
+ */
+export type AgentChecks = {
   /** The address of the T3 Code running on this machine, or null when none is. */
   t3Origin: string | null
   providers: { id: AgentProviderId; health: AgentHealth }[]
@@ -68,22 +71,21 @@ export type AgentSettings = {
     connectedUntil: string | null
     /** The environments the T3 Code on this machine is linked to. */
     environments: T3Environment[]
-    /** Where threads start unless a repository says otherwise. Null is this machine. */
-    defaultEnvironmentId: string | null
   }
-  repos: {
-    repo: string
-    /** Null follows the default. */
-    provider: AgentProviderId | null
-    /** Where this repository's threads start: an environment, `LOCAL_ENVIRONMENT`, or null to follow the default. */
-    environmentId: string | null
-    /** The project T3 Code has for this repository where its threads start. On this machine it is used when no folder is set. */
-    project: { title: string; folder: string } | null
-    /** A folder set by hand for T3 Code to work in on this machine, instead of that project. */
-    checkout: string | null
-    /** Why T3 Code cannot use that folder, or null. */
-    checkoutProblem: string | null
-  }[]
+  /** What T3 Code said about each repository, for the environment and folder it had then. */
+  repos: Record<
+    string,
+    {
+      /** The environment that was asked: where the repository's threads started then. Null is this machine. */
+      environmentId: string | null
+      /** The project T3 Code has for this repository there. On this machine it is used when no folder is set. */
+      project: { title: string; folder: string } | null
+      /** The folder set by hand that was checked, or null when none was set. */
+      checkout: string | null
+      /** Why T3 Code cannot use that folder, or null. */
+      checkoutProblem: string | null
+    }
+  >
 }
 
 const STATUS_RANK: Record<AgentSessionStatus, number> = {

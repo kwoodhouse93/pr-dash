@@ -8,7 +8,7 @@ import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { themeOf } from '../shared/themes.ts'
 import { DEFAULT_FILTERS, type AgentSession, isListName, type Filters, type ListName, type PullRequest, type SortKey } from '../shared/types.ts'
-import { providerFor, startingSession, withStartingSessions } from '../shared/agents.ts'
+import { type AgentChecks, providerFor, startingSession, withStartingSessions } from '../shared/agents.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import { attentionOf, buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { ActivityPage } from './activity.tsx'
@@ -231,6 +231,8 @@ export function App() {
   // The record is read again whenever the day's counts move, and a day or week that has just passed your best is celebrated.
   // The first read is where this starts from, so a record set while the dashboard was shut is not announced.
   const [activity, setActivity] = useState<Activity | null>(null)
+  // Kept here so Settings shows the last answer at once on a return visit, and asks again behind it.
+  const [agentChecks, setAgentChecks] = useState<AgentChecks | null>(null)
   const activitySeen = useRef<Activity | null>(null)
   const loaded = data != null
   const onActivity = page === 'activity'
@@ -531,6 +533,10 @@ export function App() {
                     snapshot.show(await api.setRepoMark(repo, mark))
                   }}
                   onAgents={snapshot.show}
+                  agentRouting={data?.agents}
+                  agentChecks={agentChecks}
+                  onAgentChecks={setAgentChecks}
+                  initiativeCount={initiatives.length}
                   t3Origin={prefs.t3Origin}
                   onT3Origin={(t3Origin) => setPrefs((current) => ({ ...current, t3Origin }))}
                   t3PairPrompt={prefs.t3PairPrompt}

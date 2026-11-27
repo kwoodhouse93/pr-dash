@@ -1,5 +1,5 @@
 import type { Activity } from '../shared/activity.ts'
-import type { AgentRequest, AgentSettings } from '../shared/agents.ts'
+import type { AgentChecks, AgentRequest } from '../shared/agents.ts'
 import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import type { RepoCatalog } from '../shared/repos.ts'
@@ -64,15 +64,14 @@ export const api = {
       ...request,
       provider,
     }),
-  agentSettings: () => request<AgentSettings>('/api/agents'),
+  agentChecks: () => request<AgentChecks>('/api/agents/checks'),
   pairT3: () => post<{ pairUrl: string; origin: string }>('/api/agents/t3/pair', {}),
   connectT3: () => post<{ authorizeUrl: string; pairingCode: string | null }>('/api/agents/t3/connect', {}),
-  disconnectT3: () => post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents/t3/disconnect', {}),
-  setDefaultAgent: (defaultProvider: AgentProviderId) => post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents', { defaultProvider }),
-  setDefaultEnvironment: (defaultEnvironmentId: string | null) =>
-    post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents', { defaultEnvironmentId }),
+  disconnectT3: () => post<Snapshot>('/api/agents/t3/disconnect', {}),
+  setDefaultAgent: (defaultProvider: AgentProviderId) => post<Snapshot>('/api/agents', { defaultProvider }),
+  setDefaultEnvironment: (defaultEnvironmentId: string | null) => post<Snapshot>('/api/agents', { defaultEnvironmentId }),
   setRepoAgent: (repo: string, agent: { provider: AgentProviderId | null; checkout: string | null; environmentId?: string | null }) =>
-    post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents/repo', { repo, ...agent }),
+    post<Snapshot>('/api/agents/repo', { repo, ...agent }),
   rebase: (key: string) => post<Snapshot>('/api/rebase', { key }),
   activity: () => request<Activity>('/api/activity'),
   mergeQueue: () => request<QueueSnapshot>('/api/merge-queue'),

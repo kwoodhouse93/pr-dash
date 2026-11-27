@@ -1,4 +1,4 @@
-import { AGENT_PROVIDERS, environmentFor, providerFor, type AgentRequest, type AgentSettings, type T3Environment } from '../shared/agents.ts'
+import { AGENT_PROVIDERS, environmentFor, providerFor, type AgentRequest, type AgentChecks, type T3Environment } from '../shared/agents.ts'
 import { buildStacks, restackChain, stackOf } from '../shared/stacks.ts'
 import type { AgentProviderId, AgentSession, PullRequest } from '../shared/types.ts'
 import { AgentUnavailable, type AgentProvider } from './agent-provider.ts'
@@ -74,8 +74,8 @@ async function readyOtherThan(id: AgentProviderId): Promise<AgentProviderId | nu
   return null
 }
 
-export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
-  const routing = db.agentRouting()
+/** Asks each provider whether it is ready, and T3 Code what it is linked to and which project it has for each repository. */
+export async function agentChecks(db: DashboardDb): Promise<AgentChecks> {
   const agents = db.repoAgents()
   const fallback = db.defaultEnvironment()
   const [projects, environments] = await Promise.all([
@@ -112,10 +112,8 @@ export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
         const environmentId = environmentFor(fallback, agent?.environmentId ?? null)
         const there = environmentId ? remote.get(environmentId)?.get(repo.toLowerCase()) : null
         const here = projects.get(repo.toLowerCase())
-        return {
-          repo,
-          provider: agent?.provider ?? null,
-          environmentId: agent?.environmentId ?? null,
+        const check = {
+          environmentId,
           project: environmentId
             ? there
               ? { title: there.title, folder: there.root }
@@ -126,14 +124,9 @@ export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
           checkout,
           checkoutProblem: checkout && !environmentId ? await checkoutProblem(repo, checkout).catch(() => null) : null,
         }
+        return [repo, check] as const
       }),
     ),
   ])
-  return {
-    defaultProvider: routing.defaultProvider,
-    t3Origin: t3Origin(),
-    providers,
-    t3: { connectedUntil, environments, defaultEnvironmentId: fallback },
-    repos,
-  }
+  return { t3Origin: t3Origin(), providers, t3: { connectedUntil, environments }, repos: Object.fromEntries(repos) }
 }

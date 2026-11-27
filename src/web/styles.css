@@ -888,18 +888,53 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .menu-item:disabled:hover { background: transparent; }
 .settings {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
-  gap: 20px;
+  grid-template-columns: 172px minmax(0, 1fr);
+  gap: 28px;
   align-items: start;
-  max-width: 1120px;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 20px 22px 40px;
 }
 .settings-main { display: grid; gap: 16px; min-width: 0; }
-.settings-side { position: sticky; top: 20px; min-width: 0; }
+.settings-main > .panel { scroll-margin-top: 20px; }
+/* The rail: a way to each section, with the one in view marked. */
+.settings-rail { position: sticky; top: 20px; display: grid; gap: 2px; min-width: 0; }
+.settings-rail button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+.settings-rail button > :first-child { flex: 1; min-width: 0; }
+.settings-rail button:hover { background: var(--bg-hover); color: var(--text); }
+.settings-rail button[aria-current] { background: var(--bg-raised); color: var(--text); }
+.rail-count { color: var(--faint); font-size: 13px; font-variant-numeric: tabular-nums; }
+.rail-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--yellow); }
+.rail-dot[data-tone="running"] { background: var(--amber); }
+.rail-status { margin-top: 10px; padding: 12px 10px 0; border-top: 1px solid var(--line); }
+.rail-status h3 { margin: 0 0 8px; color: var(--faint); font-size: 12px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; }
+.rail-status .meter { margin-top: 0; }
+.rail-status p { margin: 6px 0 0; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 @media (max-width: 860px) {
-  .settings { grid-template-columns: minmax(0, 1fr); }
-  .settings-side { position: static; }
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 12px; padding-top: 0; }
+  .settings-rail {
+    top: 0;
+    z-index: 2;
+    display: flex;
+    margin: 0 -22px;
+    padding: 8px 22px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .settings-rail button { flex: none; }
+  .settings-main > .panel { scroll-margin-top: 60px; }
+  .rail-status { display: none; }
 }
 .panel { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-child); }
 .panel h2 { margin: 0; font-family: "Source Serif 4", Georgia, serif; font-weight: 500; font-size: 20px; }
@@ -908,7 +943,7 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .panel ul { list-style: none; margin: 0; padding: 0; }
 .panel-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 12px 16px; }
 .panel-note { color: var(--muted); font-size: 14px; }
-.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; padding: 0 16px 16px; }
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; padding: 2px 16px 14px; }
 .theme-card {
   display: grid;
   gap: 6px;
@@ -945,6 +980,17 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
   border-top: 1px solid var(--line);
 }
 .panel > .panel-row:first-child { border-top: 0; }
+/* A label over a group of settings inside one panel. */
+.panel h3.panel-sub {
+  padding: 10px 16px 6px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.panel-sub + .panel-row { border-top: 0; }
+.panel-row.setting .panel-note { margin-top: 2px; }
 .panel-row.setting { padding: 12px 16px; }
 .panel-row.setting > :first-child { flex: 1; min-width: 0; }
 .panel .text-btn { padding: 3px 8px; font-size: 14px; }
@@ -956,6 +1002,7 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .agent-provider { padding: 7px 16px; border-top: 1px solid var(--line); }
 .agent-health { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
 .agent-health-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--faint); }
+/* Before a provider has answered, its dot is the faint one and its line is already in place. */
 .agent-provider[data-state="ready"] .agent-health-dot { background: var(--green); }
 .agent-provider[data-state="ready"][data-flagged] .agent-health-dot,
 .agent-provider[data-state="unconfigured"] .agent-health-dot { background: var(--yellow); }
@@ -963,6 +1010,8 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .agent-health-name .panel-note { margin-left: 8px; }
 .agent-health-state { color: var(--muted); font-size: 14px; }
 .panel .agent-provider-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 2px 18px; font-size: 14px; }
+/* As tall as its tallest button, so a line does not grow when a second button joins the first. */
+.panel .agent-provider-line { min-height: 28px; }
 .agent-provider-line > :first-child { flex: 1; min-width: 0; }
 .agent-provider-line .ghost { padding: 2px 9px; font-size: 14px; }
 .agent-provider-line .text-btn:last-child { margin-right: -8px; }
@@ -1058,6 +1107,13 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .panel .initiative-row input:not([type="checkbox"]):focus { border-color: var(--line-strong); background: var(--bg); }
 .panel .new-initiative { padding: 10px 16px; }
 .panel .new-initiative input:not([type="checkbox"]) { background: var(--bg-raised); border-color: var(--line-strong); border-radius: 8px; padding: 6px 8px; }
+.sync-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.sync-cols > div + div { border-left: 1px solid var(--line); }
+.sync-cols > div > .stat:first-child { border-top: 0; }
+@media (max-width: 640px) {
+  .sync-cols { grid-template-columns: minmax(0, 1fr); }
+  .sync-cols > div + div { border-left: 0; border-top: 1px solid var(--line); }
+}
 .stat { padding: 12px 16px; border-top: 1px solid var(--line); }
 .stat h3 {
   margin: 0 0 6px;

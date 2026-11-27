@@ -44,12 +44,21 @@ describe('agent routing', () => {
 
   it('stores the default, each repository choice, and drops a repository with nothing set', () => {
     const db = openDatabase(path.join(mkdtempSync(path.join(tmpdir(), 'pr-dash-agents-')), 'db.sqlite'))
-    expect(db.agentRouting()).toEqual({ defaultProvider: 'cursor', repos: {} })
+    expect(db.agentRouting()).toEqual({ defaultProvider: 'cursor', repos: {}, checkouts: {}, environments: {}, defaultEnvironmentId: null })
     db.setDefaultProvider('t3')
     db.setRepoAgent('acme/app', { provider: null, environmentId: null, checkout: '~/code/app' })
-    db.setRepoAgent('acme/web', { provider: 'cursor', environmentId: null, checkout: null })
-    expect(db.agentRouting()).toEqual({ defaultProvider: 't3', repos: { 'acme/web': 'cursor' } })
-    expect(db.snapshot().agents).toEqual({ defaultProvider: 't3', repos: { 'acme/web': 'cursor' } })
+    db.setRepoAgent('acme/web', { provider: 'cursor', environmentId: 'env-1', checkout: null })
+    db.setDefaultEnvironment('env-2')
+    // Everything chosen goes with the routing, so Settings can show it without asking the providers.
+    const routing = {
+      defaultProvider: 't3',
+      repos: { 'acme/web': 'cursor' },
+      checkouts: { 'acme/app': '~/code/app' },
+      environments: { 'acme/web': 'env-1' },
+      defaultEnvironmentId: 'env-2',
+    }
+    expect(db.agentRouting()).toEqual(routing)
+    expect(db.snapshot().agents).toEqual(routing)
     expect(db.repoAgents().get('acme/app')).toEqual({ provider: null, environmentId: null, checkout: '~/code/app' })
     db.setRepoAgent('acme/app', { provider: null, environmentId: null, checkout: null })
     expect(db.repoAgents().has('acme/app')).toBe(false)

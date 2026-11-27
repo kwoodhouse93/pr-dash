@@ -1,5 +1,5 @@
 import { agentBlocker, isAgentProvider, LOCAL_ENVIRONMENT, parseAgentRequest } from '../../shared/agents.ts'
-import { agentSettings, launchAgent } from '../agents.ts'
+import { agentChecks, launchAgent } from '../agents.ts'
 import { messageOf, Refused } from '../errors.ts'
 import { beginT3Connect, disconnectT3, finishT3Connect } from '../t3-mcp.ts'
 import { pairingCode, t3Environments, t3PairLink } from '../t3.ts'
@@ -25,7 +25,8 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
     return c.json({ snapshot: db.snapshot(), agentId: session.agentId, provider: session.provider, url: session.url, environmentId: session.environmentId })
   })
 
-  app.get('/api/agents', async (c) => c.json(await agentSettings(db)))
+  // The slow half of Settings' Agents card. The choices it sits beside come with the snapshot.
+  app.get('/api/agents/checks', async (c) => c.json(await agentChecks(db)))
 
   app.post('/api/agents', async (c) => {
     const { defaultProvider, defaultEnvironmentId } = await read<{ defaultProvider: unknown; defaultEnvironmentId: unknown }>(c)
@@ -35,7 +36,7 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
       if (!isAgentProvider(defaultProvider)) throw new Refused('Pick an agent provider from the list.')
       db.setDefaultProvider(defaultProvider)
     }
-    return c.json({ settings: await agentSettings(db), snapshot: db.snapshot() })
+    return c.json(db.snapshot())
   })
 
   app.post('/api/agents/t3/pair', async (c) => {
@@ -57,7 +58,7 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
 
   app.post('/api/agents/t3/disconnect', async (c) => {
     await disconnectT3()
-    return c.json({ settings: await agentSettings(db), snapshot: db.snapshot() })
+    return c.json(db.snapshot())
   })
 
   app.get(T3_CONNECTED, async (c) => {
@@ -83,7 +84,7 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
     const asked = body.environmentId
     const environmentId = asked === undefined ? kept : asked === null || asked === LOCAL_ENVIRONMENT ? asked : await linkedEnvironment(asked)
     db.setRepoAgent(repo, { provider: body.provider ?? null, environmentId, checkout })
-    return c.json({ settings: await agentSettings(db), snapshot: db.snapshot() })
+    return c.json(db.snapshot())
   })
 }
 

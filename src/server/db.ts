@@ -237,10 +237,24 @@ export function openDatabase(file = databasePath()): DashboardDb {
   }
 
   function agentRouting(): AgentRouting {
-    const row = db.prepare('SELECT default_provider FROM agent_settings WHERE id = 1').get() as { default_provider: string } | undefined
+    const row = db.prepare('SELECT default_provider, default_environment_id FROM agent_settings WHERE id = 1').get() as
+      | { default_provider: string; default_environment_id: string | null }
+      | undefined
     const repos: AgentRouting['repos'] = {}
-    for (const [repo, agent] of repoAgents()) if (agent.provider) repos[repo] = agent.provider
-    return { defaultProvider: isAgentProvider(row?.default_provider) ? row.default_provider : DEFAULT_ROUTING.defaultProvider, repos }
+    const checkouts: Record<string, string> = {}
+    const environments: Record<string, string> = {}
+    for (const [repo, agent] of repoAgents()) {
+      if (agent.provider) repos[repo] = agent.provider
+      if (agent.checkout) checkouts[repo] = agent.checkout
+      if (agent.environmentId) environments[repo] = agent.environmentId
+    }
+    return {
+      defaultProvider: isAgentProvider(row?.default_provider) ? row.default_provider : DEFAULT_ROUTING.defaultProvider,
+      repos,
+      checkouts,
+      environments,
+      defaultEnvironmentId: row?.default_environment_id ?? null,
+    }
   }
 
   function sessionsByPull(): Map<string, AgentSession[]> {

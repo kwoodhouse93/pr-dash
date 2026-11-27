@@ -157,6 +157,12 @@ export type AgentSession = {
 export type AgentRouting = {
   defaultProvider: AgentProviderId
   repos: Record<string, AgentProviderId>
+  /** The folder set by hand for T3 Code to work in on this machine, for each repository that has one. */
+  checkouts?: Record<string, string>
+  /** Where each repository's T3 Code threads start, for those that say: an environment, or `LOCAL_ENVIRONMENT`. */
+  environments?: Record<string, string>
+  /** Where T3 Code threads start unless a repository says otherwise. Null is this machine. */
+  defaultEnvironmentId?: string | null
 }
 
 export type RepoMark = { icon: string; color: string }
