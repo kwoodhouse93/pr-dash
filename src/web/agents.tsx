@@ -311,7 +311,7 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
             ) : null}
             {links.webUrl ? (
               <a className="external" href={links.webUrl} target="_blank" rel="noreferrer">
-                {!links.appUrl ? `Open in ${name}` : session.provider === 'cursor' ? 'Open on the web' : 'Open here'}
+                {links.appUrl ? 'Open here' : `Open in ${name}`}
               </a>
             ) : null}
             {session.result ? (
