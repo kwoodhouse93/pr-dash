@@ -1,7 +1,11 @@
 /**
  * The flight of a task to where agents are listed: what was pressed folds into a small tied parcel, which
- * draws breath and flies along an arc to its place. The dashboard plays it in its own page. The desktop
- * window's strip and sidebar are another page, built with a copy of this file, and play it there.
+ * draws breath and flies along an arc to its place. The dashboard plays it in its own page.
+ *
+ * The desktop window's strip and sidebar are another page, built with a copy of this file, and the
+ * dashboard's page lies over it. There both pages play the same flight at the same moment, each in its own
+ * measure: the dashboard's parcel is cut off at the edge of its page, and the strip's shows from there on.
+ * Nothing is laid over the dashboard, so it can be used all the while.
  * Nothing here needs React, and every colour is a theme token.
  */
 
@@ -18,6 +22,8 @@ export type Flight = {
   label: string
   /** Where it lands, asked as it takes off. With nowhere to land, the parcel fades where it is. */
   to: () => Box | null
+  /** The time on the clock to start at, for two pages playing the one flight. Without it, now. */
+  at?: number
 }
 
 const SIZE = 18
@@ -25,6 +31,10 @@ const FOLD_MS = 300
 const BREATH_MS = 220
 const FLY_MS = 560
 const STEPS = 14
+
+function until(time: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, time - Date.now())))
+}
 
 function still(): boolean {
   return typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -46,9 +56,10 @@ export function shownBox(element: Element | null): Box | null {
  * Plays the flight. Resolves true once the parcel has landed, and false when nothing was played: with
  * reduced motion, or with nowhere to land.
  */
-export async function flyParcel({ layer, from, label, to }: Flight): Promise<boolean> {
+export async function flyParcel({ layer, from, label, to, at }: Flight): Promise<boolean> {
   const parcel = document.createElement('div')
   if (still() || typeof parcel.animate !== 'function') return false
+  if (at !== undefined) await until(at)
   const text = document.createElement('span')
   const tie = document.createElement('i')
   text.textContent = label
@@ -97,6 +108,8 @@ export async function flyParcel({ layer, from, label, to }: Flight): Promise<boo
     tie.animate([{ opacity: 0, transform: 'scale(0.3)' }, { opacity: 1, transform: 'none' }], { duration: 140, fill: 'forwards' })
     await parcel.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.78) rotate(-8deg)' }, { transform: 'scale(1.12)' }], { duration: BREATH_MS, easing: 'ease-in-out' }).finished
 
+    // Two pages take off by the clock, not by when each one's folding happened to end.
+    if (at !== undefined) await until(at + FOLD_MS + BREATH_MS + 40)
     const target = to()
     if (!target) {
       await parcel.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.6)' }], { duration: 160, fill: 'forwards' }).finished
@@ -107,7 +120,7 @@ export async function flyParcel({ layer, from, label, to }: Flight): Promise<boo
     // The arc bends up and away from the straight line, more for a longer flight.
     const lift = Math.min(90, 24 + Math.hypot(tx, ty) * 0.12)
     const bend = { x: tx * 0.45, y: Math.min(0, ty) - lift }
-    const at = (t: number) => ({ x: 2 * (1 - t) * t * bend.x + t * t * tx, y: 2 * (1 - t) * t * bend.y + t * t * ty })
+    const along = (t: number) => ({ x: 2 * (1 - t) * t * bend.x + t * t * tx, y: 2 * (1 - t) * t * bend.y + t * t * ty })
     const path = Array.from({ length: STEPS + 1 }, (_, step) => step / STEPS)
     const timing = { duration: FLY_MS, easing: 'cubic-bezier(0.45, 0, 0.3, 1)', fill: 'forwards' as const }
     const turn = tx < 0 ? -300 : 300
@@ -116,7 +129,7 @@ export async function flyParcel({ layer, from, label, to }: Flight): Promise<boo
       Object.assign(dot.style, { position: 'fixed', zIndex: '2147482999', left: `${cx - 3}px`, top: `${cy - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'var(--amber)', opacity: '0', pointerEvents: 'none' })
       layer.append(dot)
       const frames = path.map((t) => {
-        const point = at(t)
+        const point = along(t)
         return { transform: `translate(${point.x}px, ${point.y}px) scale(${1 - t * 0.6})`, opacity: t === 0 || t === 1 ? 0 : 0.5 - index * 0.12 }
       })
       void dot
@@ -126,7 +139,7 @@ export async function flyParcel({ layer, from, label, to }: Flight): Promise<boo
     }
     await parcel.animate(
       path.map((t) => {
-        const point = at(t)
+        const point = along(t)
         return { transform: `translate(${point.x}px, ${point.y}px) rotate(${t * turn}deg) scale(${1.12 - t * 0.55})`, opacity: t > 0.92 ? 0.6 : 1 }
       }),
       timing,

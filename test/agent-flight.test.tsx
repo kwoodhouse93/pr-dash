@@ -161,7 +161,7 @@ describe('starting an agent', () => {
     expect(tool.textContent).toBe('0')
   })
 
-  it('leaves the flight to the desktop app, and tells it where the task was started', async () => {
+  it('in the desktop app, tells the window where the task was started and flies to where the window lists it', async () => {
     const animate = instantAnimations()
     ;(window as { prDashDesktop?: boolean }).prDashDesktop = true
     const tab = { location: { replace: vi.fn() }, close: vi.fn(), opener: null }
@@ -172,7 +172,16 @@ describe('starting an agent', () => {
       button.click()
     })
     expect(startingAgent(String(open.mock.calls[0]![0]))).toMatchObject({ key: 'acme/web#7', kind: 'ci', from: { x: 300, y: 200, width: 80, height: 24 } })
+    // Nothing is played until the window says where the task lands, and then this page plays its part.
     expect(animate).not.toHaveBeenCalled()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('pr-dash:flight', { detail: { to: { x: -200, y: 40, width: 10, height: 10 }, at: Date.now() } }))
+      await new Promise((resolve) => setTimeout(resolve, 700))
+    })
+    const frames = animate.mock.calls.at(-1)![0] as { transform: string }[]
+    expect(frames.at(-1)!.transform).toContain('translate(-535px, -167px)')
+    expect(document.querySelector('[style*="fixed"]')).toBeNull()
+    // The window's own list catches it, not the button on this page.
     expect(tool.classList.contains('caught')).toBe(false)
   })
 })

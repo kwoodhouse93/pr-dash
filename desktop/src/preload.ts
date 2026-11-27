@@ -18,7 +18,7 @@ const commands = new Set([
   'agent-dismiss',
   'agents-clear',
   'overlay',
-  'flight-overlay',
+  'flight-target',
   'sidebar-width',
   'dashboard',
 ])

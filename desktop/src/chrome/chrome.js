@@ -362,15 +362,20 @@ function landing(key) {
   return boxOf(row?.firstElementChild) ?? boxOf($('agents-link').firstElementChild)
 }
 
-// The dashboard started an agent. Its task folds up where it was started and flies here, over the page.
+// How long the dashboard is given to hear where the task lands before both pages start.
+const FLIGHT_LEAD_MS = 80
+
+// The dashboard started an agent. Its task folds up where it was started and flies here. The dashboard's
+// page lies over this one and plays the same flight, so each shows the part that is over it: this page
+// says where the task lands and when to start, and both go by the clock.
 window.shell.onFlight(async (job) => {
   if (!state) return
-  const row = state.agents.find((agent) => agent.key === job.key)
   incoming.add(job.key)
   render()
-  send('flight-overlay', true)
-  const landed = await window.flight.flyParcel({ layer: document.body, from: job.from, label: row ? row.label : job.label, to: () => landing(job.key) })
-  send('flight-overlay', false)
+  const to = landing(job.key)
+  const at = Date.now() + FLIGHT_LEAD_MS
+  send('flight-target', JSON.stringify({ to, at }))
+  const landed = await window.flight.flyParcel({ layer: document.body, from: job.from, label: job.label, to: () => to, at })
   incoming.delete(job.key)
   if (landed) {
     landedKey = job.key

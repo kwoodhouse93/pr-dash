@@ -120,9 +120,6 @@ export class Tabs {
   /** The dashboard's colour theme, which the window follows. */
   private theme: Theme
   private overlay = false
-  /** A task is flying from the page to the list of agents, which the strip's view draws over the page. */
-  private flying = false
-  private flyingTimer: NodeJS.Timeout | null = null
   /** Agent runs read in the active tab, kept in their row until another tab is chosen. */
   private held: string[] = []
   /** Tabs in the order they were last looked at, newest last. */
@@ -177,7 +174,7 @@ export class Tabs {
       else if (command === 'agent-dismiss' && key) this.dismissAgent(key)
       else if (command === 'agents-clear') this.clearUnread()
       else if (command === 'overlay') this.setOverlay(arg === true)
-      else if (command === 'flight-overlay') this.setFlying(arg === true)
+      else if (command === 'flight-target' && key) this.flightTarget(key)
       else if (command === 'sidebar-width' && typeof id === 'number') this.setWidth(id)
       else if (command === 'dashboard' && (key === 'list' || key === 'agents' || key === 'queue' || key === 'settings')) this.showDashboard(key)
       else if (command === 'back') this.back()
@@ -304,29 +301,45 @@ export class Tabs {
     else this.active.view.webContents.focus()
   }
 
-  // The flight of a task is drawn over the page too. The keyboard stays with the page, and the strip's
-  // view goes back under it even if the strip never says the flight is over.
-  private setFlying(on: boolean) {
-    if (this.flyingTimer) clearTimeout(this.flyingTimer)
-    this.flyingTimer = on ? setTimeout(() => this.setFlying(false), 3000) : null
-    if (this.flying === on) return
-    this.flying = on
-    this.layout()
-  }
-
-  /** Has the strip show a task leaving the place it was started from on `from`'s page, for the agent `opened` was made for. */
-  private sendOff(from: Tab, opened: Tab, starting: StartingAgent) {
-    if (!starting.from || from.id !== this.activeId) return
-    // The page and the strip can be zoomed apart, and each measures in its own units.
-    const page = from.view.webContents.getZoomFactor()
+  // A task flies from where it was started on the dashboard to where its agent is listed in the strip's
+  // page, which lies under the dashboard's. Each page plays the same flight in its own measure, and shows
+  // the part that is over it, so nothing covers the dashboard and it can be used all the while. The page
+  // and the strip can be zoomed apart, so a place is turned from one's units to the other's here.
+  private sendOff(opened: Tab, starting: StartingAgent) {
+    if (!starting.from || this.activeId !== this.dashboard.id) return
+    const page = this.dashboard.view.webContents.getZoomFactor()
     const own = this.chrome.webContents.getZoomFactor()
-    const bounds = from.view.getBounds()
+    const bounds = this.dashboard.view.getBounds()
     const box = starting.from
     this.chrome.webContents.send('flight', {
       key: `starting:${opened.id}`,
       label: agentKindLabel(starting.kind),
       from: { x: (bounds.x + box.x * page) / own, y: (bounds.y + box.y * page) / own, width: (box.width * page) / own, height: (box.height * page) / own },
     })
+  }
+
+  /** The strip's answer: where the task lands, and when both pages start. Passed on to the dashboard in its own units. */
+  private flightTarget(answer: string) {
+    let to: { x: number; y: number; width: number; height: number } | null = null
+    let at: unknown
+    try {
+      const read = JSON.parse(answer) as { to?: Record<string, unknown> | null; at?: unknown }
+      at = read.at
+      const box = read.to
+      if (box && [box.x, box.y, box.width, box.height].every((part) => typeof part === 'number' && Number.isFinite(part))) {
+        const page = this.dashboard.view.webContents.getZoomFactor()
+        const own = this.chrome.webContents.getZoomFactor()
+        const bounds = this.dashboard.view.getBounds()
+        const [x, y, width, height] = [box.x, box.y, box.width, box.height] as number[]
+        to = { x: (x! * own - bounds.x) / page, y: (y! * own - bounds.y) / page, width: (width! * own) / page, height: (height! * own) / page }
+      }
+    } catch {
+      return
+    }
+    if (typeof at !== 'number' || !Number.isFinite(at)) return
+    void this.dashboard.view.webContents
+      .executeJavaScript(`window.dispatchEvent(new CustomEvent('pr-dash:flight', { detail: ${JSON.stringify({ to, at })} }))`)
+      .catch(() => undefined)
   }
 
   private model(): SidebarModel {
@@ -732,7 +745,7 @@ export class Tabs {
             // A tab for an agent opens behind the dashboard, and the task is shown flying to where it is listed.
             if (disposition === 'background-tab' || starting) this.changed()
             else this.activate(opened.id)
-            if (starting) this.sendOff(tab, opened, starting)
+            if (starting) this.sendOff(opened, starting)
             return adopt
           },
         }
@@ -865,7 +878,7 @@ export class Tabs {
     this.chrome.setBounds({ x: 0, y: 0, width, height })
     this.active.view.setBounds({ x: left, y: top, width: Math.max(0, width - left), height: Math.max(0, height - top) })
     // Adding a view that is already there moves it to the front.
-    this.win.contentView.addChildView(this.overlay || this.flying ? this.chrome : this.active.view)
+    this.win.contentView.addChildView(this.overlay ? this.chrome : this.active.view)
   }
 
   private changed() {

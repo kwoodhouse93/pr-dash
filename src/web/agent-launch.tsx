@@ -99,6 +99,27 @@ async function sendOff(from: Box | null, label: string, away: boolean): Promise<
   if (from && (await flyParcel({ layer: document.body, from, label, to: () => shownBox(button()) }))) markCaught(button())
 }
 
+/**
+ * In the desktop app the agents are listed in the window's strip and sidebar, which is another page under
+ * this one. The window says where there the task lands, in this page's measure, and when to start, and
+ * this page plays its part of the flight: the folding, and the way to its own edge.
+ */
+function sendOffToWindow(from: Box | null, label: string) {
+  if (!from) return
+  const onFlight = (event: Event) => {
+    stop()
+    const { to, at } = ((event as CustomEvent).detail ?? {}) as { to?: Box | null; at?: number }
+    void flyParcel({ layer: document.body, from, label, to: () => to ?? null, at: typeof at === 'number' ? at : undefined })
+  }
+  const stop = () => {
+    window.clearTimeout(timer)
+    window.removeEventListener('pr-dash:flight', onFlight)
+  }
+  // The window answers at once. One that never does is not left to take a later flight for this one.
+  const timer = window.setTimeout(stop, 2000)
+  window.addEventListener('pr-dash:flight', onFlight)
+}
+
 type AgentLaunch = {
   /** Resolves true once the agent has started. For Cursor, that is once its tab is showing the session. */
   launch: (pr: { key: string }, request: AgentRequest) => Promise<boolean>
@@ -128,10 +149,11 @@ export function useAgentLaunch(): AgentLaunch {
     const desktop = (window as { prDashDesktop?: unknown }).prDashDesktop === true
     const from = pressed
     const agent = opensTab ? window.open(desktop ? startingTabUrl(pr.key, request, from) : '', '_blank') : null
-    // The desktop app shows the task flying to its own list of agents, which the tab is filed in. Here it flies to the agents button.
+    // In the desktop app the task flies to the window's own list of agents, which the tab is filed in. Here it flies to the agents button.
     const token = Symbol()
     let settled = false
-    if (!(desktop && agent)) {
+    if (desktop && agent) sendOffToWindow(from, agentKindLabel(request.kind))
+    else {
       void sendOff(from, agentKindLabel(request.kind), agent !== null).then(() => {
         if (!settled) setStarting(token, true)
       })
