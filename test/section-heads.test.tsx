@@ -153,7 +153,7 @@ describe('section headings', () => {
   }
   const project = () => document.querySelector('tr.project')
   const band = (title: string) => [...document.querySelectorAll('tr.band')].find((row) => row.textContent?.includes(title))
-  const grouping = (row: Element | null | undefined) => row?.querySelector('button[aria-label="Group by issue"]') ?? undefined
+  const grouping = (row: Element | null | undefined) => row?.querySelector('button.section-group') ?? undefined
 
   it('folds a section from its name or its arrow, and not from the rest of the row', async () => {
     await render()

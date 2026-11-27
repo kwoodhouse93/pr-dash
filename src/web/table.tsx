@@ -507,13 +507,13 @@ function GroupToggle({ id, flat, onToggle }: { id: string; flat: ReadonlySet<str
       type="button"
       className="section-group"
       aria-pressed={!flat.has(id)}
-      aria-label="Group by issue"
       title="Group this section's pull requests under each Linear issue"
       onClick={() => onToggle(id)}
     >
       <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M2.5 3.5h11M5.5 8h8M5.5 12.5h8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+      Group by issue
     </button>
   )
 }
