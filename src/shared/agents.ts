@@ -83,6 +83,16 @@ export function sessionStatusLabel(status: AgentSessionStatus): string {
   }
 }
 
+export type AgentsSummary = { running: number; waiting: number; label: string }
+
+/** How many agents are at work and how many wait for an answer, in the few words a button has room for. */
+export function agentsSummary(statuses: AgentSessionStatus[]): AgentsSummary {
+  const running = statuses.filter((status) => status === 'creating' || status === 'running').length
+  const waiting = statuses.filter((status) => status === 'waiting').length
+  const parts = [running > 0 ? `${running} running` : null, waiting > 0 ? `${waiting} waiting for you` : null].filter(Boolean)
+  return { running, waiting, label: parts.length > 0 ? `Agents: ${parts.join(', ')}` : 'Agents' }
+}
+
 export function leadingStatus(statuses: AgentSessionStatus[]): AgentSessionStatus | null {
   if (statuses.length === 0) return null
   return [...statuses].sort((left, right) => STATUS_RANK[left] - STATUS_RANK[right])[0] ?? null

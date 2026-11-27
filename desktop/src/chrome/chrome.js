@@ -27,7 +27,7 @@ $('hide-sidebar').onclick = () => send('toggle-sidebar')
 $('grouping').onclick = () => send('grouping-menu')
 $('agents-clear').onclick = () => send('agents-clear')
 $('pop-clear').onclick = () => send('agents-clear')
-for (const [id, page] of [['home', 'list'], ['queue-link', 'queue'], ['settings-link', 'settings']]) {
+for (const [id, page] of [['home', 'list'], ['agents-link', 'agents'], ['queue-link', 'queue'], ['settings-link', 'settings']]) {
   $(id).onmousedown = (event) => {
     if (event.button === 0) send('dashboard', page)
   }
@@ -58,6 +58,10 @@ window.onmouseup = () => {
   resizing = false
   document.body.classList.remove('resizing')
   send('overlay', menuOpen)
+}
+$('pop-all').onclick = () => {
+  setMenu(false)
+  send('dashboard', 'agents')
 }
 $('agents-pill').onclick = () => setMenu(!menuOpen)
 $('backdrop').onmousedown = () => setMenu(false)
@@ -308,6 +312,10 @@ function render() {
     $('crumb').replaceChildren(...crumb())
     const onDashboard = state.tabs.some((tab) => tab.pinned && tab.id === state.activeId)
     $('home').className = classes('row home', onDashboard && state.dashboard === 'list' && 'active')
+    $('agents-link').className = classes('row', onDashboard && state.dashboard === 'agents' && 'active')
+    $('agents-link').title = agentNote()
+    $('agents-status').hidden = !state.running
+    $('agents-status').replaceChildren(...(state.running ? [el('span', 'num active', String(state.running))] : []))
     $('queue-link').className = classes('row', onDashboard && state.dashboard === 'queue' && 'active')
     const queued = state.queue !== null && state.queue.count > 0
     $('queue-link').title = state.queue ? state.queue.label : ''

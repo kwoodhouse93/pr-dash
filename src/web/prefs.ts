@@ -6,7 +6,7 @@ import type { PrLinkHost } from './pr-links.tsx'
 export const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 const SORT_KEYS = new Set<SortKey>(['updated', 'created', 'size', 'title', 'repo', 'ci'])
 
-export type DashboardPage = 'mine' | 'review' | 'activity' | 'queue' | 'settings'
+export type DashboardPage = 'mine' | 'review' | 'activity' | 'agents' | 'queue' | 'settings'
 export type ListPage = 'mine' | 'review'
 
 export type ListPreferences = {
@@ -41,7 +41,7 @@ export function loadPreferences(): Preferences {
     if (!raw) return fresh()
     const key = SORT_KEYS.has(raw.sort?.key as SortKey) ? (raw.sort!.key as SortKey) : DEFAULT_SORT.key
     const dir = raw.sort?.dir === 'asc' || raw.sort?.dir === 'desc' ? raw.sort.dir : DEFAULT_SORT.dir
-    const page: DashboardPage = raw.page === 'review' || raw.page === 'activity' || raw.page === 'queue' || raw.page === 'settings' ? raw.page : 'mine'
+    const page: DashboardPage = raw.page === 'review' || raw.page === 'activity' || raw.page === 'agents' || raw.page === 'queue' || raw.page === 'settings' ? raw.page : 'mine'
     const legacy = {
       filters: { ...DEFAULT_FILTERS, ...(raw.filters ?? {}) },
       byIssue: raw.byIssue !== false,
@@ -100,7 +100,7 @@ function loadListPreferences(
   }
 }
 
-const PAGES = new Set<DashboardPage>(['mine', 'review', 'activity', 'queue', 'settings'])
+const PAGES = new Set<DashboardPage>(['mine', 'review', 'activity', 'agents', 'queue', 'settings'])
 const CI = new Set<CiLevel>(['red', 'yellow', 'green', 'pending', 'none'])
 const REVIEW = new Set<Filters['review']>(['unmet', 'met', 'human', 'changes', 'none'])
 const FILTER_PARAMS = ['q', 'repo', 'ci', 'review', 'approved', 'initiative', 'awaiting', 'drafts']

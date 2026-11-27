@@ -63,7 +63,7 @@ export type SavedTabs = { urls: string[]; active: number; parents?: (number | nu
 export type SidebarState = { open: boolean; width: number; grouping: Grouping; collapsed: string[]; earlierOpen: boolean; linearByProject: boolean }
 
 /** A page of the dashboard the sidebar links to. `list` is whichever list was open last. */
-type DashboardPage = 'list' | 'queue' | 'settings'
+type DashboardPage = 'list' | 'agents' | 'queue' | 'settings'
 
 /** `theme` is the name of the theme the dashboard was last in. */
 export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string; theme?: unknown }
@@ -175,7 +175,7 @@ export class Tabs {
       else if (command === 'agents-clear') this.clearUnread()
       else if (command === 'overlay') this.setOverlay(arg === true)
       else if (command === 'sidebar-width' && typeof id === 'number') this.setWidth(id)
-      else if (command === 'dashboard' && (key === 'list' || key === 'queue' || key === 'settings')) this.showDashboard(key)
+      else if (command === 'dashboard' && (key === 'list' || key === 'agents' || key === 'queue' || key === 'settings')) this.showDashboard(key)
       else if (command === 'back') this.back()
       else if (command === 'forward') this.forward()
       else if (command === 'reload') this.reload()
@@ -253,7 +253,7 @@ export class Tabs {
     this.layout()
   }
 
-  // The dashboard is one page that shows a list, the merge queue or settings.
+  // The dashboard is one page that shows a list, the agents, the merge queue or settings.
   // It keeps its own scroll position for each, so this only asks it to switch.
   private showDashboard(page: DashboardPage) {
     this.activate(this.dashboard.id)
@@ -878,7 +878,7 @@ function clampWidth(width: unknown): number {
 
 function dashboardPage(url: string): DashboardPage {
   const view = URL.canParse(url) ? new URL(url).searchParams.get('view') : null
-  return view === 'queue' || view === 'settings' ? view : 'list'
+  return view === 'agents' || view === 'queue' || view === 'settings' ? view : 'list'
 }
 
 function readAgentState(file: string): AgentState {

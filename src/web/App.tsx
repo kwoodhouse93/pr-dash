@@ -6,7 +6,8 @@ import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { themeOf } from '../shared/themes.ts'
-import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
+import { DEFAULT_FILTERS, type AgentSessionStatus, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
+import { agentsSummary } from '../shared/agents.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { ActivityPage } from './activity.tsx'
 import { api } from './api.ts'
@@ -17,6 +18,8 @@ import { MenuProvider } from './menus.tsx'
 import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage, type ListPage } from './prefs.ts'
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
+import { AgentProvider } from './agent-launch.tsx'
+import { agentItems, AgentsPage } from './agents.tsx'
 import { SettingsPage } from './settings.tsx'
 import { fold, setSoundsEnabled } from './sounds.ts'
 import { applyTheme } from './theme.ts'
@@ -418,11 +421,11 @@ export function App() {
   useLayoutEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrolls.current[page] ?? 0
   }, [page])
-  // The desktop app's sidebar links to the queue and settings, and back to the list.
+  // The desktop app's sidebar links to the agents, the queue and settings, and back to the list.
   useEffect(() => {
     const onPage = (event: Event) => {
       const target: unknown = (event as CustomEvent).detail
-      if (target !== 'list' && target !== 'queue' && target !== 'settings') return
+      if (target !== 'list' && target !== 'agents' && target !== 'queue' && target !== 'settings') return
       setPrefs((current) => ({ ...current, page: target === 'list' ? lastList.current : target }))
     }
     window.addEventListener('pr-dash:page', onPage)
@@ -453,6 +456,7 @@ export function App() {
     () => (data?.reviewPullRequests ?? []).filter((pr) => watched.has(pr.repo)),
     [data?.reviewPullRequests, watched],
   )
+  const agents = useMemo(() => agentItems([...mine, ...review]), [mine, review])
   // A pull request that merged stays listed for a moment, so its row can show the merge before it goes.
   const merged = useMemo(() => new Map((data?.departed ?? []).filter((pr) => pr.outcome === 'merged').map((pr) => [pr.key, pr])), [data?.departed])
   const justMerged = (pr: { key: string }) => {
@@ -654,6 +658,7 @@ export function App() {
                 onRefresh={() => void refresh({ force: true })}
               />
             )}
+            <AgentsButton statuses={agents.map((item) => item.session.status)} pressed={page === 'agents'} onClick={() => setPrefs((current) => ({ ...current, page: 'agents' }))} />
             <QueueButton queue={queue} pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))} />
             <button
               type="button"
@@ -772,6 +777,11 @@ export function App() {
             />
           ) : null}
           {page === 'activity' ? <ActivityPage activity={activity} now={now} /> : null}
+          {page === 'agents' ? (
+            <AgentProvider start={() => Promise.reject(new Error('Start an agent from its pull request.'))} routing={data?.agents} t3Origin={prefs.t3Origin}>
+              <AgentsPage items={agents} />
+            </AgentProvider>
+          ) : null}
           {page === 'queue' ? (
             <MergeQueuePage
               queue={queue}
@@ -1012,6 +1022,21 @@ function RefreshControl({
         {refreshing ? null : <span className={`pip ${freshness(syncedAt, now)}`} />}
       </button>
     </div>
+  )
+}
+
+function AgentsButton({ statuses, pressed, onClick }: { statuses: AgentSessionStatus[]; pressed: boolean; onClick: () => void }) {
+  const { running, waiting, label } = agentsSummary(statuses)
+  return (
+    <button type="button" className="tool-btn agents-tool" data-state={running > 0 ? 'active' : undefined} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="9" width="16" height="11" rx="3" />
+        <path d="M12 5v4M9 14v1.5M15 14v1.5M2 13.5v3M22 13.5v3" />
+        <circle cx="12" cy="3.5" r="1.5" />
+      </svg>
+      {running > 0 ? <Roll className="tool-count" value={running} /> : null}
+      {waiting > 0 ? <span className="pip waiting" /> : null}
+    </button>
   )
 }
 

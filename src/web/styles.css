@@ -99,6 +99,7 @@ a:hover { text-decoration: underline; }
 .tool-btn:hover .pip { box-shadow: 0 0 0 2px var(--bg-hover); }
 .tool-btn[aria-pressed="true"] .pip { box-shadow: 0 0 0 2px var(--bg-raised); }
 .tool-btn .pip.held { background: var(--red); }
+.tool-btn .pip.waiting { background: var(--yellow); }
 .refresh-tool .pip.fresh { background: var(--green); }
 .refresh-tool .pip.aging { background: var(--yellow); }
 .refresh-tool .pip.stale { background: var(--red); }

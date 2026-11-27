@@ -196,6 +196,67 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
   )
 }
 
+/** Every agent session of these pull requests, newest first. A pull request in two lists is counted once. */
+export function agentItems(prs: PullRequest[]): AgentItem[] {
+  const seen = new Set<string>()
+  return prs
+    .flatMap((pr) => (pr.agentSessions ?? []).map((session) => ({ pr, session })))
+    .filter(({ pr, session }) => {
+      const id = `${pr.key}:${session.provider}:${session.agentId}`
+      return !seen.has(id) && seen.add(id)
+    })
+    .sort((left, right) => right.session.createdAt.localeCompare(left.session.createdAt))
+}
+
+const GROUPS: { title: string; statuses: AgentSession['status'][] }[] = [
+  { title: 'Waiting for you', statuses: ['waiting'] },
+  { title: 'Running', statuses: ['creating', 'running'] },
+  { title: 'Failed', statuses: ['failed'] },
+  { title: 'Finished', statuses: ['finished', 'cancelled', 'expired'] },
+]
+
+/** The page: every agent session on the lists, the ones that need an answer first. A line opens to its prompt, reply and links. */
+export function AgentsPage({ items }: { items: AgentItem[] }) {
+  const [open, setOpen] = useState<Set<string>>(() => new Set())
+  function toggle(id: string) {
+    setOpen((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }
+  if (items.length === 0) {
+    return (
+      <div className="queue-page agents-page">
+        <div className="empty">
+          <h2>No agents yet</h2>
+          <p>Start one from a pull request: fix its checks, resolve a conflict, answer a review thread, or ask for anything else.</p>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="queue-page agents-page">
+      {GROUPS.map((group) => {
+        const listed = items.filter((item) => group.statuses.includes(item.session.status))
+        if (listed.length === 0) return null
+        return (
+          <section key={group.title}>
+            <h2 className="queue-repo-head">
+              {group.title}
+              <span className="queue-repo-sum">{listed.length}</span>
+            </h2>
+            {listed.map((item) => {
+              const id = `${item.pr.key}:${item.session.provider}:${item.session.agentId}`
+              return <Section key={id} item={item} showPr open={open.has(id)} onToggle={() => toggle(id)} />
+            })}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
 async function copyReply(text: string) {
   try {
     await navigator.clipboard.writeText(text)
@@ -209,6 +270,7 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
   const { session } = item
   const bodyId = useId()
   const links = useSessionLinks(session)
+  const host = usePrLinkHost()
   const name = providerLabel(session.provider)
   return (
     <section className="agent-section" data-open={open || undefined}>
@@ -217,6 +279,13 @@ function Section({ item, showPr, open, onToggle }: { item: AgentItem; showPr: bo
       </button>
       <Fold open={open}>
         <div className="agent-detail" id={bodyId}>
+          {showPr ? (
+            <p className="agent-meta">
+              <a className="external" href={prHref(item.pr.url, host)} target="_blank" rel="noreferrer">
+                #{item.pr.number} {item.pr.title}
+              </a>
+            </p>
+          ) : null}
           {session.prompt ? <p className="agent-prompt">{session.prompt}</p> : null}
           <p className="agent-meta">
             {statusDetail(session)} <span title={formatExact(session.createdAt)}>Started {startedWhen(session.createdAt)}.</span>
