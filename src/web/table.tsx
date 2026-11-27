@@ -52,6 +52,46 @@ function useStackLock(): StackLock {
 
 const COLUMNS = 17
 
+type IssuePatch = { statusId?: string; assigneeId?: string | null }
+
+/** What every heading, row and control in the table reads: the list being drawn, and what its buttons do. */
+type TableShared = {
+  mode: 'mine' | 'review'
+  initiatives: Initiative[]
+  prByKey: Map<string, PullRequest>
+  /** False when every pull request in the list is in one repository, so the column would say the same thing on each row. */
+  showRepo: boolean
+  linearConfigured: boolean
+  queueByKey: Map<string, RowMark>
+  tones: Map<string, 'a' | 'b'>
+  expanded: Set<string>
+  collapsed: Set<string>
+  /** The sections that list their pull requests without a heading for each issue. */
+  flat: ReadonlySet<string>
+  onToggle: (id: string) => void
+  onToggleSection: (id: string) => void
+  onToggleFlat: (id: string) => void
+  onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
+  onCreateAssigned: (name: string, keys: string[]) => Promise<void>
+  onMerge: (key: string) => Promise<void>
+  onRetry: (entryId: string) => Promise<void>
+  onStackMerge: (key: string) => Promise<void>
+  onMarkReady: (key: string) => Promise<void>
+  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
+  onRebase: (key: string) => Promise<void>
+  onRefreshPr: (key: string) => Promise<void>
+  onUpdateIssue: (identifier: string, patch: IssuePatch) => Promise<void>
+  onLinkIssue: (key: string, identifier: string) => Promise<void>
+}
+
+const TableContext = createContext<TableShared | null>(null)
+
+function useTable(): TableShared {
+  const table = useContext(TableContext)
+  if (!table) throw new Error('A part of the table was drawn outside it.')
+  return table
+}
+
 const HoldContext = createContext<Map<string, CheckHold[]>>(new Map())
 
 /** Queues a pull request to merge without its required approval. Null when that is not offered. */
@@ -122,7 +162,6 @@ export function PrTable({
   sort: Sort
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
-  /** False when every pull request in the list is in one repository, so the column would say the same thing on each row. */
   showRepo: boolean
   expanded: Set<string>
   collapsed: Set<string>
@@ -146,12 +185,11 @@ export function PrTable({
   /** The T3 Code this browser is paired with, so its threads open in a tab. */
   t3Origin?: string | null
   onRebase: (key: string) => Promise<void>
-  /** The sections that list their pull requests without a heading for each issue. */
   flat: ReadonlySet<string>
   onToggleFlat: (id: string) => void
   onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
-  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
+  onUpdateIssue: (identifier: string, patch: IssuePatch) => Promise<void>
   onLinkIssue: (key: string, identifier: string) => Promise<void>
   viewer: string | null
   onFeedback: (key: string, counts: FeedbackCounts) => void
@@ -165,17 +203,19 @@ export function PrTable({
   const motion = useMemo(() => ({ changed, leaving }), [changed, leaving])
   const tones = stackTones(outline)
   const lanes = useMemo(() => widestRail(outline), [outline])
-  const shared = {
+  const table: TableShared = {
     mode,
-    namesList: initiatives,
+    initiatives,
     prByKey,
     showRepo,
+    linearConfigured,
+    queueByKey,
     tones,
     expanded,
     collapsed,
+    flat,
     onToggle,
     onToggleSection,
-    flat,
     onToggleFlat,
     onAssign,
     onCreateAssigned,
@@ -183,11 +223,9 @@ export function PrTable({
     onRetry,
     onStackMerge,
     onMarkReady,
-    queueByKey,
     onRerun,
     onRebase,
     onRefreshPr,
-    linearConfigured,
     onUpdateIssue,
     onLinkIssue,
   }
@@ -197,6 +235,7 @@ export function PrTable({
     <UnapprovedMergeContext.Provider value={mode === 'mine' ? (onMergeUnapproved ?? null) : null}>
     <HoldContext.Provider value={holds}>
     <MotionContext.Provider value={motion}>
+    <TableContext.Provider value={table}>
     <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
       <thead>
         <tr>
@@ -223,16 +262,16 @@ export function PrTable({
       </thead>
       <tbody ref={body}>
         {outline.projects.length ? (
-          <SectionBand id="band:projects" title="Linear projects" collapsed={collapsed} onToggle={onToggleSection}>
+          <SectionBand id="band:projects" title="Linear projects">
             {outline.projects.map((project) => (
-              <ProjectRows key={project.id} project={project} {...shared} />
+              <ProjectRows key={project.id} project={project} />
             ))}
           </SectionBand>
         ) : null}
         {outline.initiatives.length ? (
-          <SectionBand id="band:initiatives" title="Initiatives" collapsed={collapsed} onToggle={onToggleSection}>
+          <SectionBand id="band:initiatives" title="Initiatives">
             {outline.initiatives.map((bucket) => (
-              <BucketRows key={bucket.id} bucket={bucket} depth={1} {...shared} />
+              <BucketRows key={bucket.id} bucket={bucket} depth={1} />
             ))}
           </SectionBand>
         ) : null}
@@ -240,26 +279,25 @@ export function PrTable({
           <SectionBand
             id={LOOSE_SECTION}
             title="Issues with no project"
-            collapsed={collapsed}
-            onToggle={onToggleSection}
-            action={<GroupToggle id={LOOSE_SECTION} flat={flat} onToggle={onToggleFlat} />}
+            action={<GroupToggle id={LOOSE_SECTION} />}
           >
             {outline.looseIssues.map((bucket) => (
-              <BucketRows key={bucket.id} bucket={bucket} depth={1} untitled={!bucket.title} {...shared} />
+              <BucketRows key={bucket.id} bucket={bucket} depth={1} untitled={!bucket.title} />
             ))}
           </SectionBand>
         ) : null}
         {outline.unassigned ? (
           outline.projects.length > 0 || outline.initiatives.length > 0 || outline.looseIssues.length > 0 ? (
-            <SectionBand id="band:unassigned" title="No issue" collapsed={collapsed} onToggle={onToggleSection}>
-              <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
+            <SectionBand id="band:unassigned" title="No issue">
+              <BucketRows bucket={outline.unassigned} depth={1} untitled />
             </SectionBand>
           ) : (
-            <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
+            <BucketRows bucket={outline.unassigned} depth={1} untitled />
           )
         ) : null}
       </tbody>
     </table>
+    </TableContext.Provider>
     </MotionContext.Provider>
     </HoldContext.Provider>
     </UnapprovedMergeContext.Provider>
@@ -367,48 +405,8 @@ function spineClass(spine: Spine | null, tone: 'a' | 'b' | null): string {
   return ` spine-${spine}${tone ? ` tone-${tone}` : ''}`
 }
 
-type RowShared = {
-  mode: 'mine' | 'review'
-  namesList: Initiative[]
-  prByKey: Map<string, PullRequest>
-  showRepo: boolean
-  tones: Map<string, 'a' | 'b'>
-  expanded: Set<string>
-  collapsed: Set<string>
-  onToggle: (id: string) => void
-  onToggleSection: (id: string) => void
-  flat: ReadonlySet<string>
-  onToggleFlat: (id: string) => void
-  onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
-  onCreateAssigned: (name: string, keys: string[]) => Promise<void>
-  onMerge: (key: string) => Promise<void>
-  onRetry: (entryId: string) => Promise<void>
-  onStackMerge: (key: string) => Promise<void>
-  onMarkReady: (key: string) => Promise<void>
-  queueByKey: Map<string, RowMark>
-  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-  onRebase: (key: string) => Promise<void>
-  onRefreshPr: (key: string) => Promise<void>
-  linearConfigured: boolean
-  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
-  onLinkIssue: (key: string, identifier: string) => Promise<void>
-}
-
-function SectionBand({
-  id,
-  title,
-  collapsed,
-  onToggle,
-  action,
-  children,
-}: {
-  id: string
-  title: string
-  collapsed: Set<string>
-  onToggle: (id: string) => void
-  action?: ReactNode
-  children: ReactNode
-}) {
+function SectionBand({ id, title, action, children }: { id: string; title: string; action?: ReactNode; children: ReactNode }) {
+  const { collapsed, onToggleSection: onToggle } = useTable()
   const open = !collapsed.has(id)
   return (
     <>
@@ -424,7 +422,8 @@ function SectionBand({
   )
 }
 
-function ProjectRows({ project, ...shared }: { project: ProjectGroup } & RowShared) {
+function ProjectRows({ project }: { project: ProjectGroup }) {
+  const shared = useTable()
   const count = project.issues.reduce((total, issue) => total + issue.count, 0)
   const open = !shared.collapsed.has(project.id)
   return (
@@ -435,22 +434,23 @@ function ProjectRows({ project, ...shared }: { project: ProjectGroup } & RowShar
             open={open}
             label={project.title}
             onToggle={() => shared.onToggleSection(project.id)}
-            action={<GroupToggle id={project.id} flat={shared.flat} onToggle={shared.onToggleFlat} />}
+            action={<GroupToggle id={project.id} />}
           >
             <SectionTitle open={open} onToggle={() => shared.onToggleSection(project.id)}>{project.title}</SectionTitle>
             <span className="section-meta">{count === 1 ? '1 pull request' : `${count} pull requests`}</span>
-            <SectionRollup buckets={project.issues} prByKey={shared.prByKey} mode={shared.mode} />
+            <SectionRollup buckets={project.issues} />
           </SectionHead>
         </td>
       </tr>
       {open
-        ? project.issues.map((bucket) => <BucketRows key={bucket.id} bucket={bucket} depth={2} {...shared} />)
+        ? project.issues.map((bucket) => <BucketRows key={bucket.id} bucket={bucket} depth={2} />)
         : null}
     </>
   )
 }
 
-function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bucket; depth: number; untitled?: boolean } & RowShared) {
+function BucketRows({ bucket, depth, untitled = false }: { bucket: Bucket; depth: number; untitled?: boolean }) {
+  const shared = useTable()
   const collapsible = Boolean(bucket.title) && !untitled
   const open = !collapsible || !shared.collapsed.has(bucket.id)
   return (
@@ -459,7 +459,7 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
         <tr className={`section depth-${depth}`} data-flip={`${depth}:${bucket.id}`}>
           <td colSpan={COLUMNS}>
             <SectionHead open={open} label={bucket.title!} onToggle={() => shared.onToggleSection(bucket.id)}>
-              {shared.linearConfigured ? <SectionIssue bucket={bucket} onUpdateIssue={shared.onUpdateIssue} /> : null}
+              {shared.linearConfigured ? <SectionIssue bucket={bucket} /> : null}
               {bucket.href ? (
                 <a className="section-title" href={bucket.href} target="_blank" rel="noreferrer">
                   {bucket.title}
@@ -468,7 +468,7 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
                 <SectionTitle open={open} onToggle={() => shared.onToggleSection(bucket.id)}>{bucket.title}</SectionTitle>
               )}
               {bucket.meta ? <span className="section-meta">{bucket.meta}</span> : null}
-              <SectionRollup buckets={[bucket]} prByKey={shared.prByKey} mode={shared.mode} />
+              <SectionRollup buckets={[bucket]} />
             </SectionHead>
           </td>
         </tr>
@@ -476,10 +476,10 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
       {open ? (
         <>
           {bucket.stacks.map((block) => (
-            <BlockRows key={block.id} bucket={bucket} block={block} tone={shared.tones.get(`${bucket.id}:${block.id}`) ?? 'a'} {...shared} />
+            <BlockRows key={block.id} bucket={bucket} block={block} tone={shared.tones.get(`${bucket.id}:${block.id}`) ?? 'a'} />
           ))}
           {bucket.singles.map((block) => (
-            <BlockRows key={block.id} bucket={bucket} block={block} tone={null} {...shared} />
+            <BlockRows key={block.id} bucket={bucket} block={block} tone={null} />
           ))}
         </>
       ) : null}
@@ -501,7 +501,8 @@ function SectionTitle({ open, onToggle, children }: { open: boolean; onToggle: (
 }
 
 /** Whether a section lists its pull requests under a heading for each Linear issue. */
-function GroupToggle({ id, flat, onToggle }: { id: string; flat: ReadonlySet<string>; onToggle: (id: string) => void }) {
+function GroupToggle({ id }: { id: string }) {
+  const { flat, onToggleFlat: onToggle } = useTable()
   return (
     <button
       type="button"
@@ -586,12 +587,8 @@ function spineAt(index: number, total: number): Spine {
   return 'mid'
 }
 
-function BlockRows({
-  bucket,
-  block,
-  tone,
-  ...shared
-}: { bucket: Bucket; block: StackBlock; tone: 'a' | 'b' | null } & RowShared) {
+function BlockRows({ bucket, block, tone }: { bucket: Bucket; block: StackBlock; tone: 'a' | 'b' | null }) {
+  const shared = useTable()
   const openId = `${bucket.id}:${block.id}`
   const open = shared.expanded.has(openId)
   const lockRef = useRef(false)
@@ -642,7 +639,6 @@ function BlockRows({
       ) : (
         <DataRow
           key={row.pr.id}
-          mode={shared.mode}
           pr={row.pr}
           flip={`${bucket.id}:${row.pr.key}`}
           unfold={unfoldAt(index)}
@@ -651,31 +647,14 @@ function BlockRows({
           spine={spine}
           rail={rail}
           tone={stackTone}
-          toggle={block.collapsible && row.pr.id === visible[0]?.id ? { id: openId, open, onToggle: shared.onToggle } : null}
+          toggle={block.collapsible && row.pr.id === visible[0]?.id ? openId : null}
           hideIssue={bucket.issueId ?? undefined}
-          initiatives={shared.namesList}
-          prByKey={shared.prByKey}
-          showRepo={shared.showRepo}
-          linearConfigured={shared.linearConfigured}
-          onAssign={shared.onAssign}
-          onCreateAssigned={shared.onCreateAssigned}
-          onMerge={shared.onMerge}
-          onRetry={shared.onRetry}
-          onStackMerge={shared.onStackMerge}
-          onMarkReady={shared.onMarkReady}
-          queueByKey={shared.queueByKey}
-          onRerun={shared.onRerun}
-          onRebase={shared.onRebase}
-          onRefreshPr={shared.onRefreshPr}
-          onUpdateIssue={shared.onUpdateIssue}
-          onLinkIssue={shared.onLinkIssue}
         />
       )
     })
   ) : (
     <SummaryRow
       key={block.id}
-      mode={shared.mode}
       block={block}
       visible={visible}
       flip={`${bucket.id}:${block.summary.topKey}`}
@@ -683,23 +662,6 @@ function BlockRows({
       spine="only"
       tone={stackTone}
       hideIssue={bucket.issueId ?? undefined}
-      initiatives={shared.namesList}
-      prByKey={shared.prByKey}
-      showRepo={shared.showRepo}
-      linearConfigured={shared.linearConfigured}
-      onToggle={shared.onToggle}
-      onAssign={shared.onAssign}
-      onCreateAssigned={shared.onCreateAssigned}
-      onRerun={shared.onRerun}
-      onRebase={shared.onRebase}
-      onRefreshPr={shared.onRefreshPr}
-      onUpdateIssue={shared.onUpdateIssue}
-      onLinkIssue={shared.onLinkIssue}
-      onMerge={shared.onMerge}
-      onRetry={shared.onRetry}
-      onStackMerge={shared.onStackMerge}
-      onMarkReady={shared.onMarkReady}
-      queueByKey={shared.queueByKey}
     />
     )
   return <StackLockContext.Provider value={stackLock}>{rows}</StackLockContext.Provider>
@@ -715,7 +677,6 @@ function unfoldStyle(index: number | null): CSSProperties | undefined {
 }
 
 function DataRow({
-  mode,
   pr,
   flip,
   unfold,
@@ -725,25 +686,8 @@ function DataRow({
   rail,
   tone,
   toggle,
-  initiatives,
-  prByKey,
-  showRepo,
   hideIssue,
-  linearConfigured,
-  onAssign,
-  onCreateAssigned,
-  onMerge,
-  onRetry,
-  onStackMerge,
-  onMarkReady,
-  queueByKey,
-  onRerun,
-  onRebase,
-  onRefreshPr,
-  onUpdateIssue,
-  onLinkIssue,
 }: {
-  mode: 'mine' | 'review'
   pr: PullRequest
   /** The row's name for sliding it to a new place. */
   flip: string
@@ -754,25 +698,11 @@ function DataRow({
   spine: Spine | null
   rail: Rail | null
   tone: 'a' | 'b' | null
-  toggle: { id: string; open: boolean; onToggle: (id: string) => void } | null
-  initiatives: Initiative[]
-  prByKey: Map<string, PullRequest>
-  showRepo: boolean
+  /** The stack this row opens and shuts, when it is the first row of one. */
+  toggle: string | null
   hideIssue?: string
-  linearConfigured: boolean
-  onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
-  onCreateAssigned: (name: string, keys: string[]) => Promise<void>
-  onMerge: (key: string) => Promise<void>
-  onRetry: (entryId: string) => Promise<void>
-  onStackMerge: (key: string) => Promise<void>
-  onMarkReady: (key: string) => Promise<void>
-  queueByKey: Map<string, RowMark>
-  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-  onRebase: (key: string) => Promise<void>
-  onRefreshPr: (key: string) => Promise<void>
-  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
-  onLinkIssue: (key: string, identifier: string) => Promise<void>
 }) {
+  const { mode, prByKey, showRepo, queueByKey, onToggle } = useTable()
   const holds = useHolds()
   const { locked } = useStackLock()
   const mark = queueByKey.get(pr.key) ?? null
@@ -788,7 +718,7 @@ function DataRow({
       onClick={(event) => {
         if (!toggle) return
         if (pressedControl(event.target)) return
-        toggle.onToggle(toggle.id)
+        onToggle(toggle)
       }}
     >
       <Grip spine={spine} rail={rail} />
@@ -803,8 +733,6 @@ function DataRow({
         <Subline
           menuScope={pr.id}
           issues={hideIssue ? [] : pr.linearIssues}
-          linearConfigured={linearConfigured}
-          onUpdateIssue={onUpdateIssue}
         />
       </td>
       {mode === 'review' ? (
@@ -821,12 +749,12 @@ function DataRow({
       <Age id={`age:${pr.id}`} readyAt={pr.isDraft ? null : (pr.readyAt ?? pr.createdAt)} createdAt={pr.createdAt} />
       <When iso={pr.updatedAt} />
       <td>
-        <CiControl id={`ci:${pr.id}`} prs={[pr]} onRerun={onRerun} />
+        <CiControl id={`ci:${pr.id}`} prs={[pr]} />
       </td>
       {pr.conflict ? (
         <Conflict id={`conflict:${pr.id}`} prs={[pr]} />
       ) : (
-        <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} parents={block.parents} prByKey={prByKey} onRebase={onRebase} />
+        <UpToDate id={`uptodate:${pr.id}`} targetKey={pr.behind ? pr.key : null} stackKeys={block.stackKeys} parents={block.parents} />
       )}
       <td>
         <ReviewControl id={`review:${pr.id}`} prs={[pr]} />
@@ -842,10 +770,6 @@ function DataRow({
             pr={pr}
             ordered={mergeLineOf(block, pr.key, prByKey)}
             mark={mark}
-            onMerge={onMerge}
-            onRetry={onRetry}
-            onStackMerge={onStackMerge}
-            onMarkReady={onMarkReady}
           />
         </td>
       ) : null}
@@ -858,71 +782,29 @@ function DataRow({
         parents={block.parents}
         defaultWholeStack={false}
         queued={mark !== null}
-        initiatives={initiatives}
-        prByKey={prByKey}
-        onAssign={onAssign}
-        onCreate={onCreateAssigned}
-        onRefresh={onRefreshPr}
-        linearConfigured={linearConfigured}
-        onLinkIssue={onLinkIssue}
       />
     </tr>
   )
 }
 
 function SummaryRow({
-  mode,
   block,
   visible,
   flip,
   openId,
   spine,
   tone,
-  initiatives,
-  prByKey,
-  showRepo,
   hideIssue,
-  linearConfigured,
-  onToggle,
-  onAssign,
-  onCreateAssigned,
-  onRerun,
-  onRebase,
-  onRefreshPr,
-  onUpdateIssue,
-  onLinkIssue,
-  onMerge,
-  onRetry,
-  onStackMerge,
-  onMarkReady,
-  queueByKey,
 }: {
-  mode: 'mine' | 'review'
   block: StackBlock
   visible: PullRequest[]
   flip: string
   openId: string
   spine: Spine
   tone: 'a' | 'b' | null
-  initiatives: Initiative[]
-  prByKey: Map<string, PullRequest>
-  showRepo: boolean
   hideIssue?: string
-  linearConfigured: boolean
-  onToggle: (id: string) => void
-  onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
-  onCreateAssigned: (name: string, keys: string[]) => Promise<void>
-  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-  onRebase: (key: string) => Promise<void>
-  onRefreshPr: (key: string) => Promise<void>
-  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
-  onLinkIssue: (key: string, identifier: string) => Promise<void>
-  onMerge: (key: string) => Promise<void>
-  onRetry: (entryId: string) => Promise<void>
-  onStackMerge: (key: string) => Promise<void>
-  onMarkReady: (key: string) => Promise<void>
-  queueByKey: Map<string, RowMark>
 }) {
+  const { mode, prByKey, showRepo, queueByKey, onToggle } = useTable()
   const holds = useHolds()
   const summary = block.summary
   const summaryHref = usePrHref(summary.url)
@@ -966,7 +848,7 @@ function SummaryRow({
             title={`${readyCount} of ${segments.length} ${mode === 'review' ? 'approved by you' : 'ready to merge'}`}
             aria-label={`${segments.length} pull requests, bottom of the stack first: ${segments.map((segment) => SEGMENT_LABEL[mode][segment.state]).join(', ')}`}
           >
-            <SegmentRun nodes={forest} mode={mode} marks={queueByKey} />
+            <SegmentRun nodes={forest} />
           </span>
           <a href={summaryHref} target="_blank" rel="noreferrer" title={summary.title}>
             {summary.title}
@@ -977,8 +859,6 @@ function SummaryRow({
         <Subline
           menuScope={block.id}
           issues={issues}
-          linearConfigured={linearConfigured}
-          onUpdateIssue={onUpdateIssue}
         />
       </td>
       {mode === 'review' ? (
@@ -995,7 +875,7 @@ function SummaryRow({
       <Age id={`age:${block.id}`} readyAt={summary.readyAt} createdAt={summary.createdAt} />
       <When iso={summary.updatedAt} />
       <td>
-        <CiControl id={`ci:${block.id}`} prs={visible} onRerun={onRerun} />
+        <CiControl id={`ci:${block.id}`} prs={visible} />
       </td>
       {summary.conflict ? (
         <Conflict id={`conflict:${block.id}`} prs={visible} />
@@ -1005,8 +885,6 @@ function SummaryRow({
           targetKey={lowestBehindKey(block.stackKeys, visible)}
           stackKeys={block.stackKeys}
           parents={block.parents}
-          prByKey={prByKey}
-          onRebase={onRebase}
         />
       )}
       <td>
@@ -1024,13 +902,9 @@ function SummaryRow({
             ordered={ordered}
             mark={mark}
             progress
-            onMerge={onMerge}
-            onRetry={onRetry}
-            onStackMerge={onStackMerge}
-            onMarkReady={onMarkReady}
           />
         ) : mark ? (
-          <QueueStatus mark={mark} progress onRetry={onRetry} />
+          <QueueStatus mark={mark} progress />
         ) : null}
       </td>
       ) : null}
@@ -1042,13 +916,6 @@ function SummaryRow({
         stackKeys={block.stackKeys}
         parents={block.parents}
         defaultWholeStack
-        initiatives={initiatives}
-        prByKey={prByKey}
-        onAssign={onAssign}
-        onCreate={onCreateAssigned}
-        onRefresh={onRefreshPr}
-        linearConfigured={linearConfigured}
-        onLinkIssue={onLinkIssue}
       />
     </tr>
   )
@@ -1196,7 +1063,8 @@ function branchCount(nodes: SegmentNode[]): number {
 }
 
 /** One segment for each pull request. Where the stack branches, each branch gets its own line. */
-function SegmentRun({ nodes, mode, marks }: { nodes: SegmentNode[]; mode: 'mine' | 'review'; marks: Map<string, RowMark> }) {
+function SegmentRun({ nodes }: { nodes: SegmentNode[] }) {
+  const { mode, queueByKey: marks } = useTable()
   const { leaving } = useContext(MotionContext)
   if (nodes.length === 0) return null
   if (nodes.length > 1) {
@@ -1204,7 +1072,7 @@ function SegmentRun({ nodes, mode, marks }: { nodes: SegmentNode[]; mode: 'mine'
       <span className="seg-fork">
         {nodes.map((node) => (
           <span key={node.pr.id} className="segments">
-            <SegmentRun nodes={[node]} mode={mode} marks={marks} />
+            <SegmentRun nodes={[node]} />
           </span>
         ))}
       </span>
@@ -1217,7 +1085,7 @@ function SegmentRun({ nodes, mode, marks }: { nodes: SegmentNode[]; mode: 'mine'
   return (
     <>
       <i className={`seg ${node.state}${queued}${leaving.has(node.pr.key) ? ' leaving' : ''}`} title={`#${node.pr.number} · ${step ? stepLabel(step) : SEGMENT_LABEL[mode][node.state]}`} />
-      <SegmentRun nodes={node.above} mode={mode} marks={marks} />
+      <SegmentRun nodes={node.above} />
     </>
   )
 }
@@ -1276,13 +1144,8 @@ function GraphiteIcon() {
   )
 }
 
-function SectionIssue({
-  bucket,
-  onUpdateIssue,
-}: {
-  bucket: Bucket
-  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
-}) {
+function SectionIssue({ bucket }: { bucket: Bucket }) {
+  const { onUpdateIssue } = useTable()
   const issue = bucketIssue(bucket)
   if (!issue || !isLinearIdentifier(issue.identifier)) return null
   return <IssueControls menuKey={`section:${bucket.id}`} issue={issue} onUpdate={onUpdateIssue} />
@@ -1310,17 +1173,8 @@ function sharedIssues(prs: PullRequest[]): LinearIssue[] {
   return []
 }
 
-function Subline({
-  menuScope,
-  issues,
-  linearConfigured,
-  onUpdateIssue,
-}: {
-  menuScope: string
-  issues: LinearIssue[]
-  linearConfigured: boolean
-  onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
-}) {
+function Subline({ menuScope, issues }: { menuScope: string; issues: LinearIssue[] }) {
+  const { linearConfigured, onUpdateIssue } = useTable()
   const { locked } = useStackLock()
   if (issues.length === 0) return null
   return (
@@ -1476,16 +1330,13 @@ function UpToDate({
   targetKey,
   stackKeys,
   parents,
-  prByKey,
-  onRebase,
 }: {
   id: string
   targetKey: string | null
   stackKeys: string[]
   parents: Parents
-  prByKey: Map<string, PullRequest>
-  onRebase: (key: string) => Promise<void>
 }) {
+  const { prByKey, onRebase } = useTable()
   const plan = targetKey ? rebasePlan(stackKeys, parents, targetKey, prByKey) : null
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1591,13 +1442,6 @@ type RowMenuProps = {
   defaultWholeStack: boolean
   /** The row's pull request is already in the merge queue. */
   queued?: boolean
-  initiatives: Initiative[]
-  prByKey: Map<string, PullRequest>
-  onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
-  onCreate: (name: string, keys: string[]) => Promise<void>
-  onRefresh: (key: string) => Promise<void>
-  linearConfigured: boolean
-  onLinkIssue: (key: string, identifier: string) => Promise<void>
 }
 
 function RowMenu(props: RowMenuProps) {
@@ -1632,13 +1476,14 @@ function RowMenuBody(props: RowMenuProps) {
   const close = useMenuClose()
   const agents = useAgentLaunch()
   const mergeUnapproved = useContext(UnapprovedMergeContext)
-  const pr = props.prByKey.get(props.primaryKey)
+  const { initiatives, prByKey, linearConfigured, onAssign, onCreateAssigned, onRefreshPr, onLinkIssue } = useTable()
+  const pr = prByKey.get(props.primaryKey)
   const unapproved = mergeUnapproved && pr && !props.defaultWholeStack && !props.queued && unapprovedMergeBlock(pr) === null ? pr : null
   const name = useAgentName(pr?.repo ?? props.prs[0]?.repo ?? null)
   const promptTargets = props.prs.length ? props.prs : pr ? [pr] : []
   const failing = props.prs.filter((item) => failingChecks(item).length > 0)
-  const copyTargets = downstackTargets(props.parents, props.primaryKey, props.prByKey, props.prs)
-  const stack = props.stackKeys.length > 1 ? stackTargets(props.stackKeys, props.parents, props.prByKey) : []
+  const copyTargets = downstackTargets(props.parents, props.primaryKey, prByKey, props.prs)
+  const stack = props.stackKeys.length > 1 ? stackTargets(props.stackKeys, props.parents, prByKey) : []
   const chases = [
     ...(pr && !props.defaultWholeStack ? [{ label: `Copy review chase for #${pr.number}`, scope: 'this PR', prs: [pr] }] : []),
     ...(stack.length > 1 ? [{ label: 'Copy review chase for stack', scope: 'stack', prs: stack }] : []),
@@ -1651,10 +1496,10 @@ function RowMenuBody(props: RowMenuProps) {
         primaryKey={props.primaryKey}
         stackKeys={props.stackKeys}
         defaultWholeStack={props.defaultWholeStack}
-        prByKey={props.prByKey}
-        initiatives={props.initiatives}
-        onAssign={props.onAssign}
-        onCreate={props.onCreate}
+        prByKey={prByKey}
+        initiatives={initiatives}
+        onAssign={onAssign}
+        onCreate={onCreateAssigned}
         onBack={back}
       />
     )
@@ -1663,7 +1508,7 @@ function RowMenuBody(props: RowMenuProps) {
     return <AgentPromptForm prs={promptTargets} initialKey={props.primaryKey} text={prompt} onText={setPrompt} onStarted={close} onBack={back} />
   }
   if (view === 'issue') {
-    return <LinkIssueForm prs={promptTargets} initialKey={props.primaryKey} onLink={props.onLinkIssue} onBack={back} />
+    return <LinkIssueForm prs={promptTargets} initialKey={props.primaryKey} onLink={onLinkIssue} onBack={back} />
   }
 
   // The head says which row this is, so the lines under it need not repeat it.
@@ -1674,7 +1519,7 @@ function RowMenuBody(props: RowMenuProps) {
   const sub = single
     ? [single.repoName, place].filter(Boolean).join(' · ')
     : [props.prs[0]?.repoName, props.prs.map((item) => `#${item.number}`).join(', ')].filter(Boolean).join(' · ')
-  const tagged = single ? props.initiatives.filter((initiative) => single.initiativeIds.includes(initiative.id)).map((initiative) => initiative.name) : []
+  const tagged = single ? initiatives.filter((initiative) => single.initiativeIds.includes(initiative.id)).map((initiative) => initiative.name) : []
 
   return (
     <>
@@ -1690,8 +1535,7 @@ function RowMenuBody(props: RowMenuProps) {
             onClick={() => {
               setPending(true)
               setError(null)
-              void props
-                .onRefresh(props.primaryKey)
+              void onRefreshPr(props.primaryKey)
                 .then(() => close())
                 .catch((caught: unknown) => {
                   setError(caught instanceof Error ? caught.message : 'Could not refresh that pull request')
@@ -1779,7 +1623,7 @@ function RowMenuBody(props: RowMenuProps) {
           )
         })}
         <p className="menu-group">Organise</p>
-        {props.linearConfigured && promptTargets.length ? (
+        {linearConfigured && promptTargets.length ? (
           <MenuItem icon="link" label="Link Linear issue…" hotkey="l" opens onClick={() => setView('issue')} />
         ) : null}
         <MenuItem icon="tag" label="Initiative…" name="Set initiative" right={tagged.join(', ') || undefined} hotkey="i" opens onClick={() => setView('initiative')} />
@@ -1988,7 +1832,8 @@ function Cobweb({ tier }: { tier: 1 | 2 | 3 }) {
 }
 
 /** Counts for a heading, so a collapsed section still says whether it needs you. Zero counts are left out. */
-function SectionRollup({ buckets, prByKey, mode }: { buckets: Bucket[]; prByKey: Map<string, PullRequest>; mode: 'mine' | 'review' }) {
+function SectionRollup({ buckets }: { buckets: Bucket[] }) {
+  const { prByKey, mode } = useTable()
   const viewer = useViewer()
   const states = buckets.flatMap((bucket) =>
     [...bucket.stacks, ...bucket.singles].flatMap((block) =>
@@ -2036,29 +1881,22 @@ function MergeControls({
   ordered,
   mark,
   progress = false,
-  onMerge,
-  onRetry,
-  onStackMerge,
-  onMarkReady,
 }: {
   pr: PullRequest
   ordered: PullRequest[]
   mark: RowMark | null
   progress?: boolean
-  onMerge: (key: string) => Promise<void>
-  onRetry: (entryId: string) => Promise<void>
-  onStackMerge: (key: string) => Promise<void>
-  onMarkReady: (key: string) => Promise<void>
 }) {
-  if (mark) return <QueueStatus mark={mark} progress={progress} onRetry={onRetry} />
-  if (pr.isDraft) return <MarkReady pr={pr} onMarkReady={onMarkReady} />
+  if (mark) return <QueueStatus mark={mark} progress={progress} />
+  if (pr.isDraft) return <MarkReady pr={pr} />
   const count = canMergeSlice(ordered, pr.key)
-  if (count != null) return <StackMergeButton count={count} pr={pr} onStackMerge={onStackMerge} />
-  if (canSquashMerge(pr)) return <MergeButton pr={pr} onMerge={onMerge} />
+  if (count != null) return <StackMergeButton count={count} pr={pr} />
+  if (canSquashMerge(pr)) return <MergeButton pr={pr} />
   return null
 }
 
-function MarkReady({ pr, onMarkReady }: { pr: PullRequest; onMarkReady: (key: string) => Promise<void> }) {
+function MarkReady({ pr }: { pr: PullRequest }) {
+  const { onMarkReady } = useTable()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { locked } = useStackLock()
@@ -2089,7 +1927,8 @@ function MarkReady({ pr, onMarkReady }: { pr: PullRequest; onMarkReady: (key: st
   )
 }
 
-function QueueStatus({ mark, progress, onRetry }: { mark: RowMark; progress: boolean; onRetry: (entryId: string) => Promise<void> }) {
+function QueueStatus({ mark, progress }: { mark: RowMark; progress: boolean }) {
+  const { onRetry } = useTable()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const text = progress && mark.total > 1 ? `${stepLabel(mark.status)} · ${mark.done} of ${mark.total}` : stepLabel(mark.status)
@@ -2135,15 +1974,8 @@ function QueueStatus({ mark, progress, onRetry }: { mark: RowMark; progress: boo
   )
 }
 
-function StackMergeButton({
-  count,
-  pr,
-  onStackMerge,
-}: {
-  count: number
-  pr: PullRequest
-  onStackMerge: (key: string) => Promise<void>
-}) {
+function StackMergeButton({ count, pr }: { count: number; pr: PullRequest }) {
+  const { onStackMerge } = useTable()
   const pendingRef = useRef(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2185,7 +2017,8 @@ function StackMergeButton({
 }
 
 /** Merging always goes through the queue. The row shows the queue's status once the entry exists. */
-function MergeButton({ pr, onMerge }: { pr: PullRequest; onMerge: (key: string) => Promise<void> }) {
+function MergeButton({ pr }: { pr: PullRequest }) {
+  const { onMerge } = useTable()
   const pendingRef = useRef(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2240,25 +2073,17 @@ function Authors({ people }: { people: { login: string; avatarUrl: string | null
   )
 }
 
-function CiControl({ id, prs, onRerun }: { id: string; prs: PullRequest[]; onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string> }) {
+function CiControl({ id, prs }: { id: string; prs: PullRequest[] }) {
   const level = shownLevel(prs, useHolds())
   const { locked } = useStackLock()
   return (
     <ClickCard id={id} className={`ci ${level}`} disabled={locked} label={ciLabel(level)}>
-      <CiPanel prs={prs} level={level} onRerun={onRerun} />
+      <CiPanel prs={prs} level={level} />
     </ClickCard>
   )
 }
 
-function CiPanel({
-  prs,
-  level,
-  onRerun,
-}: {
-  prs: PullRequest[]
-  level: CiDisplay
-  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-}) {
+function CiPanel({ prs, level }: { prs: PullRequest[]; level: CiDisplay }) {
   const holds = useHolds()
   const invalidated = (pr: PullRequest, check: Check) =>
     (holds.get(pr.key) ?? EMPTY_HOLDS).some((hold) => hold.name === check.name && hold.stamp === checkStamp(check))
@@ -2338,21 +2163,14 @@ function CiPanel({
       {checks.length === 0 ? <p>No checks on the latest commit.</p> : null}
       <CiAgentNotes prs={prs} error={agents.error} />
       </PopBody>
-      <CiFoot prs={prs} agents={agents} onRerun={onRerun} />
+      <CiFoot prs={prs} agents={agents} />
     </>
   )
 }
 
 /** The foot of the checks popup: run them again on the left, hand a failure to an agent on the right. */
-function CiFoot({
-  prs,
-  agents,
-  onRerun,
-}: {
-  prs: PullRequest[]
-  agents: ReturnType<typeof useAgentLaunch>
-  onRerun: (keys: string[], mode: 'failed' | 'all') => Promise<string>
-}) {
+function CiFoot({ prs, agents }: { prs: PullRequest[]; agents: ReturnType<typeof useAgentLaunch> }) {
+  const { onRerun } = useTable()
   const [message, setMessage] = useState<string | null>(null)
   const [pending, setPending] = useState<'failed' | 'all' | null>(null)
   const name = useAgentName(prs[0]?.repo ?? null)
