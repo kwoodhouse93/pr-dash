@@ -1,4 +1,5 @@
 import { AGENT_PROVIDERS, providerFor, type AgentRequest, type AgentSettings } from '../shared/agents.ts'
+import { buildStacks, restackChain, stackOf } from '../shared/stacks.ts'
 import type { AgentProviderId, AgentSession, PullRequest } from '../shared/types.ts'
 import { AgentUnavailable, type AgentProvider } from './agent-provider.ts'
 import { agentTask } from './agent-tasks.ts'
@@ -37,7 +38,7 @@ export async function launchAgent(db: DashboardDb, pr: PullRequest, request: Age
     const session = await agentProviders[id].start({
       pr,
       request,
-      task: agentTask(pr, request),
+      task: agentTask(pr, request, request.kind === 'conflict' ? upstackOf(db, pr) : []),
       target: { environmentId: repo?.environmentId ?? null, checkout },
     })
     db.saveAgentSession(pr.key, session)
@@ -46,6 +47,14 @@ export async function launchAgent(db: DashboardDb, pr: PullRequest, request: Age
     if (!(error instanceof AgentUnavailable)) throw error
     throw new AgentLaunchUnavailable(error.message, id, await readyOtherThan(id))
   }
+}
+
+/** Every open pull request stacked above this one on its own list, each after the one it is based on. */
+function upstackOf(db: DashboardDb, pr: PullRequest): PullRequest[] {
+  const snap = db.snapshot()
+  const list = [snap.pullRequests, snap.reviewPullRequests].find((prs) => prs.some((item) => item.key === pr.key))
+  const stack = list ? stackOf(buildStacks(list), pr.key) : null
+  return (stack ? restackChain(stack, pr.key) : null)?.slice(1) ?? []
 }
 
 async function readyOtherThan(id: AgentProviderId): Promise<AgentProviderId | null> {

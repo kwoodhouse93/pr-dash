@@ -246,6 +246,30 @@ describe('agent shortcuts', () => {
     expect(ci.prompt).toContain('do not push. Report what you found instead.')
   })
 
+  it('asks a conflict agent to restack what is stacked above', () => {
+    const pr = pull()
+    const alone = agentTask(pr, { kind: 'conflict' })
+    expect(alone.prompt).not.toContain('stack')
+    expect(alone.prompt).toContain("Work on the pull request's existing head branch (feature) and push any commits there.")
+
+    const second = pull({ key: 'acme/app#2', number: 2, headRef: 'second', baseRef: 'feature' })
+    const third = pull({ key: 'acme/app#3', number: 3, headRef: 'third', baseRef: 'second' })
+    const one = agentTask(pr, { kind: 'conflict' }, [second])
+    expect(one.prompt).toContain('one pull request is stacked above it. Restack it once #1 is resolved')
+    expect(one.prompt).toContain('Rebase its head branch onto the updated tip')
+
+    const stacked = agentTask(pr, { kind: 'conflict' }, [second, third]).prompt
+    expect(stacked).toContain('2 pull requests are stacked above it. Restack them once #1 is resolved')
+    expect(stacked.indexOf('- #2: head branch second, based on feature')).toBeLessThan(stacked.indexOf('- #3: head branch third, based on second'))
+    expect(stacked).toContain('In that order, rebase each head branch onto the updated tip')
+    expect(stacked).toContain('--force-with-lease')
+    expect(stacked).toContain('Work on the existing head branches named above (feature first) and push only to them.')
+    expect(stacked).not.toContain('push any commits there')
+
+    // Only a conflict restacks.
+    expect(agentTask(pr, { kind: 'ci' }, [second]).prompt).not.toContain('stacked above')
+  })
+
   it('asks Cursor to fix a review thread, and adds a custom prompt on top', () => {
     const pr = pull()
     const naive = agentTask(pr, { kind: 'thread', thread: thread(), prompt: null })

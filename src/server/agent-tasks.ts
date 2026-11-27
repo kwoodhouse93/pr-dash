@@ -3,7 +3,8 @@ import type { PullRequest } from '../shared/types.ts'
 
 export type AgentTask = { name: string; prompt: string }
 
-export function agentTask(pr: PullRequest, request: AgentRequest): AgentTask {
+/** `upstack` is every pull request stacked above this one, each after the one it is based on. Only a conflict uses it. */
+export function agentTask(pr: PullRequest, request: AgentRequest, upstack: PullRequest[] = []): AgentTask {
   switch (request.kind) {
     case 'conflict':
       return {
@@ -11,8 +12,9 @@ export function agentTask(pr: PullRequest, request: AgentRequest): AgentTask {
         prompt: [
           `Resolve the merge conflict on pull request #${pr.number}.`,
           'Bring in its base branch, preserve the intended changes from both sides, run relevant checks, and push the resolution.',
+          ...restack(pr, upstack),
           '',
-          ...context(pr),
+          ...context(pr, upstack),
         ].join('\n'),
       }
     case 'ci':
@@ -96,7 +98,22 @@ function named(text: string): string {
   return text.length > 80 ? `${text.slice(0, 79)}…` : text
 }
 
-function context(pr: PullRequest): string[] {
+function restack(pr: PullRequest, upstack: PullRequest[]): string[] {
+  if (upstack.length === 0) return []
+  const one = upstack.length === 1
+  return [
+    '',
+    `This pull request is part of a stack, and ${one ? 'one pull request is' : `${upstack.length} pull requests are`} stacked above it. Restack ${one ? 'it' : 'them'} once #${pr.number} is resolved, so the whole stack is left up to date:`,
+    ...upstack.map((item) => `- #${item.number}: head branch ${item.headRef}, based on ${item.baseRef}`),
+    '',
+    `${one ? 'Rebase its head branch' : 'In that order, rebase each head branch'} onto the updated tip of the branch it is based on, so it carries only its own commits.`,
+    'Resolve any conflict that comes up on the way, run the relevant checks, and push with `--force-with-lease`.',
+    'Do not change the base branch of any pull request, and do not merge or close one.',
+    'If a branch cannot be restacked cleanly, stop there, leave it and the branches above it as they are, and say which ones are left.',
+  ]
+}
+
+function context(pr: PullRequest, upstack: PullRequest[] = []): string[] {
   const issues = pr.linearIssues.map((issue) => `- ${issue.identifier}${issue.title ? `: ${issue.title}` : ''}${issue.url ? ` (${issue.url})` : ''}`)
   return [
     'Pull request:',
@@ -105,7 +122,9 @@ function context(pr: PullRequest): string[] {
     `- Head branch ${pr.headRef}, base branch ${pr.baseRef}`,
     ...(issues.length ? ['', 'Linked issues:', ...issues] : []),
     '',
-    `Work on the pull request's existing head branch (${pr.headRef}) and push any commits there.`,
+    upstack.length
+      ? `Work on the existing head branches named above (${pr.headRef} first) and push only to them.`
+      : `Work on the pull request's existing head branch (${pr.headRef}) and push any commits there.`,
     'Do not create a separate pull request.',
   ]
 }
