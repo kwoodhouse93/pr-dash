@@ -6,7 +6,7 @@ import type { PullRequest } from '../shared/types.ts'
  * One step for each change to the tables. A database records how many steps it has had and is given the rest,
  * in order, when it is opened. A change to a table is a new step at the end; a step that has shipped is never edited.
  */
-const STEPS: ((db: DatabaseSync) => void)[] = [baseline]
+const STEPS: ((db: DatabaseSync) => void)[] = [baseline, defaultEnvironment]
 
 export function migrate(db: DatabaseSync) {
   const { user_version: done } = db.prepare('PRAGMA user_version').get() as { user_version: number }
@@ -48,6 +48,11 @@ export function reviewLogger(db: DatabaseSync): (pr: Reviewed) => void {
  * The tables as they stood when steps were first counted. A database older than that may be at any earlier
  * shape, so this step alone looks at what is there and adds what is missing. Later steps know what they follow.
  */
+/** Where T3 Code threads start unless a repository says otherwise. Null is this machine. */
+function defaultEnvironment(db: DatabaseSync) {
+  db.exec('ALTER TABLE agent_settings ADD COLUMN default_environment_id TEXT')
+}
+
 function baseline(db: DatabaseSync) {
   const hadReviewLog = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_log'").get() != null
   db.exec(`

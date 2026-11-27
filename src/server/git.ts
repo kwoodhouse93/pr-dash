@@ -4,6 +4,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { rm, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { databasePath } from './db.ts'
 
 export class GitError extends Error {
   constructor(message: string) {
@@ -109,8 +110,7 @@ export async function abortRebases(mirror: string) {
 }
 
 export function mirrorsRoot(): string {
-  const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'data', 'pr-dash.sqlite')
-  return path.join(path.dirname(dbPath), 'mirrors')
+  return path.join(path.dirname(databasePath()), 'mirrors')
 }
 
 export function mirrorPath(repo: string): string {

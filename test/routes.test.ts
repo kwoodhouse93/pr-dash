@@ -14,7 +14,7 @@ describe('api routes', () => {
 
   beforeEach(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'pr-dash-routes-'))
-    app = createApp(openDatabase(path.join(dir, 'db.sqlite')), { loopbackOnly: true })
+    app = createApp(openDatabase(path.join(dir, 'db.sqlite')), { loopbackOnly: true, address: 'http://127.0.0.1:4317' })
     vi.stubEnv('LINEAR_API_KEY', '')
   })
 
@@ -36,6 +36,24 @@ describe('api routes', () => {
     const { status, body } = await call('GET', '/api/snapshot')
     expect(status).toBe(200)
     expect(body).toMatchObject({ pullRequests: [], reviewPullRequests: [] })
+  })
+
+  it("takes T3 Code's answer to a sign-in from T3 Code's own page, and turns down one it did not start", async () => {
+    // The browser arrives from T3 Code's page, which the API itself refuses as another site.
+    const headers = { host: '127.0.0.1:4317', 'sec-fetch-site': 'cross-site' }
+    expect((await app.request('/api/agents', { headers })).status).toBe(403)
+    const answered = await app.request('/agents/t3/connected?code=abc&state=not-started-here', { headers })
+    expect(answered.status).toBe(400)
+    expect(await answered.text()).toMatch(/could not connect to T3 Code.*was not started here/s)
+    const denied = await app.request('/agents/t3/connected?error=access_denied', { headers })
+    expect(await denied.text()).toMatch(/turned down in T3 Code/)
+  })
+
+  it('only signs in to T3 Code for a dashboard on this machine', async () => {
+    const open = createApp(openDatabase(path.join(dir, 'open.sqlite')), { loopbackOnly: false, address: 'http://0.0.0.0:4317' })
+    const response = await open.request('/api/agents/t3/connect', { method: 'POST', headers: { host: 'dash.example:4317' }, body: '{}' })
+    expect(response.status).toBe(403)
+    expect(((await response.json()) as { error: string }).error).toMatch(/only offered when the dashboard runs on this machine/)
   })
 
   it('says what a request is missing, whatever its body', async () => {

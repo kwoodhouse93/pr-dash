@@ -23,6 +23,33 @@ export function providerFor(routing: AgentRouting | null | undefined, repo: stri
   return (repo ? chosen.repos[repo] : undefined) ?? chosen.defaultProvider
 }
 
+/** A repository's environment setting that means this machine, whatever the default is. */
+export const LOCAL_ENVIRONMENT = 'local'
+
+/**
+ * The T3 Code environment a repository's threads start in, or null for this machine.
+ * `repo` is the repository's own setting: an environment, `LOCAL_ENVIRONMENT`, or null to follow `fallback`.
+ */
+export function environmentFor(fallback: string | null, repo: string | null): string | null {
+  const chosen = repo ?? fallback
+  return !chosen || chosen === LOCAL_ENVIRONMENT ? null : chosen
+}
+
+/** Another machine's T3 Code that the one on this machine is linked to. */
+export type T3Environment = {
+  id: string
+  label: string
+  /** Where it answers, without the scheme. Null when T3 Code gave no address. */
+  host: string | null
+  reachable: boolean
+  /** Why it is not reachable. */
+  detail: string | null
+}
+
+export function environmentName(environment: Pick<T3Environment, 'label' | 'host'>): string {
+  return environment.host ? `${environment.label} (${environment.host})` : environment.label
+}
+
 /** Whether a provider can be used, and why not. */
 export type AgentHealth =
   | { state: 'ready'; detail: string | null }
@@ -36,13 +63,23 @@ export type AgentSettings = {
   /** The address of the T3 Code running on this machine, or null when none is. */
   t3Origin: string | null
   providers: { id: AgentProviderId; health: AgentHealth }[]
+  t3: {
+    /** When PR Dash's own sign-in to T3 Code runs out. Null when it is not signed in. Threads on another environment need it. */
+    connectedUntil: string | null
+    /** The environments the T3 Code on this machine is linked to. */
+    environments: T3Environment[]
+    /** Where threads start unless a repository says otherwise. Null is this machine. */
+    defaultEnvironmentId: string | null
+  }
   repos: {
     repo: string
     /** Null follows the default. */
     provider: AgentProviderId | null
-    /** The project T3 Code already has for this repository, used when no folder is set. */
+    /** Where this repository's threads start: an environment, `LOCAL_ENVIRONMENT`, or null to follow the default. */
+    environmentId: string | null
+    /** The project T3 Code has for this repository where its threads start. On this machine it is used when no folder is set. */
     project: { title: string; folder: string } | null
-    /** A folder set by hand for T3 Code to work in, instead of that project. */
+    /** A folder set by hand for T3 Code to work in on this machine, instead of that project. */
     checkout: string | null
     /** Why T3 Code cannot use that folder, or null. */
     checkoutProblem: string | null
@@ -117,7 +154,7 @@ export function t3ThreadUrl(origin: string | null | undefined, link: string | nu
  * A T3 Code thread only has a page to show once this browser is paired with T3 Code; until then its link hands off.
  */
 export function sessionLinks(
-  session: Pick<AgentSession, 'provider' | 'agentId' | 'url'>,
+  session: Pick<AgentSession, 'provider' | 'agentId' | 'url'> & Partial<Pick<AgentSession, 'environmentId'>>,
   t3Origin?: string | null,
 ): { webUrl: string | null; appUrl: string | null } {
   // One that is still being started has nowhere to open yet.
@@ -126,7 +163,8 @@ export function sessionLinks(
     const links = cursorLinks(session.agentId)
     return { webUrl: session.url ?? links.webUrl, appUrl: links.desktopUrl }
   }
-  const local = t3ThreadUrl(t3Origin, session.url)
+  // A thread on another environment has no page in the T3 Code on this machine.
+  const local = session.environmentId ? null : t3ThreadUrl(t3Origin, session.url)
   return local ? { webUrl: local, appUrl: session.url } : { webUrl: session.url, appUrl: null }
 }
 

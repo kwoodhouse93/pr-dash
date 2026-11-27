@@ -66,6 +66,9 @@ export type DashboardDb = {
   agentSessions(): { prKey: string; session: AgentSession }[]
   agentRouting(): AgentRouting
   setDefaultProvider(provider: AgentProviderId): void
+  /** The T3 Code environment threads start in unless a repository says otherwise. Null is this machine. */
+  defaultEnvironment(): string | null
+  setDefaultEnvironment(environmentId: string | null): void
   /** What each repository has set for agents. A repository with nothing set is left out. */
   repoAgents(): Map<string, RepoAgent>
   setRepoAgent(repo: string, agent: RepoAgent): void
@@ -81,9 +84,9 @@ export type DashboardDb = {
 export type RepoAgent = {
   /** Null follows the default. */
   provider: AgentProviderId | null
-  /** The T3 Code environment to run in. Null is this machine. */
+  /** The T3 Code environment to run in: one's id, `LOCAL_ENVIRONMENT` for this machine, or null to follow the default. */
   environmentId: string | null
-  /** The repository's folder in that environment. */
+  /** The repository's folder on this machine, for a thread that runs here. */
   checkout: string | null
 }
 
@@ -105,7 +108,12 @@ type SnapshotRow = {
   review_pull_requests: string | null
 }
 
-export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(process.cwd(), 'data', 'pr-dash.sqlite')): DashboardDb {
+/** Where the database file is. What else the server keeps on disk goes in the same folder. */
+export function databasePath(): string {
+  return process.env.DATABASE_PATH ?? path.join(process.cwd(), 'data', 'pr-dash.sqlite')
+}
+
+export function openDatabase(file = databasePath()): DashboardDb {
   mkdirSync(path.dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
   db.exec('PRAGMA journal_mode = WAL')
@@ -588,6 +596,16 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       db.prepare(
         'INSERT INTO agent_settings (id, default_provider) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET default_provider = excluded.default_provider',
       ).run(provider)
+    },
+    defaultEnvironment() {
+      const row = db.prepare('SELECT default_environment_id FROM agent_settings WHERE id = 1').get() as { default_environment_id: string | null } | undefined
+      return row?.default_environment_id ?? null
+    },
+    setDefaultEnvironment(environmentId) {
+      db.prepare(
+        `INSERT INTO agent_settings (id, default_provider, default_environment_id) VALUES (1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET default_environment_id = excluded.default_environment_id`,
+      ).run(DEFAULT_ROUTING.defaultProvider, environmentId)
     },
     repoAgents,
     setRepoAgent(repo, agent) {

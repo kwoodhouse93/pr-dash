@@ -4,8 +4,11 @@ import type { PullRequest } from '../../shared/types.ts'
 import type { DashboardDb } from '../db.ts'
 import { messageOf, pullGone, Refused } from '../errors.ts'
 
-/** What each group of routes is handed. `loopbackOnly` is true when the dashboard serves this machine alone. */
-export type Routes = (app: Hono, db: DashboardDb, options: { loopbackOnly: boolean }) => void
+/** `loopbackOnly` is true when the dashboard serves this machine alone. `address` is where this server answers, such as `http://127.0.0.1:4317`. */
+export type RouteOptions = { loopbackOnly: boolean; address: string }
+
+/** What each group of routes is handed. */
+export type Routes = (app: Hono, db: DashboardDb, options: RouteOptions) => void
 
 /** The request's JSON, or nothing when it has none, so each route says what it is missing in its own words. */
 export async function read<T extends object>(c: Context): Promise<Partial<T>> {

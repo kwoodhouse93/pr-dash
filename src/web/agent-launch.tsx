@@ -20,7 +20,7 @@ import { landed, whoosh } from './sounds.ts'
 import { toastError, toastSuccess } from './toasts.tsx'
 
 /** `provider` starts this one agent somewhere other than the repository's usual place. */
-export type StartAgent = (key: string, request: AgentRequest, provider?: AgentProviderId) => Promise<{ url: string | null }>
+export type StartAgent = (key: string, request: AgentRequest, provider?: AgentProviderId) => Promise<{ url: string | null; environmentId?: string | null }>
 
 type Agents = { start: StartAgent; routing: AgentRouting; t3Origin: string | null }
 
@@ -46,7 +46,9 @@ export function AgentProvider({
 }
 
 /** Where a session opens from this browser. */
-export function useSessionLinks(session: Pick<AgentSession, 'provider' | 'agentId' | 'url'>): ReturnType<typeof sessionLinks> {
+export function useSessionLinks(
+  session: Pick<AgentSession, 'provider' | 'agentId' | 'url'> & Partial<Pick<AgentSession, 'environmentId'>>,
+): ReturnType<typeof sessionLinks> {
   return sessionLinks(session, useContext(AgentContext).t3Origin)
 }
 
@@ -139,7 +141,8 @@ export function useAgentLaunch(): AgentLaunch {
     }
     try {
       const result = await start(pr.key, request, override)
-      const url = provider === 't3' ? t3ThreadUrl(t3Origin, result.url) : result.url
+      // A thread on another environment has no page in the T3 Code this browser is paired with.
+      const url = provider !== 't3' ? result.url : result.environmentId ? null : t3ThreadUrl(t3Origin, result.url)
       if (!opensTab || !url) {
         agent?.close()
         toastSuccess(`Started in ${name}. Follow it in the Agents column.`)

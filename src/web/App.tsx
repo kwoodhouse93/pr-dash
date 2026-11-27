@@ -699,7 +699,7 @@ export function App() {
                     try {
                       const result = await api.startAgent(key, request, provider)
                       snapshot.replace(result.snapshot)
-                      return { url: result.url }
+                      return { url: result.url, environmentId: result.environmentId ?? null }
                     } finally {
                       // Taken away in the same turn as the list with the real one is put in, so the count never dips.
                       setStarting((current) => current.filter((item) => item.session !== session))

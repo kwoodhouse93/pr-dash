@@ -1,4 +1,4 @@
-import { AGENT_PROVIDERS, providerFor, type AgentRequest, type AgentSettings } from '../shared/agents.ts'
+import { AGENT_PROVIDERS, environmentFor, providerFor, type AgentRequest, type AgentSettings, type T3Environment } from '../shared/agents.ts'
 import { buildStacks, restackChain, stackOf } from '../shared/stacks.ts'
 import type { AgentProviderId, AgentSession, PullRequest } from '../shared/types.ts'
 import { AgentUnavailable, type AgentProvider } from './agent-provider.ts'
@@ -6,7 +6,9 @@ import { agentTask } from './agent-tasks.ts'
 import { cursorProvider } from './cursor.ts'
 import type { DashboardDb } from './db.ts'
 import { Refused } from './errors.ts'
-import { checkoutProblem, shortFolder, t3Origin, t3Provider, t3ProjectsByRepo } from './t3.ts'
+import { t3Origin } from './t3-home.ts'
+import { t3ConnectedUntil } from './t3-mcp.ts'
+import { checkoutProblem, shortFolder, t3Environments, t3Provider, t3ProjectsByRepo, t3RemoteProjects, type T3Project } from './t3.ts'
 
 export const agentProviders: Record<AgentProviderId, AgentProvider> = {
   cursor: cursorProvider,
@@ -37,13 +39,15 @@ export async function launchAgent(db: DashboardDb, pr: PullRequest, request: Age
   const id = override ?? providerFor(db.agentRouting(), pr.repo)
   const repo = db.repoAgents().get(pr.repo)
   try {
-    // A folder set by hand wins. Without one, T3 Code's own project for the repository is used.
-    const checkout = repo?.checkout ?? (id === 't3' ? ((await t3ProjectsByRepo()).get(pr.repo.toLowerCase())?.root ?? null) : null)
+    const environmentId = id === 't3' ? environmentFor(db.defaultEnvironment(), repo?.environmentId ?? null) : null
+    // On this machine a folder set by hand wins. Without one, T3 Code's own project for the repository is used.
+    // Another environment finds its own project for the repository.
+    const checkout = environmentId ? null : (repo?.checkout ?? (id === 't3' ? ((await t3ProjectsByRepo()).get(pr.repo.toLowerCase())?.root ?? null) : null))
     const session = await agentProviders[id].start({
       pr,
       request,
       task: agentTask(pr, request, request.kind === 'conflict' ? upstackOf(db, pr) : []),
-      target: { environmentId: repo?.environmentId ?? null, checkout },
+      target: { environmentId, checkout },
     })
     db.saveAgentSession(pr.key, session)
     return session
@@ -73,7 +77,25 @@ async function readyOtherThan(id: AgentProviderId): Promise<AgentProviderId | nu
 export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
   const routing = db.agentRouting()
   const agents = db.repoAgents()
-  const projects = await t3ProjectsByRepo().catch(() => new Map())
+  const fallback = db.defaultEnvironment()
+  const [projects, environments] = await Promise.all([
+    t3ProjectsByRepo().catch(() => new Map<string, T3Project>()),
+    t3Environments().catch((): T3Environment[] => []),
+  ])
+  const connectedUntil = t3ConnectedUntil()
+  // The projects of each environment a repository runs in. One that cannot be asked reads as having none.
+  const inUse = new Set(db.watchedRepos().flatMap((repo) => environmentFor(fallback, agents.get(repo)?.environmentId ?? null) ?? []))
+  const remote = new Map<string, Map<string, T3Project>>()
+  if (connectedUntil) {
+    await Promise.all(
+      [...inUse]
+        .filter((id) => environments.some((environment) => environment.id === id && environment.reachable))
+        .map(async (id) => {
+          const found = await t3RemoteProjects(id).catch(() => null)
+          if (found) remote.set(id, found)
+        }),
+    )
+  }
   const [providers, repos] = await Promise.all([
     Promise.all(
       AGENT_PROVIDERS.map(async ({ id }) => ({
@@ -87,16 +109,31 @@ export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
       db.watchedRepos().map(async (repo) => {
         const agent = agents.get(repo)
         const checkout = agent?.checkout ?? null
-        const project = projects.get(repo.toLowerCase())
+        const environmentId = environmentFor(fallback, agent?.environmentId ?? null)
+        const there = environmentId ? remote.get(environmentId)?.get(repo.toLowerCase()) : null
+        const here = projects.get(repo.toLowerCase())
         return {
           repo,
           provider: agent?.provider ?? null,
-          project: project ? { title: project.title, folder: shortFolder(project.root) } : null,
+          environmentId: agent?.environmentId ?? null,
+          project: environmentId
+            ? there
+              ? { title: there.title, folder: there.root }
+              : null
+            : here
+              ? { title: here.title, folder: shortFolder(here.root) }
+              : null,
           checkout,
-          checkoutProblem: checkout ? await checkoutProblem(repo, checkout).catch(() => null) : null,
+          checkoutProblem: checkout && !environmentId ? await checkoutProblem(repo, checkout).catch(() => null) : null,
         }
       }),
     ),
   ])
-  return { defaultProvider: routing.defaultProvider, t3Origin: t3Origin(), providers, repos }
+  return {
+    defaultProvider: routing.defaultProvider,
+    t3Origin: t3Origin(),
+    providers,
+    t3: { connectedUntil, environments, defaultEnvironmentId: fallback },
+    repos,
+  }
 }

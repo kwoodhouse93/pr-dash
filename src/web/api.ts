@@ -59,11 +59,19 @@ export const api = {
   rerun: (keys: string[], mode: 'failed' | 'all') =>
     post<{ reran: number; errors: string[]; runs: { repo: string; runId: number }[] }>('/api/rerun', { keys, mode }),
   startAgent: (key: string, request: AgentRequest, provider?: AgentProviderId) =>
-    post<{ snapshot: Snapshot; agentId: string; provider: AgentProviderId; url: string | null }>('/api/pulls/agents', { key, ...request, provider }),
+    post<{ snapshot: Snapshot; agentId: string; provider: AgentProviderId; url: string | null; environmentId?: string | null }>('/api/pulls/agents', {
+      key,
+      ...request,
+      provider,
+    }),
   agentSettings: () => request<AgentSettings>('/api/agents'),
   pairT3: () => post<{ pairUrl: string; origin: string }>('/api/agents/t3/pair', {}),
+  connectT3: () => post<{ authorizeUrl: string; pairingCode: string | null }>('/api/agents/t3/connect', {}),
+  disconnectT3: () => post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents/t3/disconnect', {}),
   setDefaultAgent: (defaultProvider: AgentProviderId) => post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents', { defaultProvider }),
-  setRepoAgent: (repo: string, agent: { provider: AgentProviderId | null; checkout: string | null }) =>
+  setDefaultEnvironment: (defaultEnvironmentId: string | null) =>
+    post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents', { defaultEnvironmentId }),
+  setRepoAgent: (repo: string, agent: { provider: AgentProviderId | null; checkout: string | null; environmentId?: string | null }) =>
     post<{ settings: AgentSettings; snapshot: Snapshot }>('/api/agents/repo', { repo, ...agent }),
   rebase: (key: string) => post<Snapshot>('/api/rebase', { key }),
   activity: () => request<Activity>('/api/activity'),

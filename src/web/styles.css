@@ -967,10 +967,14 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .agent-provider-line .ghost { padding: 2px 9px; font-size: 14px; }
 .agent-provider-line .text-btn:last-child { margin-right: -8px; }
 .agent-provider-line .search { min-width: 140px; padding: 3px 8px; font-family: "Source Code Pro", ui-monospace, monospace; font-size: 13px; }
-.agent-pairing[data-state="unpaired"] { color: var(--muted); }
-.agent-pairing[data-flagged] { color: var(--yellow); }
+.agent-provider-line .select { font-size: 14px; }
+.agent-code { font-family: "Source Code Pro", ui-monospace, monospace; font-size: 13px; color: var(--text); user-select: all; }
+.agent-pairing[data-state="unpaired"], .agent-connection[data-state="unconnected"] { color: var(--muted); }
+.agent-pairing[data-flagged], .agent-connection[data-flagged] { color: var(--yellow); }
 .agent-repos-head { align-items: baseline; padding: 10px 16px 8px; }
 .agent-cols, .agent-repo { display: grid; grid-template-columns: minmax(0, 1fr) 100px minmax(0, 1.5fr) 112px; gap: 10px; }
+/* With linked environments to choose from, each repository also says where its threads start. */
+.agent-cols[data-environments], [data-environments] > .agent-repo { grid-template-columns: minmax(0, 1fr) 100px 130px minmax(0, 1.2fr) 112px; }
 .agent-cols { padding: 0 16px 5px; color: var(--faint); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
 .agent-repo { align-items: center; row-gap: 4px; }
 .agent-repo .select { width: 100%; font-size: 14px; }
@@ -993,7 +997,7 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .panel .agent-problem { grid-column: 1 / -1; color: var(--yellow); font-size: 14px; }
 @media (max-width: 560px) {
   .agent-cols { display: none; }
-  .agent-repo { grid-template-columns: minmax(0, 1fr) 112px; }
+  .agent-repo, [data-environments] > .agent-repo { grid-template-columns: minmax(0, 1fr) 112px; }
 }
 .agent-unreachable { color: var(--yellow); }
 .repo-error { color: var(--red); }

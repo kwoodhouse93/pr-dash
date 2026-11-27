@@ -1,10 +1,20 @@
 import { useEffect, useState } from 'react'
-import { AGENT_PROVIDERS, providerLabel, type AgentHealth, type AgentSettings } from '../shared/agents.ts'
+import {
+  AGENT_PROVIDERS,
+  environmentFor,
+  environmentName,
+  LOCAL_ENVIRONMENT,
+  providerLabel,
+  type AgentHealth,
+  type AgentSettings,
+  type T3Environment,
+} from '../shared/agents.ts'
 import type { AgentProviderId, Snapshot } from '../shared/types.ts'
 import { api } from './api.ts'
 import { Icon } from './icons.tsx'
 
 type Row = AgentSettings['repos'][number]
+type RepoAgentChange = { provider: AgentProviderId | null; checkout: string | null; environmentId?: string | null }
 
 /** Whether this page is in the desktop app, which says so itself. It pairs with T3 Code without showing a page for it. */
 function inDesktopApp(): boolean {
@@ -87,6 +97,11 @@ export function AgentSettingsPanel({
   const stale = t3Origin !== null && running !== null && t3Origin !== running
   const pairing: Pairing = stale ? 'stale' : t3Origin ? 'paired' : 'unpaired'
   const flagged = pairing === 'stale' || (pairing === 'unpaired' && pairPrompt)
+  const environments = settings?.t3.environments ?? []
+  const fallback = settings?.t3.defaultEnvironmentId ?? null
+  // Some repository's threads start on another environment, which PR Dash reaches through its own sign-in to T3 Code.
+  const remote = settings?.repos.some((row) => usesT3(row) && environmentFor(fallback, row.environmentId) !== null) ?? false
+  const unconnected = remote && !settings?.t3.connectedUntil
 
   return (
     <section className="panel agent-settings">
@@ -114,7 +129,7 @@ export function AgentSettingsPanel({
         </div>
       </div>
       {settings?.providers.map(({ id, health }) => (
-        <div key={id} className="agent-provider" data-state={health.state} data-flagged={id === 't3' && flagged ? '' : undefined}>
+        <div key={id} className="agent-provider" data-state={health.state} data-flagged={id === 't3' && (flagged || unconnected) ? '' : undefined}>
           <div className="agent-health">
             <i className="agent-health-dot" aria-hidden="true" />
             <span className="agent-health-name">
@@ -125,6 +140,17 @@ export function AgentSettingsPanel({
           </div>
           {health.detail && health.state !== 'ready' ? <p className="agent-provider-line panel-note">{health.detail}</p> : null}
           {id === 't3' ? <T3Pairing running={running} paired={t3Origin} pairing={pairing} flagged={flagged} onPaired={onT3Origin} /> : null}
+          {id === 't3' && (environments.length > 0 || fallback) ? (
+            <T3Environments
+              t3={settings.t3}
+              running={running}
+              needed={remote}
+              busy={busy}
+              onDefault={(environmentId) => void save(() => api.setDefaultEnvironment(environmentId))}
+              onDisconnect={() => void save(() => api.disconnectT3())}
+              onCheck={() => void check()}
+            />
+          ) : null}
         </div>
       ))}
       {error ? <p className="panel-row repo-error">{error}</p> : null}
@@ -134,14 +160,23 @@ export function AgentSettingsPanel({
             <h3>Repositories</h3>
             <span className="panel-note">Override defaults per repo</span>
           </div>
-          <div className="agent-cols" aria-hidden="true">
+          <div className="agent-cols" aria-hidden="true" data-environments={environments.length > 0 ? '' : undefined}>
             <span>Repository</span>
             <span>Agent</span>
+            {environments.length > 0 ? <span>Runs on</span> : null}
             <span>T3 Code folder</span>
           </div>
-          <ul className="agent-repos" aria-label="Agent provider for each repository">
+          <ul className="agent-repos" aria-label="Agent provider for each repository" data-environments={environments.length > 0 ? '' : undefined}>
             {settings.repos.map((row) => (
-              <RepoRow key={row.repo} row={row} needsCheckout={usesT3(row)} busy={busy} onSave={(agent) => save(() => api.setRepoAgent(row.repo, agent))} />
+              <RepoRow
+                key={row.repo}
+                row={row}
+                needsCheckout={usesT3(row)}
+                environments={environments}
+                fallback={fallback}
+                busy={busy}
+                onSave={(agent) => save(() => api.setRepoAgent(row.repo, agent))}
+              />
             ))}
           </ul>
         </>
@@ -151,6 +186,129 @@ export function AgentSettingsPanel({
 }
 
 type Pairing = 'paired' | 'stale' | 'unpaired'
+
+/**
+ * Where T3 Code threads start, and PR Dash's own sign-in to T3 Code. The `t3` command only
+ * starts threads on this machine, so a thread on a linked environment goes through that sign-in.
+ */
+function T3Environments({
+  t3,
+  running,
+  needed,
+  busy,
+  onDefault,
+  onDisconnect,
+  onCheck,
+}: {
+  t3: AgentSettings['t3']
+  running: string | null
+  /** Some repository's threads start on another environment, so being signed out is flagged. */
+  needed: boolean
+  busy: boolean
+  onDefault: (environmentId: string | null) => void
+  onDisconnect: () => void
+  onCheck: () => void
+}) {
+  const [asked, setAsked] = useState<{ code: string | null } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const connected = t3.connectedUntil !== null
+
+  // The approval happens in another tab. Coming back to this one is the moment to look again.
+  useEffect(() => {
+    if (!asked) return
+    window.addEventListener('focus', onCheck)
+    return () => window.removeEventListener('focus', onCheck)
+  })
+  useEffect(() => setAsked(null), [t3.connectedUntil])
+
+  async function connect() {
+    setConnecting(true)
+    setError(null)
+    // A browser only allows a tab opened during the click. The desktop app opens one whenever asked.
+    const tab = inDesktopApp() ? null : window.open('', '_blank')
+    try {
+      const made = await api.connectT3()
+      if (tab) tab.location.replace(made.authorizeUrl)
+      else window.open(made.authorizeUrl, '_blank')
+      setAsked({ code: made.pairingCode })
+    } catch (caught) {
+      tab?.close()
+      setError(caught instanceof Error ? caught.message : 'Could not connect to T3 Code')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const chosen = t3.environments.find((environment) => environment.id === t3.defaultEnvironmentId)
+  const stopped = running ? undefined : 'T3 Code is not running on this machine'
+  return (
+    <>
+      <div className="agent-provider-line">
+        <span>Start threads on</span>
+        <select
+          className="select"
+          aria-label="Where T3 Code threads start"
+          value={t3.defaultEnvironmentId ?? ''}
+          disabled={busy}
+          onChange={(event) => onDefault(event.target.value || null)}
+        >
+          <option value="">This machine</option>
+          {t3.environments.map((environment) => (
+            <option key={environment.id} value={environment.id}>
+              {environmentOption(environment)}
+            </option>
+          ))}
+          {t3.defaultEnvironmentId && !chosen ? <option value={t3.defaultEnvironmentId}>An environment that is no longer linked</option> : null}
+        </select>
+      </div>
+      {chosen && !chosen.reachable && chosen.detail ? <p className="agent-provider-line agent-problem">{chosen.detail}</p> : null}
+      <div className="agent-provider-line">
+        <span
+          className="agent-connection"
+          data-state={connected ? 'connected' : 'unconnected'}
+          data-flagged={needed && !connected ? '' : undefined}
+          title="PR Dash signs in to T3 Code on this machine to start threads on a linked environment. T3 Code asks again about once a month."
+        >
+          {t3.connectedUntil
+            ? `Connected to T3 Code until ${new Date(t3.connectedUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
+            : 'Not connected to T3 Code'}
+        </span>
+        <button type="button" className="ghost" disabled={busy || connecting || !running} title={stopped} onClick={() => void connect()}>
+          {connecting ? 'Connecting…' : connected ? 'Connect again' : 'Connect'}
+        </button>
+        {connected ? (
+          <button type="button" className="text-btn" disabled={busy} onClick={onDisconnect}>
+            Disconnect
+          </button>
+        ) : null}
+      </div>
+      {asked ? (
+        <p className="agent-provider-line panel-note">
+          <span>
+            Approve PR Dash in the T3 Code tab that opened.
+            {asked.code ? (
+              <>
+                {' '}
+                If it asks for a pairing code, use <code className="agent-code">{asked.code}</code>
+              </>
+            ) : null}
+          </span>
+          {asked.code ? (
+            <button type="button" className="text-btn" onClick={() => void navigator.clipboard?.writeText(asked.code ?? '')}>
+              Copy code
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+      {error ? <p className="agent-provider-line repo-error">{error}</p> : null}
+    </>
+  )
+}
+
+function environmentOption(environment: T3Environment): string {
+  return environment.reachable ? environmentName(environment) : `${environmentName(environment)}, not answering`
+}
 
 /**
  * Pairs this browser with the T3 Code on this machine, so a thread opens in a tab here
@@ -279,15 +437,23 @@ function T3Pairing({
 function RepoRow({
   row,
   needsCheckout,
+  environments,
+  fallback,
   busy,
   onSave,
 }: {
   row: Row
   /** This repository's agents start in T3 Code, which needs a folder to work in. */
   needsCheckout: boolean
+  /** The environments T3 Code is linked to. With none, every thread starts on this machine and there is nothing to choose. */
+  environments: T3Environment[]
+  /** Where threads start when this repository does not say. Null is this machine. */
+  fallback: string | null
   busy: boolean
-  onSave: (agent: { provider: AgentProviderId | null; checkout: string | null }) => Promise<void>
+  onSave: (agent: RepoAgentChange) => Promise<void>
 }) {
+  const environmentId = environmentFor(fallback, row.environmentId)
+  const environment = environments.find((item) => item.id === environmentId)
   // The folder in use: the one set here, or else the folder of T3 Code's own project.
   const current = row.checkout ?? row.project?.folder ?? ''
   const [draft, setDraft] = useState(current)
@@ -324,7 +490,45 @@ function RepoRow({
           </option>
         ))}
       </select>
-      {!needsCheckout ? null : editing ? (
+      {needsCheckout && environments.length > 0 ? (
+        <select
+          className="select"
+          aria-label={`Where T3 Code threads start for ${row.repo}`}
+          value={row.environmentId ?? ''}
+          disabled={busy}
+          onChange={(event) => void onSave({ provider: row.provider, checkout: row.checkout, environmentId: event.target.value || null })}
+        >
+          <option value="">Default</option>
+          <option value={LOCAL_ENVIRONMENT}>This machine</option>
+          {environments.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+          {row.environmentId && row.environmentId !== LOCAL_ENVIRONMENT && !environments.some((item) => item.id === row.environmentId) ? (
+            <option value={row.environmentId}>No longer linked</option>
+          ) : null}
+        </select>
+      ) : null}
+      {!needsCheckout ? null : environmentId ? (
+        // Another environment works in its own project for the repository. There is no folder to set from here.
+        <>
+          {row.project ? (
+            <span className="agent-folder" title={row.project.folder}>
+              <bdi>{row.project.folder}</bdi>
+            </span>
+          ) : (
+            <span
+              className="agent-folder"
+              data-missing=""
+              title="Shown once PR Dash is connected to T3 Code and that environment has a project for this repository."
+            >
+              No project found on {environment?.label ?? 'that environment'}
+            </span>
+          )}
+          <span className="agent-folder-actions" />
+        </>
+      ) : editing ? (
         <form
           className="agent-folder-form"
           onSubmit={(event) => {

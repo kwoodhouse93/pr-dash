@@ -9,7 +9,15 @@ import { AgentSettingsPanel } from '../src/web/agent-settings.tsx'
 import { api } from '../src/web/api.ts'
 
 vi.mock('../src/web/api.ts', () => ({
-  api: { agentSettings: vi.fn(), setDefaultAgent: vi.fn(), setRepoAgent: vi.fn(), pairT3: vi.fn() },
+  api: {
+    agentSettings: vi.fn(),
+    setDefaultAgent: vi.fn(),
+    setDefaultEnvironment: vi.fn(),
+    setRepoAgent: vi.fn(),
+    pairT3: vi.fn(),
+    connectT3: vi.fn(),
+    disconnectT3: vi.fn(),
+  },
 }))
 
 const toasts = vi.hoisted(() => ({ toastError: vi.fn(), toastSuccess: vi.fn() }))
@@ -29,10 +37,18 @@ function settings(patch: Partial<AgentSettings> = {}): AgentSettings {
       { id: 'cursor', health: { state: 'unconfigured', detail: 'Set CURSOR_API_KEY on the server to start Cursor agents.' } },
       { id: 't3', health: { state: 'ready', detail: 't3 v0.1.10' } },
     ],
+    t3: { connectedUntil: null, environments: [], defaultEnvironmentId: null },
     repos: [
-      { repo: 'acme/app', provider: null, project: null, checkout: null, checkoutProblem: null },
-      { repo: 'acme/web', provider: 't3', project: null, checkout: '~/code/web', checkoutProblem: 'T3 Code has no project for ~/code/web.' },
-      { repo: 'acme/api', provider: 't3', project: { title: 'api', folder: '~/code/api' }, checkout: null, checkoutProblem: null },
+      { repo: 'acme/app', provider: null, environmentId: null, project: null, checkout: null, checkoutProblem: null },
+      {
+        repo: 'acme/web',
+        provider: 't3',
+        environmentId: null,
+        project: null,
+        checkout: '~/code/web',
+        checkoutProblem: 'T3 Code has no project for ~/code/web.',
+      },
+      { repo: 'acme/api', provider: 't3', environmentId: null, project: { title: 'api', folder: '~/code/api' }, checkout: null, checkoutProblem: null },
     ],
     ...patch,
   }
@@ -91,6 +107,81 @@ describe('agent settings and launch', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }
 
+  const devbox = { id: 'env-1', label: 'devbox', host: 'devbox.example.ts.net', reachable: true, detail: null }
+
+  it('says nothing about environments while T3 Code is linked to none', async () => {
+    vi.mocked(api.agentSettings).mockResolvedValue(settings())
+    await render(<AgentSettingsPanel repos={['acme/api']} onSnapshot={() => {}} />)
+    expect(document.querySelector('[aria-label="Where T3 Code threads start"]')).toBeNull()
+    expect(document.querySelector('.agent-repo [aria-label^="Where T3 Code threads start"]')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Connect/)
+  })
+
+  it('picks where threads start, for every repository and for one', async () => {
+    const linked = settings({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox], defaultEnvironmentId: null } })
+    vi.mocked(api.agentSettings).mockResolvedValue(linked)
+    vi.mocked(api.setDefaultEnvironment).mockResolvedValue({ settings: linked, snapshot: {} as Snapshot })
+    vi.mocked(api.setRepoAgent).mockResolvedValue({ settings: linked, snapshot: {} as Snapshot })
+    await render(<AgentSettingsPanel repos={['acme/api']} onSnapshot={() => {}} />)
+    const pick = (select: Element | null | undefined, value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value)
+      select?.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    const fallback = document.querySelector('[aria-label="Where T3 Code threads start"]')
+    expect([...(fallback?.querySelectorAll('option') ?? [])].map((option) => option.textContent)).toEqual(['This machine', 'devbox (devbox.example.ts.net)'])
+    await act(async () => pick(fallback, 'env-1'))
+    expect(api.setDefaultEnvironment).toHaveBeenCalledWith('env-1')
+    const rows = [...document.querySelectorAll('.agent-repo')]
+    // acme/app follows the default, Cursor, which runs in no environment.
+    expect(rows[0]?.querySelector('[aria-label^="Where T3 Code threads start"]')).toBeNull()
+    await act(async () => pick(rows[2]?.querySelector('[aria-label^="Where T3 Code threads start"]'), 'local'))
+    expect(api.setRepoAgent).toHaveBeenCalledWith('acme/api', { provider: 't3', checkout: null, environmentId: 'local' })
+    expect(document.querySelector('.agent-connection[data-state="connected"]')?.textContent).toMatch(/^Connected to T3 Code until /)
+  })
+
+  it('shows the project a repository has on another environment, and no folder to set', async () => {
+    const remote = settings({
+      t3: { connectedUntil: null, environments: [devbox], defaultEnvironmentId: 'env-1' },
+      repos: [
+        { repo: 'acme/api', provider: 't3', environmentId: null, project: { title: 'api', folder: '/data/code/api' }, checkout: null, checkoutProblem: null },
+        { repo: 'acme/web', provider: 't3', environmentId: null, project: null, checkout: '~/code/web', checkoutProblem: null },
+        { repo: 'acme/app', provider: 't3', environmentId: 'local', project: { title: 'app', folder: '~/code/app' }, checkout: null, checkoutProblem: null },
+      ],
+    })
+    vi.mocked(api.agentSettings).mockResolvedValue(remote)
+    await render(<AgentSettingsPanel repos={['acme/api']} onSnapshot={() => {}} />)
+    const rows = [...document.querySelectorAll('.agent-repo')]
+    expect(rows[0]?.querySelector('.agent-folder')?.textContent).toBe('/data/code/api')
+    expect(button(rows[0], 'Change')).toBeUndefined()
+    expect(rows[1]?.querySelector('.agent-folder')?.textContent).toBe('No project found on devbox')
+    // Held to this machine, it keeps its folder and the way to change it.
+    expect(button(rows[2], 'Change')).toBeDefined()
+    // Threads start on the devbox and PR Dash is not signed in to T3 Code, so T3 Code is flagged.
+    expect(document.querySelectorAll('.agent-provider')[1]?.hasAttribute('data-flagged')).toBe(true)
+    expect(document.querySelector('.agent-connection[data-state="unconnected"][data-flagged]')?.textContent).toBe('Not connected to T3 Code')
+  })
+
+  it('opens the T3 Code approval page and gives the pairing code it may ask for', async () => {
+    const linked = settings({ t3: { connectedUntil: null, environments: [devbox], defaultEnvironmentId: null } })
+    vi.mocked(api.agentSettings).mockResolvedValue(linked)
+    vi.mocked(api.connectT3).mockResolvedValue({ authorizeUrl: 'http://127.0.0.1:3773/oauth/mcp/authorize?x=1', pairingCode: 'abc123' })
+    const tab = { location: { replace: vi.fn() }, close: vi.fn() }
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    await render(<AgentSettingsPanel repos={[]} onSnapshot={() => {}} />)
+    await act(async () => button(document, 'Connect').click())
+    expect(tab.location.replace).toHaveBeenCalledWith('http://127.0.0.1:3773/oauth/mcp/authorize?x=1')
+    expect(document.querySelector('.agent-code')?.textContent).toBe('abc123')
+    // Coming back from that tab looks again, and being connected clears the prompt.
+    vi.mocked(api.agentSettings).mockResolvedValue(
+      settings({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox], defaultEnvironmentId: null } }),
+    )
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    expect(document.querySelector('.agent-code')).toBeNull()
+    expect(button(document, 'Disconnect')).toBeDefined()
+  })
+
   it('changes a folder starting from the one in use, and cancels without saving', async () => {
     vi.mocked(api.agentSettings).mockResolvedValue(settings())
     vi.mocked(api.setRepoAgent).mockResolvedValue({ settings: settings(), snapshot: {} as Snapshot })
@@ -113,7 +204,16 @@ describe('agent settings and launch', () => {
 
   it('resets a folder set here to the folder of the T3 Code project', async () => {
     const overridden = settings({
-      repos: [{ repo: 'acme/api', provider: 't3', project: { title: 'api', folder: '~/code/api' }, checkout: '~/elsewhere', checkoutProblem: null }],
+      repos: [
+        {
+          repo: 'acme/api',
+          provider: 't3',
+          environmentId: null,
+          project: { title: 'api', folder: '~/code/api' },
+          checkout: '~/elsewhere',
+          checkoutProblem: null,
+        },
+      ],
     })
     vi.mocked(api.agentSettings).mockResolvedValue(overridden)
     vi.mocked(api.setRepoAgent).mockResolvedValue({ settings: settings(), snapshot: {} as Snapshot })

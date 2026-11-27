@@ -1,13 +1,15 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { providerFor, sessionActive, sessionLinks, leadingStatus, t3ThreadUrl } from '../src/shared/agents.ts'
+import { environmentFor, LOCAL_ENVIRONMENT, providerFor, sessionActive, sessionLinks, leadingStatus, t3ThreadUrl } from '../src/shared/agents.ts'
 import type { AgentSession } from '../src/shared/types.ts'
 import { AgentUnavailable, refreshSessions, type AgentProvider } from '../src/server/agent-provider.ts'
 import { openDatabase } from '../src/server/db.ts'
-import { originRepo, t3Origin, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
+import { t3Origin } from '../src/server/t3-home.ts'
+import { parseRpc, readConnection, saveConnection } from '../src/server/t3-mcp.ts'
+import { originRepo, pairingCode, remoteThread, remoteThreadLink, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
 
 function session(patch: Partial<AgentSession> = {}): AgentSession {
   return {
@@ -279,5 +281,78 @@ describe('T3 Code threads', () => {
     state.exec('CREATE TABLE something_else (id TEXT)')
     state.close()
     expect(t3Projects(home)).toEqual([])
+  })
+})
+
+describe('T3 Code threads on a linked environment', () => {
+  it('runs a repository where it says, or else where the default says', () => {
+    expect(environmentFor(null, null)).toBeNull()
+    expect(environmentFor('env-1', null)).toBe('env-1')
+    expect(environmentFor('env-1', LOCAL_ENVIRONMENT)).toBeNull()
+    expect(environmentFor(null, 'env-2')).toBe('env-2')
+    expect(environmentFor('env-1', 'env-2')).toBe('env-2')
+  })
+
+  it('stores the default environment without disturbing the default provider', () => {
+    const db = openDatabase(path.join(mkdtempSync(path.join(tmpdir(), 'pr-dash-agents-')), 'db.sqlite'))
+    expect(db.defaultEnvironment()).toBeNull()
+    db.setDefaultEnvironment('env-1')
+    expect(db.defaultEnvironment()).toBe('env-1')
+    expect(db.agentRouting().defaultProvider).toBe('cursor')
+    db.setDefaultProvider('t3')
+    expect(db.defaultEnvironment()).toBe('env-1')
+    db.setDefaultEnvironment(null)
+    expect(db.defaultEnvironment()).toBeNull()
+    expect(db.agentRouting().defaultProvider).toBe('t3')
+    // A repository held to this machine is kept, though it names no provider or folder.
+    db.setRepoAgent('acme/app', { provider: null, environmentId: LOCAL_ENVIRONMENT, checkout: null })
+    expect(db.repoAgents().get('acme/app')?.environmentId).toBe(LOCAL_ENVIRONMENT)
+  })
+
+  it('reads a thread there as it reads one here, taking the latest reply of the latest run', () => {
+    const shown = remoteThread({
+      thread: { status: 'completed', latestRunId: 'run-2', activeRunId: null, pendingRequestCount: 0 },
+      // Newest first, as T3 Code's tool gives them.
+      items: [
+        { type: 'assistant_message', runId: 'run-2', text: 'Pushed the fix.' },
+        { type: 'user_message', runId: 'run-2', text: 'Try again' },
+        { type: 'assistant_message', runId: 'run-1', text: 'Looking.' },
+      ],
+    })
+    const link = remoteThreadLink('env-1', 'mcp:launch:abc')
+    const read = t3Session(session({ environmentId: 'env-1', url: link, runId: 'run-1' }), shown, '2026-11-27T10:00:00Z')
+    expect(read).toMatchObject({ status: 'finished', runId: 'run-2', result: 'Pushed the fix.', url: link })
+    expect(t3Session(session(), remoteThread({ thread: { status: 'waiting', activeRunId: 'run-1' } })).status).toBe('waiting')
+  })
+
+  it('links such a thread to T3 Code, never to a page on this machine', () => {
+    const link = remoteThreadLink('env-1', 'mcp:launch:abc')
+    expect(link).toBe('https://app.t3.codes/threads/env-1/mcp%3Alaunch%3Aabc')
+    expect(sessionLinks(session({ environmentId: 'env-1', url: link }), 'http://127.0.0.1:3773')).toEqual({ webUrl: link, appUrl: null })
+  })
+
+  it('takes the pairing code out of a pairing link', () => {
+    expect(pairingCode('http://127.0.0.1:3773/pair#token=abc123')).toBe('abc123')
+    expect(pairingCode('http://127.0.0.1:3773/pair')).toBeNull()
+    expect(pairingCode('not a link')).toBeNull()
+  })
+
+  it('keeps its sign-in to T3 Code in a file only the user can read, until it runs out', () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'pr-dash-t3-')), 'nested', 't3-connection.json')
+    expect(readConnection(file)).toBeNull()
+    const connection = { clientId: 'client-1', accessToken: 'secret', expiresAt: '2026-12-27T10:00:00.000Z' }
+    saveConnection(connection, file)
+    expect(statSync(file).mode & 0o777).toBe(0o600)
+    expect(readConnection(file, Date.parse('2026-12-01T00:00:00Z'))).toEqual(connection)
+    expect(readConnection(file, Date.parse('2026-12-28T00:00:00Z'))).toBeNull()
+    saveConnection(null, file)
+    expect(readConnection(file)).toBeNull()
+  })
+
+  it('reads a tool reply sent as JSON or as an event stream', () => {
+    const reply = { jsonrpc: '2.0', id: 1, result: { structuredContent: { ok: true } } }
+    expect(parseRpc(JSON.stringify(reply))).toEqual(reply)
+    expect(parseRpc(`event: message\ndata: ${JSON.stringify(reply)}\n\n`)).toEqual(reply)
+    expect(parseRpc('<html>')).toBeNull()
   })
 })

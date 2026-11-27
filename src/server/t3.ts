@@ -1,11 +1,14 @@
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { sessionNote, type AgentHealth } from '../shared/agents.ts'
+import { environmentName, sessionNote, type AgentHealth, type T3Environment } from '../shared/agents.ts'
 import type { AgentSession, AgentSessionStatus } from '../shared/types.ts'
 import { AgentUnavailable, newSession, type AgentProvider, type AgentStart } from './agent-provider.ts'
+import { T3_HOME, t3Origin } from './t3-home.ts'
+import { T3ToolError, t3Tool } from './t3-mcp.ts'
 
 /** What `t3 thread show --json` prints, as far as this reads it. */
 export type T3Thread = {
@@ -45,10 +48,9 @@ async function t3Health(): Promise<AgentHealth> {
   }
 }
 
-async function startT3Thread({ pr, request, task, target }: AgentStart): Promise<AgentSession> {
-  if (target.environmentId) {
-    throw new AgentUnavailable('unconfigured', 'T3 Code can only start threads on this machine so far.')
-  }
+async function startT3Thread(input: AgentStart): Promise<AgentSession> {
+  const { pr, request, task, target } = input
+  if (target.environmentId) return startRemoteThread(input, target.environmentId)
   if (!target.checkout) {
     throw new AgentUnavailable(
       'unconfigured',
@@ -98,7 +100,7 @@ export function worktreeNote(headRef: string): string {
 }
 
 async function readT3Session(session: AgentSession): Promise<AgentSession> {
-  if (session.environmentId) throw new AgentUnavailable('unconfigured', 'T3 Code can only read threads on this machine so far.')
+  if (session.environmentId) return readRemoteSession(session, session.environmentId)
   let shown: string
   try {
     shown = await t3(['thread', 'show', session.agentId, '--json', '--messages', '6'], { timeoutMs: 20_000 })
@@ -145,7 +147,10 @@ function t3Status(thread: NonNullable<T3Thread['thread']>): AgentSessionStatus {
       return 'creating'
     case 'running':
       return 'running'
+    case 'waiting':
+      return 'waiting'
     case 'completed':
+    case 'idle':
       return 'finished'
     case 'failed':
     case 'error':
@@ -153,10 +158,163 @@ function t3Status(thread: NonNullable<T3Thread['thread']>): AgentSessionStatus {
     case 'interrupted':
     case 'cancelled':
     case 'stopped':
+    case 'rolled_back':
       return 'cancelled'
     default:
       // A status this does not know: go by whether a run is still going.
       return thread.activeRunId ? 'running' : thread.status ? 'finished' : 'running'
+  }
+}
+
+/** Each environment the T3 Code on this machine is linked to, and whether it answers now. */
+export async function t3Environments(): Promise<T3Environment[]> {
+  const listed = parseJson<unknown>(await t3(['environment', 'list', '--json'], { timeoutMs: 20_000 }))
+  if (!Array.isArray(listed)) return []
+  return listed.flatMap((item) => {
+    const link = item as { environmentId?: unknown; label?: unknown; urls?: unknown; status?: unknown; lastError?: unknown }
+    if (typeof link.environmentId !== 'string') return []
+    const reachable = link.status === 'reachable'
+    const said = typeof link.lastError === 'string' && link.lastError ? link.lastError : typeof link.status === 'string' ? link.status : null
+    return [
+      {
+        id: link.environmentId,
+        label: typeof link.label === 'string' && link.label ? link.label : link.environmentId,
+        host: hostOf(Array.isArray(link.urls) ? link.urls[0] : null),
+        reachable,
+        detail: reachable ? null : link.status === 'expired' ? 'Its link has run out. Link it again with `t3 environment link`.' : said,
+      },
+    ]
+  })
+}
+
+function hostOf(url: unknown): string | null {
+  try {
+    return typeof url === 'string' ? new URL(url).host : null
+  } catch {
+    return null
+  }
+}
+
+type RemoteProject = {
+  id?: unknown
+  title?: unknown
+  workspaceRoot?: unknown
+  archivedAt?: unknown
+  deletedAt?: unknown
+  repositoryIdentity?: { provider?: unknown; owner?: unknown; name?: unknown } | null
+}
+
+/** The T3 Code project for each GitHub repository in another environment, as that environment lists them. Keys are lower case. */
+export async function t3RemoteProjects(environmentId: string): Promise<Map<string, T3Project>> {
+  const found = new Map<string, T3Project>()
+  let cursor: number | null = null
+  // T3 Code lists a page at a time. Nobody has this many projects, so the limit only stops a loop.
+  for (let page = 0; page < 20; page += 1) {
+    const listed: { projects?: RemoteProject[]; nextCursor?: number | null } = await t3Tool('t3_project_list', {
+      environmentId,
+      limit: 100,
+      ...(cursor === null ? {} : { cursor }),
+    })
+    for (const project of listed.projects ?? []) {
+      const repo = project.repositoryIdentity
+      if (typeof project.id !== 'string' || typeof project.workspaceRoot !== 'string' || project.archivedAt || project.deletedAt) continue
+      if (repo?.provider !== 'github' || typeof repo.owner !== 'string' || typeof repo.name !== 'string') continue
+      const key = `${repo.owner}/${repo.name}`.toLowerCase()
+      if (!found.has(key)) found.set(key, { id: project.id, title: typeof project.title === 'string' ? project.title : repo.name, root: project.workspaceRoot })
+    }
+    if (typeof listed.nextCursor !== 'number') break
+    cursor = listed.nextCursor
+  }
+  return found
+}
+
+/** The environment as linked now. Throws `AgentUnavailable` when it is not linked or not answering. */
+async function reachableEnvironment(environmentId: string): Promise<T3Environment> {
+  const environment = (await t3Environments()).find((item) => item.id === environmentId)
+  if (!environment)
+    throw new AgentUnavailable(
+      'unconfigured',
+      'T3 Code is no longer linked to the environment chosen for this repository. Pick another under Agents in Settings.',
+    )
+  if (!environment.reachable) {
+    throw new AgentUnavailable('unreachable', `${environmentName(environment)} is not answering${environment.detail ? `: ${environment.detail}` : '.'}`)
+  }
+  return environment
+}
+
+/** Where a thread on another environment opens. T3 Code's own app takes it from there. */
+export function remoteThreadLink(environmentId: string, threadId: string): string {
+  return `https://app.t3.codes/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`
+}
+
+async function startRemoteThread({ pr, request, task }: AgentStart, environmentId: string): Promise<AgentSession> {
+  if (!REF.test(pr.headRef)) throw new Error(`T3 Code cannot start from the branch name ${pr.headRef}.`)
+  const environment = await reachableEnvironment(environmentId)
+  const project = (await t3RemoteProjects(environmentId)).get(pr.repo.toLowerCase())
+  if (!project) {
+    throw new AgentUnavailable(
+      'unconfigured',
+      `${environmentName(environment)} has no T3 Code project for ${pr.repo}. Add one there, or set this repository to run on this machine under Agents in Settings.`,
+    )
+  }
+  // That environment fetches the branch itself and makes the worktree from origin's copy of it.
+  const started = await t3Tool<{ threadId?: string; runId?: string | null; status?: string | null }>('t3_thread_launch', {
+    environmentId,
+    projectId: project.id,
+    title: task.name,
+    workspaceStrategy: { type: 'worktree', baseRef: `origin/${pr.headRef}`, startFromOrigin: true },
+    message: `${task.prompt}\n\n${worktreeNote(pr.headRef)}`,
+    // Not sent again on failure: the user starts another, and two threads on one branch would fight.
+    clientRequestId: randomUUID(),
+  })
+  if (!started.threadId) throw new Error('T3 Code started without returning a thread.')
+  return newSession('t3', {
+    agentId: started.threadId,
+    runId: started.runId ?? started.threadId,
+    kind: request.kind,
+    prompt: sessionNote(request),
+    status: started.status ? t3Status({ status: started.status }) : 'creating',
+    environmentId,
+    url: remoteThreadLink(environmentId, started.threadId),
+  })
+}
+
+type RemoteThread = {
+  thread?: { status?: string; latestRunId?: string | null; activeRunId?: string | null; pendingRequestCount?: number }
+  /** Newest first. */
+  items?: { type?: string; runId?: string | null; text?: string | null }[]
+}
+
+/** What another environment shows for a thread, in the shape the `t3` command prints for one here. */
+export function remoteThread(shown: RemoteThread): T3Thread {
+  const thread = shown.thread ?? {}
+  return {
+    thread: {
+      status: thread.status,
+      latestRunId: thread.latestRunId ?? undefined,
+      activeRunId: thread.activeRunId,
+      pendingRequestCount: thread.pendingRequestCount,
+    },
+    messages: [...(shown.items ?? [])]
+      .reverse()
+      .filter((item) => item.type === 'assistant_message')
+      .map((item) => ({ role: 'assistant', runId: item.runId ?? undefined, text: item.text ?? undefined })),
+  }
+}
+
+const REMOTE_THREAD_GONE = /not found|no longer|does not exist|unknown thread/i
+
+async function readRemoteSession(session: AgentSession, environmentId: string): Promise<AgentSession> {
+  try {
+    const shown = await t3Tool<RemoteThread>('t3_thread_read', { environmentId, threadId: session.agentId, limit: 6 })
+    if (!shown.thread) throw new Error('T3 Code returned an unreadable thread.')
+    return t3Session(session, remoteThread(shown))
+  } catch (error) {
+    if (!(error instanceof T3ToolError)) throw error
+    // The tool fails the same way for a thread that is gone and a machine that is off, so ask which.
+    await reachableEnvironment(environmentId)
+    if (REMOTE_THREAD_GONE.test(error.message)) return { ...session, status: 'expired', updatedAt: new Date().toISOString() }
+    throw error
   }
 }
 
@@ -184,22 +342,17 @@ export async function checkoutProblem(repo: string, folder: string): Promise<str
   return null
 }
 
-const T3_HOME = () => process.env.T3CODE_HOME || path.join(homedir(), '.t3')
+/** What a browser paired from here may do in T3 Code: read threads and take part in them. Nothing wider. */
+const PAIR_SCOPES = ['orchestration:read', 'orchestration:operate']
 
-/** The address the T3 Code on this machine answers at, from what it writes down when it starts. Null when it has not. */
-export function t3Origin(home = T3_HOME()): string | null {
+/** The code inside a pairing link, for a T3 Code page that asks for one. Null when the link carries none. */
+export function pairingCode(pairUrl: string): string | null {
   try {
-    const { origin } = JSON.parse(readFileSync(path.join(home, 'userdata', 'server-runtime.json'), 'utf8')) as { origin?: unknown }
-    if (typeof origin !== 'string') return null
-    const url = new URL(origin)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : null
+    return new URLSearchParams(new URL(pairUrl).hash.slice(1)).get('token')
   } catch {
     return null
   }
 }
-
-/** What a browser paired from here may do in T3 Code: read threads and take part in them. Nothing wider. */
-const PAIR_SCOPES = ['orchestration:read', 'orchestration:operate']
 
 /**
  * A link that pairs whichever browser opens it with the T3 Code on this machine, so that

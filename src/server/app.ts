@@ -3,6 +3,7 @@ import type { DashboardDb } from './db.ts'
 import { failure } from './errors.ts'
 import { refusal } from './origin.ts'
 import { agentRoutes } from './routes/agents.ts'
+import type { RouteOptions } from './routes/http.ts'
 import { feedbackRoutes } from './routes/feedback.ts'
 import { initiativeRoutes } from './routes/initiatives.ts'
 import { linearRoutes } from './routes/linear.ts'
@@ -10,8 +11,8 @@ import { queueRoutes } from './routes/queue.ts'
 import { repoRoutes } from './routes/repos.ts'
 import { syncRoutes } from './routes/sync.ts'
 
-/** The API. `loopbackOnly` is true when the dashboard serves this machine alone. */
-export function createApp(db: DashboardDb, options: { loopbackOnly: boolean }): Hono {
+/** The API. `loopbackOnly` is true when the dashboard serves this machine alone, and `address` is where this server answers. */
+export function createApp(db: DashboardDb, options: RouteOptions): Hono {
   const app = new Hono()
 
   app.use('/api/*', async (c, next) => {
