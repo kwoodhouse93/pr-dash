@@ -213,7 +213,7 @@ async function onto(input: {
   const remoteOid = (await git(input.mirror, ['rev-parse', `refs/heads/${input.branch}`], null)).toLowerCase()
   if (remoteOid !== expected) throw new GitError(`${input.branch} moved on the remote.`)
   const kind = await git(input.mirror, ['cat-file', '-t', cutoff], null).catch(() => '')
-  if (kind !== 'commit') throw new GitError(`Commit ${cutoff.slice(0, 7)} is not in ${input.branch}.`)
+  if (kind !== 'commit') throw new GitError(`${input.branch} is not built on the latest commit (${cutoff.slice(0, 7)}) of the branch below it. Restack and push it, then retry.`)
   return replay({
     mirror: input.mirror,
     token: input.token,

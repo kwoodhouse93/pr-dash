@@ -1006,6 +1006,15 @@ export async function updatePullBase(token: string, repo: string, number: number
   throw new Error(messageFrom(text, response.status))
 }
 
+/** Whether `head` has `ancestor` in its history. */
+export async function commitContains(token: string, repo: string, ancestor: string, head: string): Promise<boolean> {
+  const response = await rest(token, `/repos/${repo}/compare/${ancestor}...${head}?per_page=1`)
+  const text = await response.text()
+  if (!response.ok) throw new Error(messageFrom(text, response.status))
+  const status = (JSON.parse(text) as { status?: string }).status
+  return status === 'ahead' || status === 'identical'
+}
+
 const MARK_READY = `
   mutation MarkReady($id: ID!) {
     markPullRequestReadyForReview(input: { pullRequestId: $id }) {

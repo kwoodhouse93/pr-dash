@@ -7,7 +7,7 @@ import { buildStacks, mergeLine, stackOf } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { abortRebases, GitCancelled, interruptGit, mirrorPath, rebaseOnto } from './git.ts'
-import { fetchLivePull, loadGithubToken, readRulesets, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
+import { commitContains, fetchLivePull, loadGithubToken, readRulesets, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
 
 const POLL_MS = 20_000
 
@@ -83,6 +83,14 @@ export async function enqueueDownstack(db: DashboardDb, key: string) {
   const bottom = parts.merge[parts.merge.length - 1]!
   const top = parts.merge[0]!
   const affected = [...parts.merge, ...parts.restack]
+  // A branch left behind by a push to the one below it cannot be cut from that branch's head once it merges.
+  for (const pr of affected) {
+    const parent = affected.find((item) => item.headRef === pr.baseRef && item.key !== pr.key)
+    if (!parent) continue
+    if (!(await commitContains(token, pr.repo, live.get(parent.key)!.headOid, live.get(pr.key)!.headOid))) {
+      throw new MergeRejected(`#${pr.number} is not built on the latest commit of #${parent.number}. Restack and push the stack, then try again.`)
+    }
+  }
   // Each branch records the head it is built on, so it can be cut from that commit after its parent is rewritten.
   const baseOid = (pr: PullRequest) => {
     const parent = affected.find((item) => item.headRef === pr.baseRef && item.key !== pr.key)
