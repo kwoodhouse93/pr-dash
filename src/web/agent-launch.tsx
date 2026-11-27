@@ -1,8 +1,9 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
-import { agentWork, DEFAULT_ROUTING, providerFor, providerLabel, sessionLinks, startingTabUrl, t3ThreadUrl, type AgentRequest } from '../shared/agents.ts'
+import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { agentKindLabel, agentWork, DEFAULT_ROUTING, providerFor, providerLabel, sessionLinks, startingTabUrl, t3ThreadUrl, type AgentRequest } from '../shared/agents.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import type { AgentProviderId, AgentRouting, AgentSession } from '../shared/types.ts'
 import { paintCursorLoading } from './cursor-loading.ts'
+import { flyParcel, markCaught, shownBox, type Box } from './flight.ts'
 import { toastError, toastSuccess } from './toasts.tsx'
 
 /** `provider` starts this one agent somewhere other than the repository's usual place. */
@@ -45,6 +46,59 @@ export function launchTag(key: string, request: AgentRequest): string {
   return `${key}:${request.kind}`
 }
 
+// Where the last press landed. Starting an agent always follows a press, and what was pressed may be gone
+// by the time the agent is asked for, as a menu's line is, so its place is noted as it is pressed.
+let pressed: Box | null = null
+function notePress(target: EventTarget | null) {
+  const element = target instanceof Element ? (target.closest('button, a, [role="menuitem"], textarea') ?? target) : null
+  pressed = shownBox(element)
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', (event) => notePress(event.target), true)
+  window.addEventListener('keydown', (event) => notePress(document.activeElement ?? event.target), true)
+}
+
+// Agents asked for whose parcel has landed, but which the list does not have yet. The button that counts
+// agents adds these in, so its count goes up as the parcel arrives and comes back down if the start fails.
+const starting = new Set<symbol>()
+const watchers = new Set<() => void>()
+function setStarting(token: symbol, on: boolean) {
+  if (on) starting.add(token)
+  else starting.delete(token)
+  for (const watcher of watchers) watcher()
+}
+function watchStarting(watcher: () => void) {
+  watchers.add(watcher)
+  return () => void watchers.delete(watcher)
+}
+
+/** How many agents have been asked for and are not in the list yet. */
+export function useStartingAgents(): number {
+  return useSyncExternalStore(watchStarting, () => starting.size)
+}
+
+/** The button in the top bar that counts agents, which is where a task flies to. */
+const AGENTS_BUTTON = '.agents-tool'
+
+/**
+ * Shows the task leaving for the agents button. `away` says a tab took the reader elsewhere, so there is
+ * nobody to show it to: the button is marked when they come back instead. Resolves once it has been shown.
+ */
+async function sendOff(from: Box | null, label: string, away: boolean): Promise<void> {
+  const button = () => document.querySelector(AGENTS_BUTTON)
+  if (away) {
+    // The new tab is in front by the time this page is next seen.
+    const onBack = () => {
+      if (document.visibilityState !== 'visible') return
+      document.removeEventListener('visibilitychange', onBack)
+      markCaught(button())
+    }
+    document.addEventListener('visibilitychange', onBack)
+    return
+  }
+  if (from && (await flyParcel({ layer: document.body, from, label, to: () => shownBox(button()) }))) markCaught(button())
+}
+
 type AgentLaunch = {
   /** Resolves true once the agent has started. For Cursor, that is once its tab is showing the session. */
   launch: (pr: { key: string }, request: AgentRequest) => Promise<boolean>
@@ -72,7 +126,16 @@ export function useAgentLaunch(): AgentLaunch {
     const opensTab = provider === 'cursor' || t3Origin !== null
     // The desktop app reads from the tab's address which pull request the agent is for, and lists the tab with its agents from the start.
     const desktop = (window as { prDashDesktop?: unknown }).prDashDesktop === true
-    const agent = opensTab ? window.open(desktop ? startingTabUrl(pr.key, request) : '', '_blank') : null
+    const from = pressed
+    const agent = opensTab ? window.open(desktop ? startingTabUrl(pr.key, request, from) : '', '_blank') : null
+    // The desktop app shows the task flying to its own list of agents, which the tab is filed in. Here it flies to the agents button.
+    const token = Symbol()
+    let settled = false
+    if (!(desktop && agent)) {
+      void sendOff(from, agentKindLabel(request.kind), agent !== null).then(() => {
+        if (!settled) setStarting(token, true)
+      })
+    }
     if (agent && provider === 'cursor') {
       try {
         paintCursorLoading(agent, agentWork(request.kind, provider))
@@ -116,6 +179,8 @@ export function useAgentLaunch(): AgentLaunch {
       }
       return false
     } finally {
+      settled = true
+      setStarting(token, false)
       setPending(null)
     }
   }

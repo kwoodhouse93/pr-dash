@@ -18,7 +18,7 @@ import { MenuProvider } from './menus.tsx'
 import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage, type ListPage } from './prefs.ts'
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
-import { AgentProvider } from './agent-launch.tsx'
+import { AgentProvider, useStartingAgents } from './agent-launch.tsx'
 import { agentItems, AgentsPage } from './agents.tsx'
 import { SettingsPage } from './settings.tsx'
 import { fold, setSoundsEnabled } from './sounds.ts'
@@ -1026,7 +1026,9 @@ function RefreshControl({
 }
 
 function AgentsButton({ statuses, pressed, onClick }: { statuses: AgentSessionStatus[]; pressed: boolean; onClick: () => void }) {
-  const { running, waiting, label } = agentsSummary(statuses)
+  const summary = agentsSummary(statuses)
+  const { waiting, label } = summary
+  const running = summary.running + useStartingAgents()
   return (
     <button type="button" className="tool-btn agents-tool" data-state={running > 0 ? 'active' : undefined} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

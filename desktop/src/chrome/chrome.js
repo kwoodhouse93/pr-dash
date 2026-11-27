@@ -8,6 +8,11 @@ let earlierAll = false
 let resizing = false
 let pendingWidth = null
 let copiedTimer = null
+// Agents whose task is still flying to them. Their row keeps its place, unseen, until the task lands.
+const incoming = new Set()
+// The row that has just caught its task, and whether the pill has.
+let landedKey = null
+let pillCaught = false
 
 $('back').onclick = () => send('back')
 $('forward').onclick = () => send('forward')
@@ -211,7 +216,8 @@ function treeNode(item) {
 
 function agentRow(agent, earlier) {
   const fresh = agent.mark === 'unread' || agent.mark === 'failed'
-  const node = el('div', classes('row', earlier && 'd1 dim', fresh && !earlier && 'strong', agent.tabId !== null && agent.tabId === state.activeId && 'active'))
+  const node = el('div', classes('row', earlier && 'd1 dim', fresh && !earlier && 'strong', agent.tabId !== null && agent.tabId === state.activeId && 'active', incoming.has(agent.key) && 'incoming', agent.key === landedKey && 'landed'))
+  node.dataset.key = agent.key
   node.title = `${agent.label} · #${agent.number}`
   node.onclick = () => {
     setMenu(false)
@@ -335,7 +341,7 @@ function render() {
 
   const button = $('agents-pill')
   button.hidden = state.sidebar || !anyAgents
-  button.className = classes('agents-pill', !state.running && !state.unread && 'quiet')
+  button.className = classes('agents-pill', !state.running && !state.unread && 'quiet', pillCaught && 'caught')
   button.title = agentNote() || 'Agents'
   button.setAttribute('aria-expanded', String(menuOpen))
   button.replaceChildren(...pill())
@@ -347,6 +353,36 @@ function render() {
     $('pop-agents').replaceChildren(...agentList())
   }
 }
+
+// Where a task lands: its agent's row in the sidebar, or the link to the agents under it, or the pill in the strip.
+function landing(key) {
+  const boxOf = (node) => (node ? window.flight.shownBox(node) : null)
+  if (!state.sidebar) return boxOf($('agents-pill'))
+  const row = [...$('agents').children].find((node) => node.dataset.key === key)
+  return boxOf(row?.firstElementChild) ?? boxOf($('agents-link').firstElementChild)
+}
+
+// The dashboard started an agent. Its task folds up where it was started and flies here, over the page.
+window.shell.onFlight(async (job) => {
+  if (!state) return
+  const row = state.agents.find((agent) => agent.key === job.key)
+  incoming.add(job.key)
+  render()
+  send('flight-overlay', true)
+  const landed = await window.flight.flyParcel({ layer: document.body, from: job.from, label: row ? row.label : job.label, to: () => landing(job.key) })
+  send('flight-overlay', false)
+  incoming.delete(job.key)
+  if (landed) {
+    landedKey = job.key
+    pillCaught = true
+    setTimeout(() => {
+      if (landedKey === job.key) landedKey = null
+      pillCaught = false
+      render()
+    }, 520)
+  }
+  render()
+})
 
 window.shell.onState((next) => {
   const wasOpen = menuOpen

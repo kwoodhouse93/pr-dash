@@ -18,6 +18,7 @@ const commands = new Set([
   'agent-dismiss',
   'agents-clear',
   'overlay',
+  'flight-overlay',
   'sidebar-width',
   'dashboard',
 ])
@@ -25,6 +26,9 @@ const commands = new Set([
 contextBridge.exposeInMainWorld('shell', {
   send(command: string, arg?: number | string | boolean) {
     if (commands.has(command)) ipcRenderer.send('chrome', command, arg)
+  },
+  onFlight(listener: (flight: unknown) => void) {
+    ipcRenderer.on('flight', (_event, flight) => listener(flight))
   },
   onState(listener: (state: unknown) => void) {
     ipcRenderer.on('state', (_event, state) => listener(state))

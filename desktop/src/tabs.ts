@@ -24,7 +24,7 @@ import {
   type TabInfo,
 } from './sidebar.ts'
 import { isT3Handoff, isT3PairLink, T3_PROMPT_CSS, T3_PROMPT_SCRIPT, t3PromptAction, t3PromptUpdate, type T3PromptAction } from './t3-prompt.ts'
-import { startingAgent, t3ThreadUrl, type StartingAgent } from '../../src/shared/agents.ts'
+import { agentKindLabel, startingAgent, t3ThreadUrl, type StartingAgent } from '../../src/shared/agents.ts'
 
 export const STRIP_HEIGHT = 40
 const SIDEBAR_WIDTH = 264
@@ -120,6 +120,9 @@ export class Tabs {
   /** The dashboard's colour theme, which the window follows. */
   private theme: Theme
   private overlay = false
+  /** A task is flying from the page to the list of agents, which the strip's view draws over the page. */
+  private flying = false
+  private flyingTimer: NodeJS.Timeout | null = null
   /** Agent runs read in the active tab, kept in their row until another tab is chosen. */
   private held: string[] = []
   /** Tabs in the order they were last looked at, newest last. */
@@ -174,6 +177,7 @@ export class Tabs {
       else if (command === 'agent-dismiss' && key) this.dismissAgent(key)
       else if (command === 'agents-clear') this.clearUnread()
       else if (command === 'overlay') this.setOverlay(arg === true)
+      else if (command === 'flight-overlay') this.setFlying(arg === true)
       else if (command === 'sidebar-width' && typeof id === 'number') this.setWidth(id)
       else if (command === 'dashboard' && (key === 'list' || key === 'agents' || key === 'queue' || key === 'settings')) this.showDashboard(key)
       else if (command === 'back') this.back()
@@ -298,6 +302,31 @@ export class Tabs {
     this.layout()
     if (on) this.chrome.webContents.focus()
     else this.active.view.webContents.focus()
+  }
+
+  // The flight of a task is drawn over the page too. The keyboard stays with the page, and the strip's
+  // view goes back under it even if the strip never says the flight is over.
+  private setFlying(on: boolean) {
+    if (this.flyingTimer) clearTimeout(this.flyingTimer)
+    this.flyingTimer = on ? setTimeout(() => this.setFlying(false), 3000) : null
+    if (this.flying === on) return
+    this.flying = on
+    this.layout()
+  }
+
+  /** Has the strip show a task leaving the place it was started from on `from`'s page, for the agent `opened` was made for. */
+  private sendOff(from: Tab, opened: Tab, starting: StartingAgent) {
+    if (!starting.from || from.id !== this.activeId) return
+    // The page and the strip can be zoomed apart, and each measures in its own units.
+    const page = from.view.webContents.getZoomFactor()
+    const own = this.chrome.webContents.getZoomFactor()
+    const bounds = from.view.getBounds()
+    const box = starting.from
+    this.chrome.webContents.send('flight', {
+      key: `starting:${opened.id}`,
+      label: agentKindLabel(starting.kind),
+      from: { x: (bounds.x + box.x * page) / own, y: (bounds.y + box.y * page) / own, width: (box.width * page) / own, height: (box.height * page) / own },
+    })
   }
 
   private model(): SidebarModel {
@@ -700,8 +729,10 @@ export class Tabs {
           createWindow: (options) => {
             const adopt = (options as { webContents: WebContents }).webContents
             const opened = this.create(url, { after: tab, adopt, parent: tab.pinned ? null : tab.id, starting })
-            if (disposition === 'background-tab') this.changed()
+            // A tab for an agent opens behind the dashboard, and the task is shown flying to where it is listed.
+            if (disposition === 'background-tab' || starting) this.changed()
             else this.activate(opened.id)
+            if (starting) this.sendOff(tab, opened, starting)
             return adopt
           },
         }
@@ -834,7 +865,7 @@ export class Tabs {
     this.chrome.setBounds({ x: 0, y: 0, width, height })
     this.active.view.setBounds({ x: left, y: top, width: Math.max(0, width - left), height: Math.max(0, height - top) })
     // Adding a view that is already there moves it to the front.
-    this.win.contentView.addChildView(this.overlay ? this.chrome : this.active.view)
+    this.win.contentView.addChildView(this.overlay || this.flying ? this.chrome : this.active.view)
   }
 
   private changed() {

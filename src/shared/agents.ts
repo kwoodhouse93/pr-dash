@@ -224,20 +224,31 @@ const STARTING = 'pr-dash-agent='
 /**
  * The address of the empty tab the dashboard opens for an agent it is about to start.
  * It names the pull request and what was asked, so the desktop app can file the tab before the agent exists.
+ * `from` is where on the page the agent was started, so the app can show the task leaving from there.
  */
-export function startingTabUrl(key: string, request: AgentRequest): string {
+export function startingTabUrl(key: string, request: AgentRequest, from?: PressBox | null): string {
   const note = sessionNote(request)?.split('\n')[0]?.trim() || null
-  return `about:blank#${STARTING}${encodeURIComponent(JSON.stringify({ key, kind: request.kind, prompt: note }))}`
+  const box = from ? [from.x, from.y, from.width, from.height].map(Math.round) : undefined
+  return `about:blank#${STARTING}${encodeURIComponent(JSON.stringify({ key, kind: request.kind, prompt: note, from: box }))}`
 }
 
-export type StartingAgent = { key: string; kind: AgentKind; prompt: string | null }
+/** A place on a page, measured from the top left of what can be seen. */
+export type PressBox = { x: number; y: number; width: number; height: number }
+
+export type StartingAgent = { key: string; kind: AgentKind; prompt: string | null; from?: PressBox | null }
 
 export function startingAgent(url: string): StartingAgent | null {
   if (!url.startsWith(`about:blank#${STARTING}`)) return null
   try {
-    const { key, kind, prompt } = JSON.parse(decodeURIComponent(url.slice(url.indexOf('=') + 1))) as Record<string, unknown>
+    const { key, kind, prompt, from } = JSON.parse(decodeURIComponent(url.slice(url.indexOf('=') + 1))) as Record<string, unknown>
     if (typeof key !== 'string' || typeof kind !== 'string' || !(kind in KIND_LABEL)) return null
-    return { key, kind: kind as AgentKind, prompt: typeof prompt === 'string' ? prompt : null }
+    const box = Array.isArray(from) && from.length === 4 && from.every((part) => typeof part === 'number' && Number.isFinite(part)) ? (from as number[]) : null
+    return {
+      key,
+      kind: kind as AgentKind,
+      prompt: typeof prompt === 'string' ? prompt : null,
+      from: box ? { x: box[0]!, y: box[1]!, width: box[2]!, height: box[3]! } : null,
+    }
   } catch {
     return null
   }

@@ -113,6 +113,16 @@ img.fav, .dot { flex: none; width: 14px; height: 14px; border-radius: 3px; }
 
 .agents-pill { flex: none; height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 9px; margin-right: 2px; color: var(--text); background: var(--bg-raised); box-shadow: inset 0 0 0 1px var(--line); font-weight: 600; font-size: 12px; }
 .agents-pill span { display: flex; align-items: center; gap: 4px; }
+/* A task landing where its agent is listed. */
+.agents-pill.caught, .row.landed > :first-child { animation: caught 520ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.row.incoming { visibility: hidden; }
+.row.landed { animation: landed 280ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes caught {
+  30% { transform: scale(1.14); box-shadow: 0 0 0 5px color-mix(in srgb, var(--amber) 35%, transparent); }
+  to { box-shadow: 0 0 0 10px transparent; }
+}
+@keyframes landed { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .agents-pill.caught, .row.landed, .row.landed > :first-child { animation: none; } }
 .agents-pill.quiet { color: var(--muted); font-weight: 400; }
 
 /* Sidebar */

@@ -1,0 +1,151 @@
+/**
+ * The flight of a task to where agents are listed: what was pressed folds into a small tied parcel, which
+ * draws breath and flies along an arc to its place. The dashboard plays it in its own page. The desktop
+ * window's strip and sidebar are another page, built with a copy of this file, and play it there.
+ * Nothing here needs React, and every colour is a theme token.
+ */
+
+import type { PressBox } from '../shared/agents.ts'
+
+export type Box = PressBox
+
+export type Flight = {
+  /** Where the parcel is drawn. */
+  layer: HTMLElement
+  /** What was pressed. */
+  from: Box
+  /** What the task is, shown as it folds. */
+  label: string
+  /** Where it lands, asked as it takes off. With nowhere to land, the parcel fades where it is. */
+  to: () => Box | null
+}
+
+const SIZE = 18
+const FOLD_MS = 300
+const BREATH_MS = 220
+const FLY_MS = 560
+const STEPS = 14
+
+function still(): boolean {
+  return typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function boxOf(element: Element): Box {
+  const { x, y, width, height } = element.getBoundingClientRect()
+  return { x, y, width, height }
+}
+
+/** The box of an element, or null for one that is not drawn. */
+export function shownBox(element: Element | null): Box | null {
+  if (!element) return null
+  const box = boxOf(element)
+  return box.width > 0 && box.height > 0 ? box : null
+}
+
+/**
+ * Plays the flight. Resolves true once the parcel has landed, and false when nothing was played: with
+ * reduced motion, or with nowhere to land.
+ */
+export async function flyParcel({ layer, from, label, to }: Flight): Promise<boolean> {
+  const parcel = document.createElement('div')
+  if (still() || typeof parcel.animate !== 'function') return false
+  const text = document.createElement('span')
+  const tie = document.createElement('i')
+  text.textContent = label
+  Object.assign(parcel.style, {
+    position: 'fixed',
+    zIndex: '2147483000',
+    left: `${from.x}px`,
+    top: `${from.y}px`,
+    width: `${from.width}px`,
+    height: `${from.height}px`,
+    display: 'grid',
+    placeItems: 'center',
+    overflow: 'hidden',
+    boxSizing: 'border-box',
+    borderRadius: '7px',
+    border: '1px solid var(--line-strong)',
+    background: 'var(--bg-raised)',
+    color: 'var(--text)',
+    font: 'inherit',
+    fontSize: '13px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    boxShadow: '0 4px 14px var(--shadow)',
+    willChange: 'transform',
+  })
+  // The string round the parcel: one line across and one down.
+  Object.assign(tie.style, {
+    position: 'absolute',
+    inset: '0',
+    opacity: '0',
+    background: 'linear-gradient(var(--amber), var(--amber)) center / 2px 100% no-repeat, linear-gradient(var(--amber), var(--amber)) center / 100% 2px no-repeat',
+  })
+  parcel.append(text, tie)
+  layer.append(parcel)
+  try {
+    const cx = from.x + from.width / 2
+    const cy = from.y + from.height / 2
+    text.animate([{ opacity: 1 }, { opacity: 0 }], { duration: FOLD_MS / 2, fill: 'forwards' })
+    await parcel.animate([{}, { left: `${cx - SIZE / 2}px`, top: `${cy - SIZE / 2}px`, width: `${SIZE}px`, height: `${SIZE}px`, borderRadius: '5px' }], {
+      duration: FOLD_MS,
+      easing: 'cubic-bezier(0.5, 0, 0.2, 1)',
+      fill: 'forwards',
+    }).finished
+    parcel.style.background = 'var(--amber-dim)'
+    parcel.style.borderColor = 'var(--amber)'
+    tie.animate([{ opacity: 0, transform: 'scale(0.3)' }, { opacity: 1, transform: 'none' }], { duration: 140, fill: 'forwards' })
+    await parcel.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.78) rotate(-8deg)' }, { transform: 'scale(1.12)' }], { duration: BREATH_MS, easing: 'ease-in-out' }).finished
+
+    const target = to()
+    if (!target) {
+      await parcel.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.6)' }], { duration: 160, fill: 'forwards' }).finished
+      return false
+    }
+    const tx = target.x + target.width / 2 - cx
+    const ty = target.y + target.height / 2 - cy
+    // The arc bends up and away from the straight line, more for a longer flight.
+    const lift = Math.min(90, 24 + Math.hypot(tx, ty) * 0.12)
+    const bend = { x: tx * 0.45, y: Math.min(0, ty) - lift }
+    const at = (t: number) => ({ x: 2 * (1 - t) * t * bend.x + t * t * tx, y: 2 * (1 - t) * t * bend.y + t * t * ty })
+    const path = Array.from({ length: STEPS + 1 }, (_, step) => step / STEPS)
+    const timing = { duration: FLY_MS, easing: 'cubic-bezier(0.45, 0, 0.3, 1)', fill: 'forwards' as const }
+    const turn = tx < 0 ? -300 : 300
+    for (let index = 1; index <= 3; index++) {
+      const dot = document.createElement('i')
+      Object.assign(dot.style, { position: 'fixed', zIndex: '2147482999', left: `${cx - 3}px`, top: `${cy - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'var(--amber)', opacity: '0', pointerEvents: 'none' })
+      layer.append(dot)
+      const frames = path.map((t) => {
+        const point = at(t)
+        return { transform: `translate(${point.x}px, ${point.y}px) scale(${1 - t * 0.6})`, opacity: t === 0 || t === 1 ? 0 : 0.5 - index * 0.12 }
+      })
+      void dot
+        .animate(frames, { ...timing, delay: index * 38 })
+        .finished.catch(() => undefined)
+        .then(() => dot.remove())
+    }
+    await parcel.animate(
+      path.map((t) => {
+        const point = at(t)
+        return { transform: `translate(${point.x}px, ${point.y}px) rotate(${t * turn}deg) scale(${1.12 - t * 0.55})`, opacity: t > 0.92 ? 0.6 : 1 }
+      }),
+      timing,
+    ).finished
+    return true
+  } catch {
+    // An animation that was cancelled, as when the page is torn down mid-flight.
+    return false
+  } finally {
+    parcel.remove()
+  }
+}
+
+/** Marks what caught the parcel for a moment, so a stylesheet can show the catch. */
+export function markCaught(element: Element | null, ms = 520): void {
+  if (!element) return
+  element.classList.remove('caught')
+  // Reading the box starts the mark again on a second catch.
+  void element.getBoundingClientRect()
+  element.classList.add('caught')
+  window.setTimeout(() => element.classList.remove('caught'), ms)
+}

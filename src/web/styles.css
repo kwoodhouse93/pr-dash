@@ -100,6 +100,12 @@ a:hover { text-decoration: underline; }
 .tool-btn[aria-pressed="true"] .pip { box-shadow: 0 0 0 2px var(--bg-raised); }
 .tool-btn .pip.held { background: var(--red); }
 .tool-btn .pip.waiting { background: var(--yellow); }
+/* The agents button as a task lands on it. */
+.tool-btn.caught { animation: caught 520ms var(--ease); }
+@keyframes caught {
+  30% { transform: scale(1.14); box-shadow: 0 0 0 5px color-mix(in srgb, var(--amber) 35%, transparent); }
+  to { box-shadow: 0 0 0 10px transparent; }
+}
 .refresh-tool .pip.fresh { background: var(--green); }
 .refresh-tool .pip.aging { background: var(--yellow); }
 .refresh-tool .pip.stale { background: var(--red); }
