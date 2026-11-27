@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { canMergeSlice, unapprovedMergeBlock, upstackBlock } from '../src/shared/merge.ts'
 import {
   bootAction,
@@ -602,6 +602,15 @@ function entry(title: string, number: number) {
 
 // These run real git against repositories on disk, which takes most of the default five seconds on a busy machine.
 describe('git rebase', { timeout: 30_000 }, () => {
+  // The server rebases in its own clone, as whoever git is set up as on the machine. A build machine is set up as nobody.
+  beforeAll(() => {
+    for (const role of ['AUTHOR', 'COMMITTER']) {
+      vi.stubEnv(`GIT_${role}_NAME`, 'Test')
+      vi.stubEnv(`GIT_${role}_EMAIL`, 'test@example.com')
+    }
+  })
+  afterAll(() => vi.unstubAllEnvs())
+
   it('puts a child branch onto trunk and does not push a conflict', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'pr-dash-git-'))
     const origin = path.join(root, 'origin.git')
