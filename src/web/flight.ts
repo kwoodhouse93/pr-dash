@@ -10,6 +10,7 @@
  */
 
 import type { PressBox } from '../shared/agents.ts'
+import { reducedMotion } from './animations.ts'
 
 export type Box = PressBox
 
@@ -40,10 +41,6 @@ function until(time: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, time - Date.now())))
 }
 
-function still(): boolean {
-  return typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
 function boxOf(element: Element): Box {
   const { x, y, width, height } = element.getBoundingClientRect()
   return { x, y, width, height }
@@ -58,11 +55,11 @@ export function shownBox(element: Element | null): Box | null {
 
 /**
  * Plays the flight. Resolves true once the parcel has landed, and false when nothing was played: with
- * reduced motion, or with nowhere to land.
+ * reduced motion or animations turned off, or with nowhere to land.
  */
 export async function flyParcel({ layer, from, label, to, at, ready, onTakeoff }: Flight): Promise<boolean> {
   const parcel = document.createElement('div')
-  if (still() || typeof parcel.animate !== 'function') return false
+  if (reducedMotion() || typeof parcel.animate !== 'function') return false
   if (at !== undefined) await until(at)
   const text = document.createElement('span')
   const tie = document.createElement('i')

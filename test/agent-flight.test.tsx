@@ -6,7 +6,8 @@ import { isStartingSession, sessionLinks, startingAgent, startingSession, starti
 import type { AgentSession } from '../src/shared/types.ts'
 import { AgentProvider, useAgentLaunch } from '../src/web/agent-launch.tsx'
 import { flyParcel, markCaught, shownBox } from '../src/web/flight.ts'
-import { QUEUE_BUTTON, pressBox, sendOff, setSendOffsEnabled } from '../src/web/send-off.ts'
+import { applyAnimations, reducedMotion } from '../src/web/animations.ts'
+import { QUEUE_BUTTON, pressBox, sendOff } from '../src/web/send-off.ts'
 
 vi.mock('../src/web/toasts.tsx', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }))
 const sounds = vi.hoisted(() => ({ whoosh: vi.fn(), landed: vi.fn() }))
@@ -146,7 +147,7 @@ describe('the flight of a task', () => {
 describe('a merge sent to the queue', () => {
   const from = { x: 300, y: 200, width: 80, height: 24 }
 
-  afterEach(() => setSendOffsEnabled(true))
+  afterEach(() => applyAnimations('system'))
 
   function queueButton() {
     const button = document.body.appendChild(document.createElement('button'))
@@ -173,18 +174,35 @@ describe('a merge sent to the queue', () => {
     expect(button.classList.contains('caught')).toBe(false)
   })
 
-  it('is not shown with send-offs turned off, and a press has no place to leave from', async () => {
+  it('is not shown with animations turned off, and a press has no place to leave from', async () => {
     const animate = instantAnimations()
     const button = queueButton()
     const pressedButton = document.body.appendChild(document.createElement('button'))
     place(pressedButton, from)
     pressedButton.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     expect(pressBox()).toEqual(from)
-    setSendOffsEnabled(false)
+    applyAnimations('off')
     expect(pressBox()).toBeNull()
     await sendOff(QUEUE_BUTTON, from, 'Merge', Promise.resolve(true))
     expect(animate).not.toHaveBeenCalled()
     expect(button.classList.contains('caught')).toBe(false)
+  })
+})
+
+describe('the choice of animations', () => {
+  afterEach(() => applyAnimations('system'))
+
+  it('follows the system unless Settings says otherwise', () => {
+    const asked = vi.spyOn(window, 'matchMedia')
+    asked.mockReturnValue({ matches: true } as MediaQueryList)
+    expect(reducedMotion()).toBe(true)
+    applyAnimations('on')
+    expect(reducedMotion()).toBe(false)
+    asked.mockReturnValue({ matches: false } as MediaQueryList)
+    applyAnimations('system')
+    expect(reducedMotion()).toBe(false)
+    applyAnimations('off')
+    expect(reducedMotion()).toBe(true)
   })
 })
 

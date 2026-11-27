@@ -81,9 +81,11 @@ export function cursorLoadingHtml(work: string, colors: LoadingColors): string {
   @keyframes lift { 50% { transform: translateY(-4px); } }
   @keyframes blink { 0%, 80%, 100% { opacity: 0.2; transform: scale(0.85); } 40% { opacity: 1; transform: scale(1); } }
   @media (prefers-reduced-motion: reduce) {
-    .orbit, .orbit-inner, .logo, .dots i { animation: none; }
-    .dots i { opacity: 0.8; }
+    :root:not([data-animations="on"]) :is(.orbit, .orbit-inner, .logo, .dots i) { animation: none; }
+    :root:not([data-animations="on"]) .dots i { opacity: 0.8; }
   }
+  :root[data-animations="off"] :is(.orbit, .orbit-inner, .logo, .dots i) { animation: none; }
+  :root[data-animations="off"] .dots i { opacity: 0.8; }
 </style>
 </head>
 <body>
@@ -111,6 +113,8 @@ export function paintCursorLoading(page: Window, work: string) {
   page.document.open()
   page.document.write(cursorLoadingHtml(work, colors))
   page.document.close()
+  // The page follows the choice of animations made here.
+  page.document.documentElement.dataset.animations = document.documentElement.dataset.animations ?? 'system'
 }
 
 function escapeHtml(text: string): string {

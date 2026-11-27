@@ -1,5 +1,6 @@
 import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type Filters, type Sort, type SortKey } from '../shared/types.ts'
 import { DEFAULT_THEME, themeOf, type ThemeId } from '../shared/themes.ts'
+import { animationsOf, type Animations } from './animations.ts'
 import type { PrLinkHost } from './pr-links.tsx'
 
 /** Where the preferences are kept in this browser. index.html reads the theme from it before the page draws. */
@@ -26,8 +27,8 @@ export type Preferences = {
   theme: ThemeId
   /** Whether buttons click when pressed. */
   sounds: boolean
-  /** Whether a task flies to the agents, and a merge to the queue, when one is started. */
-  sendOffs: boolean
+  /** Whether the page animates: as the system's motion setting asks, or always, or never. */
+  animations: Animations
   /** Whether a pull request's menu offers to merge it without its required approval. */
   mergeUnapproved: boolean
   /** The T3 Code this browser is paired with, so its threads open in a tab. Null hands them off to the T3 Code app. */
@@ -58,7 +59,7 @@ export function loadPreferences(): Preferences {
       prLinks: raw.prLinks === 'graphite' ? 'graphite' : 'github',
       theme: themeOf(raw.theme).id,
       sounds: raw.sounds !== false,
-      sendOffs: raw.sendOffs !== false,
+      animations: animationsOf(raw.animations),
       mergeUnapproved: raw.mergeUnapproved === true,
       t3PairPrompt: raw.t3PairPrompt !== false,
       t3Origin: typeof raw.t3Origin === 'string' && /^https?:\/\//.test(raw.t3Origin) ? raw.t3Origin : null,
@@ -85,7 +86,7 @@ function fresh(): Preferences {
     prLinks: 'github',
     theme: DEFAULT_THEME,
     sounds: true,
-    sendOffs: true,
+    animations: 'system',
     mergeUnapproved: false,
     t3Origin: null,
     t3PairPrompt: true,

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 
-/** True when the user has asked the system for less motion, and wherever there is no way to ask. */
-export function reducedMotion(): boolean {
-  return typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
+import { reducedMotion } from './animations.ts'
+
+export { reducedMotion }
 
 /**
  * Lets a panel play its way out before it is taken away. `close` marks it as closing and calls `onClose`

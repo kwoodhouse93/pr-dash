@@ -53,10 +53,12 @@ describe('dashboard preferences', () => {
     expect(loadPreferences().theme).toBe('ember')
   })
 
-  it('keeps send-off animations off once switched off, and starts with them on', () => {
-    expect(loadPreferences().sendOffs).toBe(true)
-    savePreferences({ ...loadPreferences(), sendOffs: false })
-    expect(loadPreferences().sendOffs).toBe(false)
+  it('leaves animations to the system until told otherwise, and keeps the choice', () => {
+    expect(loadPreferences().animations).toBe('system')
+    savePreferences({ ...loadPreferences(), animations: 'off' })
+    expect(loadPreferences().animations).toBe('off')
+    savePreferences({ ...loadPreferences(), animations: 'sometimes' as never })
+    expect(loadPreferences().animations).toBe('system')
   })
 
   it('keeps button sounds off once switched off, and starts with them on', () => {

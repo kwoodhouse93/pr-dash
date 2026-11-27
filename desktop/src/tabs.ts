@@ -5,6 +5,7 @@ import { iconState } from '../../src/shared/icon.ts'
 import { queueSummary, type QueueSnapshot, type QueueSummary } from '../../src/shared/queue.ts'
 import { DockIcon, RASTERIZE } from './dock-icon.ts'
 import { themeOf, type Theme, type ThemeId } from '../../src/shared/themes.ts'
+import { animationsOf, type Animations } from '../../src/web/animations.ts'
 import type { Snapshot, Sort } from '../../src/shared/types.ts'
 import {
   buildSidebar,
@@ -119,6 +120,8 @@ export class Tabs {
   private prefs: DashboardPrefs = { mineFlat: [], reviewFlat: [] }
   /** The dashboard's colour theme, which the window follows. */
   private theme: Theme
+  /** The dashboard's choice of animations, which the strip and sidebar follow. */
+  private animations: Animations = 'system'
   private overlay = false
   /** Agent runs read in the active tab, kept in their row until another tab is chosen. */
   private held: string[] = []
@@ -420,10 +423,11 @@ export class Tabs {
     if (contents.isDestroyed() || contents.isLoading()) return
     const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
     if (typeof raw !== 'string') return
-    const { views, sort, theme, t3Origin, t3PairPrompt } = JSON.parse(raw) as {
+    const { views, sort, theme, animations, t3Origin, t3PairPrompt } = JSON.parse(raw) as {
       views?: Record<string, { flat?: unknown } | undefined>
       sort?: Partial<Sort>
       theme?: unknown
+      animations?: unknown
       t3Origin?: unknown
       t3PairPrompt?: unknown
     }
@@ -435,6 +439,7 @@ export class Tabs {
       t3PairPrompt: t3PairPrompt !== false,
     }
     this.setTheme(themeOf(theme))
+    this.animations = animationsOf(animations)
   }
 
   /** Paints the window behind its pages in the theme's page colour. The strip and sidebar take the theme when it is next published. */
@@ -927,6 +932,7 @@ export class Tabs {
       updateReady: this.updateReady,
       fullscreen: this.win.isFullScreen(),
       theme: this.theme.id,
+      animations: this.animations,
     })
   }
 }

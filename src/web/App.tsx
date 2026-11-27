@@ -23,7 +23,8 @@ import { AgentProvider } from './agent-launch.tsx'
 import { agentItems, AgentsPage } from './agents.tsx'
 import { SettingsPage } from './settings.tsx'
 import { fold, setSoundsEnabled } from './sounds.ts'
-import { pressBox, QUEUE_BUTTON, sendOff, setSendOffsEnabled } from './send-off.ts'
+import { pressBox, QUEUE_BUTTON, sendOff } from './send-off.ts'
+import { applyAnimations } from './animations.ts'
 import { applyTheme } from './theme.ts'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
@@ -117,7 +118,8 @@ export function App() {
   }
 
   useEffect(() => setSoundsEnabled(prefs.sounds), [prefs.sounds])
-  useEffect(() => setSendOffsEnabled(prefs.sendOffs), [prefs.sendOffs])
+  // In a layout effect, so the first thing drawn already goes by the choice.
+  useLayoutEffect(() => applyAnimations(prefs.animations), [prefs.animations])
   useEffect(() => applyTheme(prefs.theme), [prefs.theme])
 
   useEffect(() => {
@@ -759,8 +761,8 @@ export function App() {
               onTheme={(theme) => setPrefs((current) => ({ ...current, theme }))}
               sounds={prefs.sounds}
               onSounds={(sounds) => setPrefs((current) => ({ ...current, sounds }))}
-              sendOffs={prefs.sendOffs}
-              onSendOffs={(sendOffs) => setPrefs((current) => ({ ...current, sendOffs }))}
+              animations={prefs.animations}
+              onAnimations={(animations) => setPrefs((current) => ({ ...current, animations }))}
               mergeUnapproved={prefs.mergeUnapproved}
               onMergeUnapproved={(mergeUnapproved) => setPrefs((current) => ({ ...current, mergeUnapproved }))}
               onAddRepo={async (repo) => {

@@ -6,6 +6,7 @@ import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatAgo, formatExact, formatTime } from './format.ts'
 import { Icon } from './icons.tsx'
 import { CloseButton } from './menus.tsx'
+import type { Animations } from './animations.ts'
 import { Fold } from './motion.tsx'
 import type { PrLinkHost } from './pr-links.tsx'
 import { RepoIcon, RepoMarkPicker } from './repo-mark.tsx'
@@ -38,8 +39,8 @@ export function SettingsPage({
   onTheme = () => {},
   sounds = true,
   onSounds = () => {},
-  sendOffs = true,
-  onSendOffs = () => {},
+  animations = 'system',
+  onAnimations = () => {},
   mergeUnapproved = false,
   onMergeUnapproved = () => {},
 }: {
@@ -70,8 +71,8 @@ export function SettingsPage({
   /** Whether buttons click when pressed. */
   sounds?: boolean
   onSounds?: (on: boolean) => void
-  sendOffs?: boolean
-  onSendOffs?: (on: boolean) => void
+  animations?: Animations
+  onAnimations?: (choice: Animations) => void
   /** Whether a pull request's menu offers to merge it without its required approval. */
   mergeUnapproved?: boolean
   onMergeUnapproved?: (on: boolean) => void
@@ -334,15 +335,17 @@ export function SettingsPage({
               </button>
             </div>
           </div>
-          <div className="panel-row setting" title="An agent's task folds up and flies to the agents button when you start it, and a merge flies to the merge queue button.">
-            <h3>Send-off animations</h3>
-            <div className="segmented" role="group" aria-label="Send-off animations">
-              <button type="button" aria-pressed={sendOffs} onClick={() => onSendOffs(true)}>
-                On
-              </button>
-              <button type="button" aria-pressed={!sendOffs} onClick={() => onSendOffs(false)}>
-                Off
-              </button>
+          <div
+            className="panel-row setting"
+            title="System follows your computer's reduce motion setting. Off stops the flights to the agents and the merge queue, confetti, sliding rows, folding sections and spinners."
+          >
+            <h3>Animations</h3>
+            <div className="segmented" role="group" aria-label="Animations">
+              {(['system', 'on', 'off'] as const).map((choice) => (
+                <button key={choice} type="button" aria-pressed={animations === choice} onClick={() => onAnimations(choice)}>
+                  {choice === 'system' ? 'System' : choice === 'on' ? 'On' : 'Off'}
+                </button>
+              ))}
             </div>
           </div>
           <div

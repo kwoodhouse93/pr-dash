@@ -4,7 +4,7 @@ import { pullKeyRepo } from '../shared/repos.ts'
 import type { AgentProviderId, AgentRouting, AgentSession } from '../shared/types.ts'
 import { paintCursorLoading } from './cursor-loading.ts'
 import { flyParcel, markCaught, type Box } from './flight.ts'
-import { AGENTS_BUTTON, pressBox, sendOff, sendOffsEnabled } from './send-off.ts'
+import { AGENTS_BUTTON, pressBox, sendOff } from './send-off.ts'
 import { landed, whoosh } from './sounds.ts'
 import { toastError, toastSuccess } from './toasts.tsx'
 
@@ -54,7 +54,6 @@ export function launchTag(key: string, request: AgentRequest): string {
  */
 function sendOffToAgents(from: Box | null, label: string, away: boolean) {
   if (!away) return void sendOff(AGENTS_BUTTON, from, label)
-  if (!sendOffsEnabled()) return
   // The new tab is in front by the time this page is next seen.
   const onBack = () => {
     if (document.visibilityState !== 'visible') return

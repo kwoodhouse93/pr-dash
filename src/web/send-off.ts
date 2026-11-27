@@ -1,8 +1,9 @@
 /**
  * A task leaving for where it will be listed: what was pressed folds into a parcel and flies to a button in
- * the top bar, with a rush on the way and a note as it lands. Settings can turn these off.
+ * the top bar, with a rush on the way and a note as it lands. Nothing flies with animations off.
  */
 
+import { reducedMotion } from './animations.ts'
 import { flyParcel, markCaught, shownBox, type Box } from './flight.ts'
 import { landed, whoosh } from './sounds.ts'
 
@@ -10,16 +11,6 @@ import { landed, whoosh } from './sounds.ts'
 export const AGENTS_BUTTON = '.agents-tool'
 /** The button in the top bar that counts the merge queue. */
 export const QUEUE_BUTTON = '.queue-tool'
-
-let enabled = true
-
-export function setSendOffsEnabled(on: boolean) {
-  enabled = on
-}
-
-export function sendOffsEnabled(): boolean {
-  return enabled
-}
 
 // Where the last press landed. A send-off always follows a press, and what was pressed may be gone by the
 // time there is something to send, as a menu's line is, so its place is noted as it is pressed.
@@ -33,9 +24,9 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', (event) => notePress(document.activeElement ?? event.target), true)
 }
 
-/** Where the last press landed. Null with send-offs turned off, so nothing has a place to leave from. */
+/** Where the last press landed. Null when nothing is to move, so nothing has a place to leave from. */
 export function pressBox(): Box | null {
-  return enabled ? pressed : null
+  return reducedMotion() ? null : pressed
 }
 
 /**
@@ -43,7 +34,7 @@ export function pressBox(): Box | null {
  * the parcel waits tied up until it is known whether the task was taken, and fades where it is if not.
  */
 export async function sendOff(selector: string, from: Box | null, label: string, ready?: Promise<boolean>): Promise<void> {
-  if (!enabled || !from) return
+  if (!from) return
   const button = () => document.querySelector(selector)
   if (!(await flyParcel({ layer: document.body, from, label, to: () => shownBox(button()), ready, onTakeoff: whoosh }))) return
   landed()
