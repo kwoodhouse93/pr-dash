@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { personalBests, type Activity } from '../shared/activity.ts'
 import { collectHolds, mergeHolds, reconcileHolds, withoutHolds, type CheckHold } from '../shared/ci.ts'
+import { DESKTOP_PAGES, onDesktopEvent } from '../shared/desktop-events.ts'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
@@ -165,18 +166,15 @@ export function App() {
   }, [page])
   // The desktop app's sidebar links to the agents, the queue and settings, and back to the list.
   useEffect(() => {
-    const onPage = (event: Event) => {
-      const target: unknown = (event as CustomEvent).detail
-      if (target !== 'list' && target !== 'agents' && target !== 'queue' && target !== 'settings') return
-      setPrefs((current) => ({ ...current, page: target === 'list' ? lastList.current : target }))
-    }
-    window.addEventListener('pr-dash:page', onPage)
-    return () => window.removeEventListener('pr-dash:page', onPage)
+    return onDesktopEvent(window, 'pr-dash:page', (detail) => {
+      const target = DESKTOP_PAGES.find((item) => item === detail)
+      if (target) setPrefs((current) => ({ ...current, page: target === 'list' ? lastList.current : target }))
+    })
   }, [])
   // The desktop app pairs with T3 Code from a tab, and says so here, where the setting is kept.
   useEffect(() => {
-    function onT3(event: Event) {
-      const detail = (event as CustomEvent).detail as { origin?: unknown; prompt?: unknown; failed?: unknown } | null
+    return onDesktopEvent(window, 'pr-dash:t3', (heard) => {
+      const detail = heard as { origin?: unknown; prompt?: unknown; failed?: unknown } | null
       const origin = detail?.origin
       if (typeof origin === 'string') setPrefs((current) => ({ ...current, t3Origin: origin }))
       if (detail?.failed === true) {
@@ -184,9 +182,7 @@ export function App() {
         toastError('T3 Code did not take the pairing link. Try again, or enter a pairing code under Agents in Settings.', { heading: 'Could not pair with T3 Code' })
       }
       if (detail?.prompt === false) setPrefs((current) => ({ ...current, t3PairPrompt: false }))
-    }
-    window.addEventListener('pr-dash:t3', onT3)
-    return () => window.removeEventListener('pr-dash:t3', onT3)
+    })
   }, [])
   const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']
   const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])

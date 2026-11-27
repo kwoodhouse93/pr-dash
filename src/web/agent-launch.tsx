@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { agentKindLabel, agentWork, DEFAULT_ROUTING, providerFor, providerLabel, sessionLinks, startingTabUrl, t3ThreadUrl, type AgentRequest } from '../shared/agents.ts'
+import { onDesktopEvent } from '../shared/desktop-events.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import type { AgentProviderId, AgentRouting, AgentSession } from '../shared/types.ts'
 import { paintCursorLoading } from './cursor-loading.ts'
@@ -70,21 +71,20 @@ function sendOffToAgents(from: Box | null, label: string, away: boolean) {
  */
 function sendOffToWindow(from: Box | null, label: string) {
   if (!from) return
-  const onFlight = (event: Event) => {
+  const stopListening = onDesktopEvent(window, 'pr-dash:flight', (detail) => {
     stop()
-    const { to, at } = ((event as CustomEvent).detail ?? {}) as { to?: Box | null; at?: number }
+    const { to, at } = (detail ?? {}) as { to?: Box | null; at?: number }
     // The sound is this page's to make. The window's own page only draws.
     void flyParcel({ layer: document.body, from, label, to: () => to ?? null, at: typeof at === 'number' ? at : undefined, onTakeoff: whoosh }).then((arrived) => {
       if (arrived) landed()
     })
-  }
+  })
   const stop = () => {
     window.clearTimeout(timer)
-    window.removeEventListener('pr-dash:flight', onFlight)
+    stopListening()
   }
   // The window answers at once. One that never does is not left to take a later flight for this one.
   const timer = window.setTimeout(stop, 2000)
-  window.addEventListener('pr-dash:flight', onFlight)
 }
 
 type AgentLaunch = {

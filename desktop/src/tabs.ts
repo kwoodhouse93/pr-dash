@@ -1,6 +1,7 @@
 import { clipboard, ipcMain, Menu, shell, WebContentsView, type BaseWindow, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { raiseInPage, type DesktopEvents, type DesktopPage as DashboardPage } from '../../src/shared/desktop-events.ts'
 import { iconState } from '../../src/shared/icon.ts'
 import { queueSummary, type QueueSnapshot, type QueueSummary } from '../../src/shared/queue.ts'
 import { DockIcon, RASTERIZE } from './dock-icon.ts'
@@ -64,7 +65,6 @@ export type SavedTabs = { urls: string[]; active: number; parents?: (number | nu
 export type SidebarState = { open: boolean; width: number; grouping: Grouping; collapsed: string[]; earlierOpen: boolean; linearByProject: boolean }
 
 /** A page of the dashboard the sidebar links to. `list` is whichever list was open last. */
-type DashboardPage = 'list' | 'agents' | 'queue' | 'settings'
 
 /** `theme` is the name of the theme the dashboard was last in. */
 export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string; theme?: unknown }
@@ -263,7 +263,7 @@ export class Tabs {
     this.activate(this.dashboard.id)
     const contents = this.dashboard.view.webContents
     if (page === 'list' && dashboardPage(this.dashboard.url) === 'list') return
-    void contents.executeJavaScript(`window.dispatchEvent(new CustomEvent('pr-dash:page', { detail: ${JSON.stringify(page)} }))`).catch(() => undefined)
+    void contents.executeJavaScript(raiseInPage('pr-dash:page', page)).catch(() => undefined)
   }
 
   private setSidebar(patch: Partial<SidebarState>) {
@@ -341,7 +341,7 @@ export class Tabs {
     }
     if (typeof at !== 'number' || !Number.isFinite(at)) return
     void this.dashboard.view.webContents
-      .executeJavaScript(`window.dispatchEvent(new CustomEvent('pr-dash:flight', { detail: ${JSON.stringify({ to, at })} }))`)
+      .executeJavaScript(raiseInPage('pr-dash:flight', { to, at }))
       .catch(() => undefined)
   }
 
@@ -452,9 +452,9 @@ export class Tabs {
   }
 
   /** Tells the dashboard page, which keeps these settings, about a change made from a tab. */
-  private tellDashboard(detail: { origin?: string; prompt?: false; failed?: true }) {
+  private tellDashboard(detail: DesktopEvents['pr-dash:t3']) {
     void this.dashboard.view.webContents
-      .executeJavaScript(`window.dispatchEvent(new CustomEvent('pr-dash:t3', { detail: ${JSON.stringify(detail)} }))`)
+      .executeJavaScript(raiseInPage('pr-dash:t3', detail))
       .catch(() => undefined)
   }
 
