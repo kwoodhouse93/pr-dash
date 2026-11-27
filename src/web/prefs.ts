@@ -26,6 +26,8 @@ export type Preferences = {
   theme: ThemeId
   /** Whether buttons click when pressed. */
   sounds: boolean
+  /** Whether a task flies to the agents, and a merge to the queue, when one is started. */
+  sendOffs: boolean
   /** Whether a pull request's menu offers to merge it without its required approval. */
   mergeUnapproved: boolean
   /** The T3 Code this browser is paired with, so its threads open in a tab. Null hands them off to the T3 Code app. */
@@ -56,6 +58,7 @@ export function loadPreferences(): Preferences {
       prLinks: raw.prLinks === 'graphite' ? 'graphite' : 'github',
       theme: themeOf(raw.theme).id,
       sounds: raw.sounds !== false,
+      sendOffs: raw.sendOffs !== false,
       mergeUnapproved: raw.mergeUnapproved === true,
       t3PairPrompt: raw.t3PairPrompt !== false,
       t3Origin: typeof raw.t3Origin === 'string' && /^https?:\/\//.test(raw.t3Origin) ? raw.t3Origin : null,
@@ -82,6 +85,7 @@ function fresh(): Preferences {
     prLinks: 'github',
     theme: DEFAULT_THEME,
     sounds: true,
+    sendOffs: true,
     mergeUnapproved: false,
     t3Origin: null,
     t3PairPrompt: true,

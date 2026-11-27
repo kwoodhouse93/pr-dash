@@ -23,6 +23,7 @@ import { AgentProvider } from './agent-launch.tsx'
 import { agentItems, AgentsPage } from './agents.tsx'
 import { SettingsPage } from './settings.tsx'
 import { fold, setSoundsEnabled } from './sounds.ts'
+import { pressBox, QUEUE_BUTTON, sendOff, setSendOffsEnabled } from './send-off.ts'
 import { applyTheme } from './theme.ts'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
@@ -116,6 +117,7 @@ export function App() {
   }
 
   useEffect(() => setSoundsEnabled(prefs.sounds), [prefs.sounds])
+  useEffect(() => setSendOffsEnabled(prefs.sendOffs), [prefs.sendOffs])
   useEffect(() => applyTheme(prefs.theme), [prefs.theme])
 
   useEffect(() => {
@@ -592,6 +594,13 @@ export function App() {
     }
   }
 
+  /** Queues a merge. What was pressed folds into a parcel, which flies to the queue button once the queue has taken it. */
+  function queueMerge(key: string, scope: 'pr' | 'downstack' | 'unapproved'): Promise<void> {
+    const queued = api.enqueue(key, scope).then(setQueue)
+    void sendOff(QUEUE_BUTTON, pressBox(), 'Merge', queued.then(() => true, () => false))
+    return queued
+  }
+
   function chooseSort(key: SortKey) {
     setPrefs((current) => {
       if (current.sort.key === key) {
@@ -750,6 +759,8 @@ export function App() {
               onTheme={(theme) => setPrefs((current) => ({ ...current, theme }))}
               sounds={prefs.sounds}
               onSounds={(sounds) => setPrefs((current) => ({ ...current, sounds }))}
+              sendOffs={prefs.sendOffs}
+              onSendOffs={(sendOffs) => setPrefs((current) => ({ ...current, sendOffs }))}
               mergeUnapproved={prefs.mergeUnapproved}
               onMergeUnapproved={(mergeUnapproved) => setPrefs((current) => ({ ...current, mergeUnapproved }))}
               onAddRepo={async (repo) => {
@@ -882,22 +893,16 @@ export function App() {
               leaving={leaving}
               onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
               onLinkIssue={(key, identifier) => mutate(() => api.linkLinearIssue(key, identifier))}
-              onMerge={async (key) => {
-                setQueue(await api.enqueue(key, 'pr'))
-              }}
+              onMerge={(key) => queueMerge(key, 'pr')}
               onMergeUnapproved={
                 prefs.mergeUnapproved
-                  ? async (key) => {
-                      setQueue(await api.enqueue(key, 'unapproved'))
-                    }
+                  ? (key) => queueMerge(key, 'unapproved')
                   : undefined
               }
               onRetry={async (entryId) => {
                 setQueue(await api.retryMerge(entryId))
               }}
-              onStackMerge={async (key) => {
-                setQueue(await api.enqueue(key, 'downstack'))
-              }}
+              onStackMerge={(key) => queueMerge(key, 'downstack')}
               onMarkReady={async (key) => {
                 const snap = await api.markReady(key)
                 ++applyId.current
@@ -1049,7 +1054,7 @@ function AgentsButton({ statuses, pressed, onClick }: { statuses: AgentSessionSt
 function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot | null; pressed: boolean; onClick: () => void }) {
   const { count, held, state, label } = queueSummary(queue?.entries ?? [])
   return (
-    <button type="button" className="tool-btn" data-state={state} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
+    <button type="button" className="tool-btn queue-tool" data-state={state} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="18" cy="18" r="3" />
         <circle cx="6" cy="6" r="3" />

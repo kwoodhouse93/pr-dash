@@ -24,6 +24,8 @@ export type Flight = {
   to: () => Box | null
   /** The time on the clock to start at, for two pages playing the one flight. Without it, now. */
   at?: number
+  /** Settles once it is known whether the task was taken. The folded parcel waits for it, and fades where it is on false. */
+  ready?: Promise<boolean>
   /** Called as the parcel leaves, with how long the flight takes, so the page can sound it. */
   onTakeoff?: (ms: number) => void
 }
@@ -58,7 +60,7 @@ export function shownBox(element: Element | null): Box | null {
  * Plays the flight. Resolves true once the parcel has landed, and false when nothing was played: with
  * reduced motion, or with nowhere to land.
  */
-export async function flyParcel({ layer, from, label, to, at, onTakeoff }: Flight): Promise<boolean> {
+export async function flyParcel({ layer, from, label, to, at, ready, onTakeoff }: Flight): Promise<boolean> {
   const parcel = document.createElement('div')
   if (still() || typeof parcel.animate !== 'function') return false
   if (at !== undefined) await until(at)
@@ -112,7 +114,7 @@ export async function flyParcel({ layer, from, label, to, at, onTakeoff }: Fligh
 
     // Two pages take off by the clock, not by when each one's folding happened to end.
     if (at !== undefined) await until(at + FOLD_MS + BREATH_MS + 40)
-    const target = to()
+    const target = !ready || (await ready) ? to() : null
     if (!target) {
       await parcel.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(0.6)' }], { duration: 160, fill: 'forwards' }).finished
       return false

@@ -3,7 +3,8 @@ import { agentKindLabel, agentWork, DEFAULT_ROUTING, providerFor, providerLabel,
 import { pullKeyRepo } from '../shared/repos.ts'
 import type { AgentProviderId, AgentRouting, AgentSession } from '../shared/types.ts'
 import { paintCursorLoading } from './cursor-loading.ts'
-import { flyParcel, markCaught, shownBox, type Box } from './flight.ts'
+import { flyParcel, markCaught, type Box } from './flight.ts'
+import { AGENTS_BUTTON, pressBox, sendOff, sendOffsEnabled } from './send-off.ts'
 import { landed, whoosh } from './sounds.ts'
 import { toastError, toastSuccess } from './toasts.tsx'
 
@@ -47,40 +48,20 @@ export function launchTag(key: string, request: AgentRequest): string {
   return `${key}:${request.kind}`
 }
 
-// Where the last press landed. Starting an agent always follows a press, and what was pressed may be gone
-// by the time the agent is asked for, as a menu's line is, so its place is noted as it is pressed.
-let pressed: Box | null = null
-function notePress(target: EventTarget | null) {
-  const element = target instanceof Element ? (target.closest('button, a, [role="menuitem"], textarea') ?? target) : null
-  pressed = shownBox(element)
-}
-if (typeof window !== 'undefined') {
-  window.addEventListener('pointerdown', (event) => notePress(event.target), true)
-  window.addEventListener('keydown', (event) => notePress(document.activeElement ?? event.target), true)
-}
-
-/** The button in the top bar that counts agents, which is where a task flies to. */
-const AGENTS_BUTTON = '.agents-tool'
-
 /**
  * Shows the task leaving for the agents button. `away` says a tab took the reader elsewhere, so there is
  * nobody to show it to: the button is marked when they come back instead.
  */
-async function sendOff(from: Box | null, label: string, away: boolean): Promise<void> {
-  const button = () => document.querySelector(AGENTS_BUTTON)
-  if (away) {
-    // The new tab is in front by the time this page is next seen.
-    const onBack = () => {
-      if (document.visibilityState !== 'visible') return
-      document.removeEventListener('visibilitychange', onBack)
-      markCaught(button())
-    }
-    document.addEventListener('visibilitychange', onBack)
-    return
+function sendOffToAgents(from: Box | null, label: string, away: boolean) {
+  if (!away) return void sendOff(AGENTS_BUTTON, from, label)
+  if (!sendOffsEnabled()) return
+  // The new tab is in front by the time this page is next seen.
+  const onBack = () => {
+    if (document.visibilityState !== 'visible') return
+    document.removeEventListener('visibilitychange', onBack)
+    markCaught(document.querySelector(AGENTS_BUTTON))
   }
-  if (!from || !(await flyParcel({ layer: document.body, from, label, to: () => shownBox(button()), onTakeoff: whoosh }))) return
-  landed()
-  markCaught(button())
+  document.addEventListener('visibilitychange', onBack)
 }
 
 /**
@@ -114,7 +95,6 @@ type AgentLaunch = {
   error: string | null
 }
 
-
 export function useAgentLaunch(): AgentLaunch {
   const { start, routing, t3Origin } = useContext(AgentContext)
   const [pending, setPending] = useState<string | null>(null)
@@ -134,11 +114,11 @@ export function useAgentLaunch(): AgentLaunch {
     const opensTab = provider === 'cursor' || t3Origin !== null
     // The desktop app reads from the tab's address which pull request the agent is for, and lists the tab with its agents from the start.
     const desktop = (window as { prDashDesktop?: unknown }).prDashDesktop === true
-    const from = pressed
+    const from = pressBox()
     const agent = opensTab ? window.open(desktop ? startingTabUrl(pr.key, request, from) : '', '_blank') : null
     // In the desktop app the task flies to the window's own list of agents, which the tab is filed in. Here it flies to the agents button.
     if (desktop && agent) sendOffToWindow(from, agentKindLabel(request.kind))
-    else void sendOff(from, agentKindLabel(request.kind), agent !== null)
+    else sendOffToAgents(from, agentKindLabel(request.kind), agent !== null)
     if (agent && provider === 'cursor') {
       try {
         paintCursorLoading(agent, agentWork(request.kind, provider))

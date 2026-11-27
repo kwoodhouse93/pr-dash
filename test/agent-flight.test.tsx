@@ -6,6 +6,7 @@ import { isStartingSession, sessionLinks, startingAgent, startingSession, starti
 import type { AgentSession } from '../src/shared/types.ts'
 import { AgentProvider, useAgentLaunch } from '../src/web/agent-launch.tsx'
 import { flyParcel, markCaught, shownBox } from '../src/web/flight.ts'
+import { QUEUE_BUTTON, pressBox, sendOff, setSendOffsEnabled } from '../src/web/send-off.ts'
 
 vi.mock('../src/web/toasts.tsx', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }))
 const sounds = vi.hoisted(() => ({ whoosh: vi.fn(), landed: vi.fn() }))
@@ -108,6 +109,22 @@ describe('the flight of a task', () => {
     expect(document.body.children.length).toBe(0)
   })
 
+  it('waits folded until the task is taken, and fades where it is when it is not', async () => {
+    const animate = instantAnimations()
+    let take!: (taken: boolean) => void
+    const ready = new Promise<boolean>((resolve) => (take = resolve))
+    const to = vi.fn(() => ({ x: 20, y: 60, width: 10, height: 10 }))
+    const flying = flyParcel({ layer: document.body, from, label: 'Merge', to, ready })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(to).not.toHaveBeenCalled()
+    expect(document.body.children.length).toBe(1)
+    take(false)
+    expect(await flying).toBe(false)
+    expect(to).not.toHaveBeenCalled()
+    expect(JSON.stringify(animate.mock.calls.at(-1)![0])).not.toContain('translate')
+    expect(document.body.children.length).toBe(0)
+  })
+
   it('does not take a hidden element for a place to land', () => {
     const hidden = document.body.appendChild(document.createElement('div'))
     place(hidden, { x: 0, y: 0, width: 0, height: 0 })
@@ -123,6 +140,51 @@ describe('the flight of a task', () => {
     vi.advanceTimersByTime(600)
     expect(button.classList.contains('caught')).toBe(false)
     vi.useRealTimers()
+  })
+})
+
+describe('a merge sent to the queue', () => {
+  const from = { x: 300, y: 200, width: 80, height: 24 }
+
+  afterEach(() => setSendOffsEnabled(true))
+
+  function queueButton() {
+    const button = document.body.appendChild(document.createElement('button'))
+    button.className = 'tool-btn queue-tool'
+    place(button, { x: 640, y: 10, width: 34, height: 34 })
+    return button
+  }
+
+  it('flies to the queue button once the queue has taken it', async () => {
+    instantAnimations()
+    sounds.landed.mockClear()
+    const button = queueButton()
+    await sendOff(QUEUE_BUTTON, from, 'Merge', Promise.resolve(true))
+    expect(sounds.landed).toHaveBeenCalledTimes(1)
+    expect(button.classList.contains('caught')).toBe(true)
+  })
+
+  it('does not land when the queue refuses it', async () => {
+    instantAnimations()
+    sounds.landed.mockClear()
+    const button = queueButton()
+    await sendOff(QUEUE_BUTTON, from, 'Merge', Promise.resolve(false))
+    expect(sounds.landed).not.toHaveBeenCalled()
+    expect(button.classList.contains('caught')).toBe(false)
+  })
+
+  it('is not shown with send-offs turned off, and a press has no place to leave from', async () => {
+    const animate = instantAnimations()
+    const button = queueButton()
+    const pressedButton = document.body.appendChild(document.createElement('button'))
+    place(pressedButton, from)
+    pressedButton.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    expect(pressBox()).toEqual(from)
+    setSendOffsEnabled(false)
+    expect(pressBox()).toBeNull()
+    await sendOff(QUEUE_BUTTON, from, 'Merge', Promise.resolve(true))
+    expect(animate).not.toHaveBeenCalled()
+    expect(button.classList.contains('caught')).toBe(false)
   })
 })
 

@@ -38,6 +38,8 @@ export function SettingsPage({
   onTheme = () => {},
   sounds = true,
   onSounds = () => {},
+  sendOffs = true,
+  onSendOffs = () => {},
   mergeUnapproved = false,
   onMergeUnapproved = () => {},
 }: {
@@ -68,6 +70,8 @@ export function SettingsPage({
   /** Whether buttons click when pressed. */
   sounds?: boolean
   onSounds?: (on: boolean) => void
+  sendOffs?: boolean
+  onSendOffs?: (on: boolean) => void
   /** Whether a pull request's menu offers to merge it without its required approval. */
   mergeUnapproved?: boolean
   onMergeUnapproved?: (on: boolean) => void
@@ -326,6 +330,17 @@ export function SettingsPage({
                 On
               </button>
               <button type="button" aria-pressed={!sounds} onClick={() => onSounds(false)}>
+                Off
+              </button>
+            </div>
+          </div>
+          <div className="panel-row setting" title="An agent's task folds up and flies to the agents button when you start it, and a merge flies to the merge queue button.">
+            <h3>Send-off animations</h3>
+            <div className="segmented" role="group" aria-label="Send-off animations">
+              <button type="button" aria-pressed={sendOffs} onClick={() => onSendOffs(true)}>
+                On
+              </button>
+              <button type="button" aria-pressed={!sendOffs} onClick={() => onSendOffs(false)}>
                 Off
               </button>
             </div>
