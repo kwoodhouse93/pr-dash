@@ -48,6 +48,14 @@ describe('dashboard preferences', () => {
     expect(loadPreferences().prLinks).toBe('github')
   })
 
+  it('keeps the theme, and starts in the default for a name it does not know', () => {
+    expect(loadPreferences().theme).toBe('ember')
+    savePreferences({ ...loadPreferences(), theme: 'paper' })
+    expect(loadPreferences().theme).toBe('paper')
+    localStorage.setItem('pr-dash.preferences.v1', JSON.stringify({ theme: 'neon' }))
+    expect(loadPreferences().theme).toBe('ember')
+  })
+
   it('keeps button sounds off once switched off, and starts with them on', () => {
     expect(loadPreferences().sounds).toBe(true)
     savePreferences({ ...loadPreferences(), sounds: false })

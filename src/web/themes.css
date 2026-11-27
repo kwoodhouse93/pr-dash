@@ -1,0 +1,178 @@
+/*
+ * Colour themes. Every colour the dashboard draws is a token from this file, and so is every colour of the
+ * desktop window, which is built with a copy of it. The other stylesheets hold no colours of their own.
+ *
+ * A theme is a short list of inputs: a tint for the greys, an accent, and for a light theme a ladder of
+ * lightness and darker status colours. Everything else is worked out from those, so a theme cannot leave a
+ * shade behind. The inputs below are Ember, the default. src/shared/themes.ts lists the themes by name.
+ *
+ * Two kinds of colour, kept apart:
+ *   Status colours say something, and mean the same in every theme. Green is ready or done, red is broken,
+ *   yellow is a warning, blue is waiting or queued, purple is merged, and amber is yours to act on or work
+ *   under way.
+ *   The accent says nothing. It is for small marks of where you are: the focus ring, the open tab, a pressed
+ *   filter, the main button. Never use it for a state.
+ */
+:root, [data-theme] {
+  color-scheme: dark;
+
+  /* Inputs. */
+  --tint-h: 116;
+  --tint-c: 0.01;
+  /* Text sits a little warmer or cooler than the surfaces under it. */
+  --ink-h: 88;
+  --accent: #e0a15a;
+  /* A second mark, for telling neighbouring stacks apart. */
+  --accent-alt: var(--blue);
+
+  --green: #8fbf73;
+  --yellow: #e2b34a;
+  --amber: #e0a15a;
+  --red: #e36a58;
+  --blue: #7eb0d4;
+  --purple: #a993d6;
+
+  /* The ladder: how light each step is. A light theme turns it over. */
+  --l-side: 0.157;
+  --l-bg: 0.176;
+  --l-child: 0.193;
+  --l-raised: 0.219;
+  --l-hover: 0.228;
+  --l-chip: 0.261;
+  --l-chip-strong: 0.286;
+  --l-line: 0.286;
+  --l-line-strong: 0.356;
+  --l-line-hover: 0.423;
+  --l-faint: 0.532;
+  --l-muted: 0.675;
+  --l-text: 0.955;
+  /* Text on a filled button. */
+  --l-on-solid: 0.22;
+  /* A status colour as a background, and as the border round it. */
+  --l-dim: 0.255;
+  --l-edge: 0.41;
+  /* How much of its own colour a repository's icon keeps. The rest is text colour, so it stands out on a light page. */
+  --mark-keep: 100%;
+  /* How much of its mark a stack's rows are tinted with. */
+  --tone-keep: 6%;
+
+  --shadow: oklch(0 0 0 / 0.38);
+  --shadow-strong: oklch(0 0 0 / 0.5);
+  --scrim: oklch(0 0 0 / 0.5);
+  /* The lit top edge of a popup. */
+  --sheen: oklch(1 0 0 / 0.04);
+
+  /* Surfaces, from the page up. The desktop window's sidebar sits behind the page. */
+  --bg-side: oklch(var(--l-side) calc(var(--tint-c) * 0.4) var(--tint-h));
+  --bg: oklch(var(--l-bg) calc(var(--tint-c) * 0.4) var(--tint-h));
+  --bg-child: oklch(var(--l-child) var(--tint-c) var(--tint-h));
+  --bg-raised: oklch(var(--l-raised) var(--tint-c) var(--tint-h));
+  --bg-hover: oklch(var(--l-hover) var(--tint-c) var(--tint-h));
+  --chip: oklch(var(--l-chip) var(--tint-c) var(--tint-h));
+  --chip-strong: oklch(var(--l-chip-strong) var(--tint-c) var(--tint-h));
+  /* The bright band that crosses a loading bar. */
+  --chip-shine: oklch(var(--l-line-strong) var(--tint-c) var(--tint-h));
+  --line: oklch(var(--l-line) calc(var(--tint-c) * 1.1) var(--tint-h));
+  --line-strong: oklch(var(--l-line-strong) calc(var(--tint-c) * 1.4) var(--tint-h));
+  --line-hover: oklch(var(--l-line-hover) calc(var(--tint-c) * 1.6) var(--tint-h));
+  /* The line that joins a stack's rows in the desktop window's sidebar. */
+  --rail: color-mix(in oklab, var(--line-hover), var(--faint));
+  /* What the pointer leaves on a surface that has no hover colour of its own. */
+  --veil: color-mix(in srgb, var(--text) 5%, transparent);
+
+  --text: oklch(var(--l-text) calc(var(--tint-c) * 1.2) var(--ink-h));
+  --muted: oklch(var(--l-muted) calc(var(--tint-c) * 1.9) var(--ink-h));
+  --faint: oklch(var(--l-faint) calc(var(--tint-c) * 1.5) var(--ink-h));
+  --on-solid: oklch(var(--l-on-solid) 0.02 var(--ink-h));
+
+  /* The accent and what is made from it. */
+  --accent-dim: oklch(from var(--accent) var(--l-dim) calc(c * 0.3) h);
+  --accent-soft: color-mix(in oklab, var(--accent) 30%, var(--chip));
+  --accent-edge: color-mix(in oklab, var(--accent) 65%, var(--on-solid));
+  --accent-glow: color-mix(in srgb, var(--accent) 28%, transparent);
+  --tone-a: var(--accent);
+  --tone-b: var(--accent-alt);
+  --tone-a-bg: color-mix(in oklab, var(--tone-a) var(--tone-keep), var(--bg));
+  --tone-b-bg: color-mix(in oklab, var(--tone-b) var(--tone-keep), var(--bg));
+
+  /* Each status colour as a background and as a border. */
+  --green-dim: oklch(from var(--green) var(--l-dim) calc(c * 0.3) h);
+  --green-line: oklch(from var(--green) var(--l-edge) calc(c * 0.6) h);
+  --yellow-dim: oklch(from var(--yellow) var(--l-dim) calc(c * 0.3) h);
+  --yellow-line: oklch(from var(--yellow) var(--l-edge) calc(c * 0.6) h);
+  --amber-dim: oklch(from var(--amber) var(--l-dim) calc(c * 0.3) h);
+  --amber-line: oklch(from var(--amber) var(--l-edge) calc(c * 0.6) h);
+  --red-dim: oklch(from var(--red) var(--l-dim) calc(c * 0.3) h);
+  --red-line: oklch(from var(--red) var(--l-edge) calc(c * 0.6) h);
+  --blue-dim: oklch(from var(--blue) var(--l-dim) calc(c * 0.3) h);
+  --blue-line: oklch(from var(--blue) var(--l-edge) calc(c * 0.6) h);
+  /* Body text inside a red box. */
+  --red-soft: color-mix(in oklab, var(--red) 45%, var(--text));
+  /* The flash of a segment as its pull request merges. */
+  --green-flash: color-mix(in oklab, var(--green) 50%, white);
+  --green-glow: color-mix(in srgb, var(--green) 80%, transparent);
+}
+
+/* Greys with no colour in them, and an accent to match. */
+[data-theme="graphite"] {
+  --tint-c: 0;
+  --accent: oklch(0.9 0.01 90);
+  --accent-alt: var(--muted);
+}
+
+/* Blue-black. */
+[data-theme="ink"] {
+  --tint-h: 255;
+  --tint-c: 0.014;
+  --ink-h: 250;
+  --accent: oklch(0.75 0.1 275);
+  --accent-alt: oklch(0.78 0.09 185);
+}
+
+/* Green-black. */
+[data-theme="moss"] {
+  --tint-h: 150;
+  --tint-c: 0.012;
+  --ink-h: 120;
+  --accent: oklch(0.78 0.09 185);
+}
+
+/* The light theme. */
+[data-theme="paper"] {
+  color-scheme: light;
+  --tint-h: 90;
+  --tint-c: 0.012;
+  --ink-h: 80;
+  --accent: oklch(0.56 0.13 55);
+
+  --green: oklch(0.53 0.13 140);
+  --yellow: oklch(0.63 0.13 85);
+  --amber: oklch(0.6 0.14 62);
+  --red: oklch(0.56 0.18 30);
+  --blue: oklch(0.52 0.1 245);
+  --purple: oklch(0.52 0.13 300);
+
+  --l-side: 0.945;
+  --l-bg: 0.962;
+  --l-child: 0.975;
+  --l-raised: 0.992;
+  --l-hover: 0.94;
+  --l-chip: 0.925;
+  --l-chip-strong: 0.89;
+  --l-line: 0.885;
+  --l-line-strong: 0.8;
+  --l-line-hover: 0.7;
+  --l-faint: 0.6;
+  --l-muted: 0.47;
+  --l-text: 0.24;
+  --l-on-solid: 0.99;
+  --l-dim: 0.93;
+  --l-edge: 0.8;
+  --mark-keep: 62%;
+  --tone-keep: 4%;
+
+  --shadow: oklch(0.3 0.03 80 / 0.14);
+  --shadow-strong: oklch(0.3 0.03 80 / 0.2);
+  --scrim: oklch(0.3 0.02 80 / 0.32);
+  --sheen: oklch(1 0 0 / 0.7);
+}

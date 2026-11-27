@@ -4,6 +4,7 @@ import path from 'node:path'
 import { iconState } from '../../src/shared/icon.ts'
 import { queueSummary, type QueueSnapshot, type QueueSummary } from '../../src/shared/queue.ts'
 import { DockIcon, RASTERIZE } from './dock-icon.ts'
+import { themeOf, type Theme, type ThemeId } from '../../src/shared/themes.ts'
 import type { Snapshot, Sort } from '../../src/shared/types.ts'
 import {
   buildSidebar,
@@ -64,7 +65,8 @@ export type SidebarState = { open: boolean; width: number; grouping: Grouping; c
 /** A page of the dashboard the sidebar links to. `list` is whichever list was open last. */
 type DashboardPage = 'list' | 'queue' | 'settings'
 
-export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string }
+/** `theme` is the name of the theme the dashboard was last in. */
+export type TabsOptions = { sidebar?: Partial<SidebarState> | null; agentFile: string; theme?: unknown }
 
 /**
  * Resolves true once T3 Code has taken the pairing link and moved on from its pairing page.
@@ -115,6 +117,8 @@ export class Tabs {
   private agentState: AgentState
   private data: Snapshot | null = null
   private prefs: DashboardPrefs = { mineByIssue: true, reviewByIssue: true }
+  /** The dashboard's colour theme, which the window follows. */
+  private theme: Theme
   private overlay = false
   /** Agent runs read in the active tab, kept in their row until another tab is chosen. */
   private held: string[] = []
@@ -143,6 +147,7 @@ export class Tabs {
       earlierOpen: options.sidebar?.earlierOpen === true,
       linearByProject: options.sidebar?.linearByProject !== false,
     }
+    this.theme = themeOf(options.theme)
     this.agentFile = options.agentFile
     this.agentState = readAgentState(options.agentFile)
     this.chrome = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'preload.cjs') } })
@@ -223,6 +228,10 @@ export class Tabs {
 
   get sidebarState(): SidebarState {
     return this.sidebar
+  }
+
+  get themeId(): ThemeId {
+    return this.theme.id
   }
 
   toggleSidebar() {
@@ -369,9 +378,10 @@ export class Tabs {
     if (contents.isDestroyed() || contents.isLoading()) return
     const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
     if (typeof raw !== 'string') return
-    const { views, sort, t3Origin, t3PairPrompt } = JSON.parse(raw) as {
+    const { views, sort, theme, t3Origin, t3PairPrompt } = JSON.parse(raw) as {
       views?: Record<string, { byIssue?: boolean } | undefined>
       sort?: Partial<Sort>
+      theme?: unknown
       t3Origin?: unknown
       t3PairPrompt?: unknown
     }
@@ -382,6 +392,16 @@ export class Tabs {
       t3Origin: typeof t3Origin === 'string' ? t3Origin : null,
       t3PairPrompt: t3PairPrompt !== false,
     }
+    this.setTheme(themeOf(theme))
+  }
+
+  /** Paints the window behind its pages in the theme's page colour. The strip and sidebar take the theme when it is next published. */
+  private setTheme(theme: Theme) {
+    if (theme.id === this.theme.id) return
+    this.theme = theme
+    this.win.setBackgroundColor(theme.bg)
+    for (const tab of this.tabs) tab.view.setBackgroundColor(theme.bg)
+    this.onChange()
   }
 
   /** Tells the dashboard page, which keeps these settings, about a change made from a tab. */
@@ -644,7 +664,7 @@ export class Tabs {
 
   private create(url: string, options: { pinned?: boolean; after?: Tab; adopt?: WebContents; parent?: number | null; starting?: StartingAgent | null }): Tab {
     const view = new WebContentsView(options.adopt ? { webContents: options.adopt } : { webPreferences: { session: this.session } })
-    view.setBackgroundColor('#10110f')
+    view.setBackgroundColor(this.theme.bg)
     view.setVisible(false)
     const from = options.parent == null ? null : this.tabs.find((tab) => tab.id === options.parent)
     const origin = prRef(url)?.key ?? (from ? (prRef(from.url)?.key ?? from.origin) : null)
@@ -847,6 +867,7 @@ export class Tabs {
       external: !this.active.pinned,
       updateReady: this.updateReady,
       fullscreen: this.win.isFullScreen(),
+      theme: this.theme.id,
     })
   }
 }

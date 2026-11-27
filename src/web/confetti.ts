@@ -1,6 +1,8 @@
 import { reducedMotion } from './motion.tsx'
+import { themeColor } from './theme.ts'
 
-const COLORS = ['#8fbf73', '#e0a15a', '#e2b34a', '#7eb0d4', '#a993d6', '#f3f0e7']
+/** The theme's status colours and its text colour. */
+const TOKENS = ['green', 'amber', 'yellow', 'blue', 'purple', 'text']
 const PIECES = 90
 const LIFE_MS = 1800
 
@@ -10,6 +12,8 @@ const LIFE_MS = 1800
  */
 export function confetti() {
   if (reducedMotion() || document.hidden) return
+  // A canvas cannot read a token, so the colours are taken as the page draws them.
+  const colors = TOKENS.map(themeColor)
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
   if (!ctx) return
@@ -35,7 +39,7 @@ export function confetti() {
       size: 5 + Math.random() * 5,
       spin: Math.random() * Math.PI,
       turn: (Math.random() - 0.5) * 0.4,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)]!,
+      color: colors[Math.floor(Math.random() * colors.length)]!,
     }
   })
 
@@ -84,7 +88,7 @@ export function confettiShower(pieces = 140) {
     piece.style.left = `${Math.random() * 100}%`
     piece.style.width = `${size}px`
     piece.style.height = `${size * (0.4 + Math.random() * 0.8)}px`
-    piece.style.background = COLORS[index % COLORS.length]!
+    piece.style.background = `var(--${TOKENS[index % TOKENS.length]})`
     layer.append(piece)
     const duration = 1800 + Math.random() * 1600
     const delay = Math.random() * 500

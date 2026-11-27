@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pull requests</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- Sets the saved theme before anything is drawn, so a light theme does not open on a dark page. -->
+    <script>
+      try {
+        document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('pr-dash.preferences.v1')).theme || ''
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

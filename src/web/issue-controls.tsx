@@ -29,7 +29,7 @@ export function IssueControls({
         label={
           <>
             <span className="sr">{statusName}</span>
-            <StatusIcon type={issue.status?.type ?? 'unstarted'} color={issue.status?.color ?? '#706c63'} label={statusName} />
+            <StatusIcon type={issue.status?.type ?? 'unstarted'} color={issue.status?.color ?? ''} label={statusName} />
           </>
         }
       >
@@ -377,7 +377,7 @@ export function StatusIcon({ type, color, label }: { type: string; color: string
       {kind === 'completed' ? (
         <>
           <circle cx="8" cy="8" r="6" fill={ink} />
-          <path d="M5 8.15 7.05 10.2 11.1 6" fill="none" stroke="#141512" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M5 8.15 7.05 10.2 11.1 6" className="tick" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </>
       ) : kind === 'canceled' || kind === 'duplicate' ? (
         <>

@@ -1,7 +1,9 @@
 import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type Filters, type Sort, type SortKey } from '../shared/types.ts'
+import { DEFAULT_THEME, themeOf, type ThemeId } from '../shared/themes.ts'
 import type { PrLinkHost } from './pr-links.tsx'
 
-const KEY = 'pr-dash.preferences.v1'
+/** Where the preferences are kept in this browser. index.html reads the theme from it before the page draws. */
+export const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 const SORT_KEYS = new Set<SortKey>(['updated', 'created', 'size', 'title', 'repo', 'ci'])
 
 export type DashboardPage = 'mine' | 'review' | 'activity' | 'queue' | 'settings'
@@ -19,6 +21,8 @@ export type Preferences = {
   collapsed: string[]
   page: DashboardPage
   prLinks: PrLinkHost
+  /** The colour theme. */
+  theme: ThemeId
   /** Whether buttons click when pressed. */
   sounds: boolean
   /** Whether a pull request's menu offers to merge it without its required approval. */
@@ -31,7 +35,7 @@ export type Preferences = {
 
 export function loadPreferences(): Preferences {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null') as
+    const raw = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? 'null') as
       | (Partial<Preferences> & { filters?: Partial<Filters>; byIssue?: boolean })
       | null
     if (!raw) return fresh()
@@ -52,6 +56,7 @@ export function loadPreferences(): Preferences {
       collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
       page,
       prLinks: raw.prLinks === 'graphite' ? 'graphite' : 'github',
+      theme: themeOf(raw.theme).id,
       sounds: raw.sounds !== false,
       mergeUnapproved: raw.mergeUnapproved === true,
       t3PairPrompt: raw.t3PairPrompt !== false,
@@ -63,7 +68,7 @@ export function loadPreferences(): Preferences {
 }
 
 export function savePreferences(prefs: Preferences) {
-  localStorage.setItem(KEY, JSON.stringify(prefs))
+  localStorage.setItem(PREFERENCES_KEY, JSON.stringify(prefs))
 }
 
 function fresh(): Preferences {
@@ -77,6 +82,7 @@ function fresh(): Preferences {
     collapsed: [],
     page: 'mine',
     prLinks: 'github',
+    theme: DEFAULT_THEME,
     sounds: true,
     mergeUnapproved: false,
     t3Origin: null,

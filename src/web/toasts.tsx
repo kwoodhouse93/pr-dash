@@ -24,10 +24,11 @@ function leave(id: string | number) {
   toast.dismiss(id)
 }
 
-export function Toasts() {
+/** `scheme` is whether the theme in use is dark or light. The colours come from the theme either way. */
+export function Toasts({ scheme }: { scheme: 'dark' | 'light' }) {
   return (
     <Toaster
-      theme="dark"
+      theme={scheme}
       position="bottom-right"
       closeButton
       richColors

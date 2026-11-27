@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useState, type CSSProperties, type ReactNode } from 'react'
 import { REPO_COLORS, REPO_ICONS, repoMarkOf } from '../shared/repo-marks.ts'
 import type { RepoMark } from '../shared/types.ts'
 import { ClickCard, PopBody, PopHead } from './menus.tsx'
@@ -13,6 +13,11 @@ export function useRepoMark(repo: string): RepoMark {
   return repoMarkOf(repo, useContext(RepoMarksContext))
 }
 
+/** Hands the repository's colour to the stylesheet, which adjusts it to the theme. */
+function markStyle(mark: RepoMark): CSSProperties {
+  return { '--mark': mark.color } as CSSProperties
+}
+
 function IconShape({ icon }: { icon: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -25,7 +30,7 @@ function IconShape({ icon }: { icon: string }) {
 export function RepoIcon({ repo, label = false }: { repo: string; label?: boolean }) {
   const mark = useRepoMark(repo)
   return (
-    <span className="repo-icon" style={{ color: mark.color }} title={label ? repo : undefined} role={label ? 'img' : undefined} aria-label={label ? repo : undefined}>
+    <span className="repo-icon" style={markStyle(mark)} title={label ? repo : undefined} role={label ? 'img' : undefined} aria-label={label ? repo : undefined}>
       <IconShape icon={mark.icon} />
     </span>
   )
@@ -48,7 +53,7 @@ export function RepoMarkPicker({ repo, onPick }: { repo: string; onPick: (repo: 
       label={
         <>
           <span className="sr">Change the icon for {repo}</span>
-          <span className="repo-icon" style={{ color: mark.color }}>
+          <span className="repo-icon" style={markStyle(mark)}>
             <IconShape icon={mark.icon} />
           </span>
         </>
@@ -78,7 +83,7 @@ export function RepoMarkPicker({ repo, onPick }: { repo: string; onPick: (repo: 
             aria-pressed={icon === mark.icon}
             aria-label={icon}
             title={icon}
-            style={{ color: mark.color }}
+            style={markStyle(mark)}
             onClick={() => pick({ ...mark, icon })}
           >
             <IconShape icon={icon} />

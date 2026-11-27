@@ -343,6 +343,7 @@ function render() {
 window.shell.onState((next) => {
   const wasOpen = menuOpen
   state = next
+  document.documentElement.dataset.theme = state.theme
   render()
   // The sidebar opening, or the last agent going, closes the menu from here.
   if (wasOpen && !menuOpen) send('overlay', false)

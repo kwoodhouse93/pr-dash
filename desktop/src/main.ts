@@ -5,6 +5,7 @@ import { loadEnv } from '../../src/server/env.ts'
 import { pickPayload, readPayload, type Payload } from './payload.ts'
 import { serverOrigin, startServer, stopServer, type ServerOptions } from './server.ts'
 import { adoptShellPath } from './shell-env.ts'
+import { themeOf } from '../../src/shared/themes.ts'
 import { Tabs, type SavedTabs, type SidebarState } from './tabs.ts'
 import { Updater } from './updater.ts'
 
@@ -26,7 +27,7 @@ const serverOptions: ServerOptions = {
 }
 const windowFile = path.join(userData, 'window.json')
 
-type WindowState = { bounds?: Electron.Rectangle; tabs?: SavedTabs; sidebar?: Partial<SidebarState> }
+type WindowState = { bounds?: Electron.Rectangle; tabs?: SavedTabs; sidebar?: Partial<SidebarState>; theme?: string }
 
 let win: BaseWindow | null = null
 let tabs: Tabs | null = null
@@ -91,9 +92,9 @@ function openWindow() {
     title: 'PR Dash',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 12 },
-    backgroundColor: '#10110f',
+    backgroundColor: themeOf(saved.theme).bg,
   })
-  tabs = new Tabs(win, pages, serverOrigin(serverOptions), { sidebar: saved.sidebar, agentFile: path.join(userData, 'agents.json') })
+  tabs = new Tabs(win, pages, serverOrigin(serverOptions), { sidebar: saved.sidebar, agentFile: path.join(userData, 'agents.json'), theme: saved.theme })
   tabs.restore(saved.tabs ?? null)
   let saveTimer: NodeJS.Timeout | null = null
   tabs.onChange = () => {
@@ -117,7 +118,7 @@ function readWindow(): WindowState {
 
 function saveWindow() {
   if (!win || win.isDestroyed() || !tabs) return
-  const state: WindowState = { bounds: win.getNormalBounds(), tabs: tabs.snapshot(), sidebar: tabs.sidebarState }
+  const state: WindowState = { bounds: win.getNormalBounds(), tabs: tabs.snapshot(), sidebar: tabs.sidebarState, theme: tabs.themeId }
   writeFileSync(windowFile, JSON.stringify(state))
 }
 

@@ -5,6 +5,7 @@ import type { FeedbackCounts } from '../shared/feedback.ts'
 import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
+import { themeOf } from '../shared/themes.ts'
 import { DEFAULT_FILTERS, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { ActivityPage } from './activity.tsx'
@@ -18,6 +19,7 @@ import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { SettingsPage } from './settings.tsx'
 import { fold, setSoundsEnabled } from './sounds.ts'
+import { applyTheme } from './theme.ts'
 import { RepoMarksProvider } from './repo-mark.tsx'
 import { Shortcuts } from './shortcuts.tsx'
 import { Roll, reducedMotion, useLingering } from './motion.tsx'
@@ -108,6 +110,7 @@ export function App() {
   }
 
   useEffect(() => setSoundsEnabled(prefs.sounds), [prefs.sounds])
+  useEffect(() => applyTheme(prefs.theme), [prefs.theme])
 
   useEffect(() => {
     savePreferences(prefs)
@@ -595,7 +598,7 @@ export function App() {
     <PrLinksProvider host={prefs.prLinks}>
     <MenuProvider>
     <RepoMarksProvider marks={data?.repoMarks}>
-      <Toasts />
+      <Toasts scheme={themeOf(prefs.theme).scheme} />
       <Shortcuts open={shortcutsOpen} onOpen={openShortcuts} onClose={closeShortcuts} />
       <div className="app">
         <header className="top">
@@ -744,6 +747,8 @@ export function App() {
               }
               prLinks={prefs.prLinks}
               onPrLinks={(prLinks) => setPrefs((current) => ({ ...current, prLinks }))}
+              theme={prefs.theme}
+              onTheme={(theme) => setPrefs((current) => ({ ...current, theme }))}
               sounds={prefs.sounds}
               onSounds={(sounds) => setPrefs((current) => ({ ...current, sounds }))}
               mergeUnapproved={prefs.mergeUnapproved}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { parseRepoName, removalWarning, type RepoCatalog, type RepoChoice } from '../shared/repos.ts'
+import { DEFAULT_THEME, THEMES, type ThemeId } from '../shared/themes.ts'
 import { AgentSettingsPanel } from './agent-settings.tsx'
 import { api, type SyncKind, type SyncStatus } from './api.ts'
 import { formatAgo, formatExact, formatTime } from './format.ts'
@@ -33,6 +34,8 @@ export function SettingsPage({
   initiatives,
   prLinks = 'github',
   onPrLinks = () => {},
+  theme = DEFAULT_THEME,
+  onTheme = () => {},
   sounds = true,
   onSounds = () => {},
   mergeUnapproved = false,
@@ -59,6 +62,9 @@ export function SettingsPage({
   initiatives?: ReactNode
   prLinks?: PrLinkHost
   onPrLinks?: (host: PrLinkHost) => void
+  /** The colour theme in use. */
+  theme?: ThemeId
+  onTheme?: (theme: ThemeId) => void
   /** Whether buttons click when pressed. */
   sounds?: boolean
   onSounds?: (on: boolean) => void
@@ -282,6 +288,25 @@ export function SettingsPage({
         </section>
         {onAgents ? <AgentSettingsPanel repos={repos} onSnapshot={onAgents} t3Origin={t3Origin} onT3Origin={onT3Origin} pairPrompt={t3PairPrompt} /> : null}
         {initiatives ? <section className="panel initiatives">{initiatives}</section> : null}
+        <section className="panel">
+          <header className="panel-head">
+            <h2>Theme</h2>
+            <span className="panel-note">Saved in this browser</span>
+          </header>
+          <div className="themes" role="group" aria-label="Theme">
+            {THEMES.map((option) => (
+              <button key={option.id} type="button" className="theme-card" aria-pressed={option.id === theme} onClick={() => onTheme(option.id)}>
+                {/* Naming the theme here draws the sample in that theme's own colours. */}
+                <span className="theme-sample" data-theme={option.id} aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </section>
         <section className="panel">
           <div className="panel-row setting">
             <h3>Open pull requests in</h3>

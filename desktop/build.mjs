@@ -13,3 +13,5 @@ await build({
   external: ['electron'],
 })
 cpSync('src/chrome', 'dist/chrome', { recursive: true })
+// The window wears the dashboard's colours, so it is built with the dashboard's themes.
+cpSync('../src/web/themes.css', 'dist/chrome/themes.css')
