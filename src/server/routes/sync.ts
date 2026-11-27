@@ -1,5 +1,6 @@
 import { pullGone, Refused } from '../errors.ts'
-import { loadGithubToken, markPullReadyForReview } from '../github.ts'
+import { loadGithubToken } from '../github-client.ts'
+import { markPullReadyForReview } from '../github-pull.ts'
 import { cancelQueuedSync, describeSync, enqueueSync, loadThreadFeedback, noteListFocus, refreshPull, refreshSnapshot } from '../sync.ts'
 import { read, required, type Routes } from './http.ts'
 

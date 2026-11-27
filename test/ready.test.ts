@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { markPullReadyForReview, squashMergePullRequest } from '../src/server/github.ts'
+import { markPullReadyForReview, squashMergePullRequest } from '../src/server/github-pull.ts'
 
 function githubResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

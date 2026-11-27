@@ -1,7 +1,8 @@
 import { validRepoMark } from '../../shared/repo-marks.ts'
 import { Refused } from '../errors.ts'
 import { removeMirror } from '../git.ts'
-import { loadGithubToken, repositoryVisible } from '../github.ts'
+import { loadGithubToken } from '../github-client.ts'
+import { repositoryVisible } from '../github.ts'
 import { repoCatalog } from '../repos.ts'
 import { read, repoNamed, type Routes } from './http.ts'
 

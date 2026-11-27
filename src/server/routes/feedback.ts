@@ -3,7 +3,8 @@ import type { FeedbackDetail } from '../../shared/feedback.ts'
 import type { PullRequest } from '../../shared/types.ts'
 import type { DashboardDb } from '../db.ts'
 import { COMMENT_GONE, Refused } from '../errors.ts'
-import { fetchPullFeedback, loadGithubToken, payloadFor, replyToPullNote, replyToReviewThread, setReviewThreadResolved } from '../github.ts'
+import { loadGithubToken } from '../github-client.ts'
+import { fetchPullFeedback, payloadFor, replyToPullNote, replyToReviewThread, setReviewThreadResolved } from '../github-feedback.ts'
 import { listedPull, read, type Routes } from './http.ts'
 
 /** Does the work, then answers with the pull request's threads as they now stand and stores their counts. */

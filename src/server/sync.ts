@@ -11,23 +11,9 @@ import { refreshSessions } from './agent-provider.ts'
 import { agentProviders } from './agents.ts'
 import type { DashboardDb } from './db.ts'
 import { pullGone } from './errors.ts'
-import {
-  GraphqlPaused,
-  assertGraphql,
-  fetchAuthoredPullRequests,
-  fetchOnePull,
-  fetchPullOutcomes,
-  fetchPullState,
-  fetchRepoRules,
-  fetchReviewPullRequests,
-  fetchThreadDetails,
-  forgetViewerContext,
-  graphqlStatus,
-  loadGithubToken,
-  viewerFor,
-  type PullOutcome,
-  type RepoRules,
-} from './github.ts'
+import { GraphqlPaused, assertGraphql, graphqlStatus, loadGithubToken } from './github-client.ts'
+import { fetchPullOutcomes, fetchPullState, type PullOutcome } from './github-pull.ts'
+import { fetchAuthoredPullRequests, fetchOnePull, fetchRepoRules, fetchReviewPullRequests, fetchThreadDetails, forgetViewerContext, viewerFor, type RepoRules } from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
 import { withRequestSignal } from './request-signal.ts'
 import type { FeedbackLoad, SyncKind, SyncStatus } from '../shared/sync.ts'

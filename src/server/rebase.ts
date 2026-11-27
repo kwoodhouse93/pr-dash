@@ -4,7 +4,8 @@ import type { PullRequest, Snapshot } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { AlreadyBased, mirrorPath, rebaseOnto, rebaseOntoTip } from './git.ts'
 import { PULL_GONE, Refused } from './errors.ts'
-import { fetchLivePull, loadGithubToken } from './github.ts'
+import { loadGithubToken } from './github-client.ts'
+import { fetchLivePull } from './github-pull.ts'
 
 export class RebaseRejected extends Refused {
   constructor(message: string) {

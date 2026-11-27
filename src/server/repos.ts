@@ -1,6 +1,7 @@
 import type { RepoCatalog } from '../shared/repos.ts'
 import type { DashboardDb } from './db.ts'
-import { listAccessibleRepos, loadGithubToken } from './github.ts'
+import { loadGithubToken } from './github-client.ts'
+import { listAccessibleRepos } from './github.ts'
 
 export async function repoCatalog(db: DashboardDb): Promise<RepoCatalog> {
   const selected = new Set(db.watchedRepos())

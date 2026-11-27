@@ -7,7 +7,9 @@ import { buildStacks, mergeLine, stackOf } from '../shared/stacks.ts'
 import type { PullRequest } from '../shared/types.ts'
 import type { DashboardDb } from './db.ts'
 import { abortRebases, GitCancelled, interruptGit, mirrorPath, rebaseOnto } from './git.ts'
-import { commitContains, fetchLivePull, loadGithubToken, readRulesets, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github.ts'
+import { loadGithubToken } from './github-client.ts'
+import { commitContains, fetchLivePull, rerunWorkflows, squashMergePullRequest, updatePullBase, updatePullBranch } from './github-pull.ts'
+import { readRulesets } from './github.ts'
 
 import { PULL_GONE, Refused } from './errors.ts'
 
