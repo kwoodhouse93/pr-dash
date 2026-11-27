@@ -6,14 +6,13 @@ import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { themeOf } from '../shared/themes.ts'
-import { DEFAULT_FILTERS, type AgentSession, type AgentSessionStatus, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
-import { agentsSummary, providerFor, startingSession, withStartingSessions } from '../shared/agents.ts'
+import { DEFAULT_FILTERS, type AgentSession, type Filters, type PullRequest, type SortKey } from '../shared/types.ts'
+import { providerFor, startingSession, withStartingSessions } from '../shared/agents.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { ActivityPage } from './activity.tsx'
-import { api, syncCancelled } from './api.ts'
+import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
-import { formatExact } from './format.ts'
 import { FilterBar, activeFilterLabels } from './filter-bar.tsx'
 import { MenuProvider } from './menus.tsx'
 import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage, type ListPage } from './prefs.ts'
@@ -31,15 +30,12 @@ import { Shortcuts } from './shortcuts.tsx'
 import { Roll, reducedMotion, useLingering } from './motion.tsx'
 import { PrTable, SkeletonTable } from './table.tsx'
 import { Toasts, clearActionError, toastBest, toastError, toastHeld, toastLanded, toastLinearHint, toastRerun, toastSyncWarning } from './toasts.tsx'
-import type { SyncStatus } from './api.ts'
+import { AgentsButton, QueueButton, RefreshControl } from './top-tools.tsx'
+import { useMergeQueue } from './use-merge-queue.ts'
+import { useSnapshot } from './use-snapshot.ts'
 
-/** Skip another GitHub pull when the saved list is newer than this. The server refreshes the list more often. */
-const REFRESH_MS = 2 * 60 * 1000
 /** Set once the Linear setup notice has been dismissed for good in this browser. */
 const LINEAR_HINT_HIDDEN = 'pr-dash:linear-hint-hidden'
-const SNAPSHOT_POLL_MS = 4_000
-const FRESH_MS = 10 * 60 * 1000
-const STALE_MS = 30 * 60 * 1000
 /** How long a row stays after its pull request merged, while the merge plays out on it. */
 const LANDING_MS = 1500
 /** A merge older than this when it is first seen is not news: the dashboard was closed when it landed. */
@@ -47,29 +43,10 @@ const LANDED_NEWS_MS = 10 * 60 * 1000
 /** The header draws a tick for each merge today, up to this many. */
 const TICKS_SHOWN = 12
 
-function snapshotKey(snap: Snapshot): string {
-  return JSON.stringify([
-    snap.mineSyncedAt,
-    snap.reviewSyncedAt,
-    snap.warning,
-    snap.repos,
-    snap.agents,
-    snap.initiatives,
-    snap.pullRequests,
-    snap.reviewPullRequests,
-    snap.departed,
-  ])
-}
-
-type RefreshProgress = { completed: number; total: number }
-
 export function App() {
   const [prefs, setPrefs] = useState(() => withLocation(loadPreferences(), window.location.search))
-  const [data, setData] = useState<Snapshot | null>(null)
-  const [booting, setBooting] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [status, setStatus] = useState('Idle')
-  const [progress, setProgress] = useState<RefreshProgress | null>(null)
+  const snapshot = useSnapshot(prefs.page)
+  const { data, booting, refreshing, status, progress, sync, setSync, refresh, mutate } = snapshot
   const [now, setNow] = useState(() => Date.now())
   const [linearHintHidden, setLinearHintHidden] = useState(() => {
     try {
@@ -78,44 +55,10 @@ export function App() {
       return false
     }
   })
-  const [sync, setSync] = useState<SyncStatus | null>(null)
   /** Agents asked for that their provider has not made yet. */
   const [starting, setStarting] = useState<{ key: string; session: AgentSession }[]>([])
   const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
-  const [queue, setQueue] = useState<QueueSnapshot | null>(null)
-  const applyId = useRef(0)
-  const seenQueue = useRef(new Set<string>())
-  const watchedRef = useRef<string[]>([])
-  const pageRef = useRef<DashboardPage>(prefs.page)
-  pageRef.current = prefs.page
-  const dataRef = useRef<Snapshot | null>(null)
-  const painted = useRef('')
-  const previousPage = useRef(prefs.page)
-  const syncBusy = useRef(false)
-
-  function adopt(snap: Snapshot): Snapshot {
-    const reviewPullRequests = snap.reviewPullRequests ?? []
-    watchedRef.current = snap.repos ?? []
-    const next = { ...snap, reviewPullRequests }
-    dataRef.current = next
-    return next
-  }
-
-  function listedFocus(): 'mine' | 'review' | undefined {
-    const page = pageRef.current
-    if (page === 'review') return 'review'
-    if (page === 'mine') return 'mine'
-    return undefined
-  }
-
-  function showIfChanged(snap: Snapshot, id: number) {
-    if (id !== applyId.current) return
-    const next = adopt(snap)
-    const key = snapshotKey(next)
-    if (key === painted.current) return
-    painted.current = key
-    setData(next)
-  }
+  const [queue, setQueue] = useMergeQueue(() => void refresh({ force: true, focus: 'mine' }))
 
   useEffect(() => setSoundsEnabled(prefs.sounds), [prefs.sounds])
   // In a layout effect, so the first thing drawn already goes by the choice.
@@ -156,214 +99,6 @@ export function App() {
       return next
     })
   }, [data])
-
-  async function refresh(options: { force?: boolean; focus?: 'mine' | 'review'; full?: boolean; feedback?: 'if-ran' | 'always' } = {}) {
-    const page = pageRef.current
-    const focus = options.focus ?? (page === 'review' ? 'review' : 'mine')
-    const listed = page === 'mine' || page === 'review'
-    if (watchedRef.current.length === 0 && !options.force) return false
-    const feedback = options.feedback ?? 'if-ran'
-    if (!options.full && !listed && !options.force) return false
-    const stamp = focus === 'review' ? dataRef.current?.reviewSyncedAt : dataRef.current?.mineSyncedAt
-    const syncedMs = stamp ? Date.parse(stamp) : Number.NaN
-    const recent = !options.force && !options.full && Number.isFinite(syncedMs) && Date.now() - syncedMs < REFRESH_MS
-    if (recent) {
-      if (feedback === 'always') await showFeedback(focus)
-      return false
-    }
-    const id = ++applyId.current
-    setRefreshing(true)
-    clearActionError()
-    setStatus('Starting refresh')
-    setProgress(null)
-    const poll = window.setInterval(() => {
-      void api.snapshot(listedFocus()).then((snap) => {
-        showIfChanged(snap, id)
-      }).catch(() => undefined)
-    }, 800)
-    try {
-      const snap = await api.refresh(focus, options.full === true, options.force === true || options.full === true)
-      if (id === applyId.current) {
-        const next = adopt(snap)
-        painted.current = snapshotKey(next)
-        setData(next)
-      }
-      if (id === applyId.current) {
-        try {
-          if (options.full) {
-            await loadFeedback('mine')
-            if (id === applyId.current) await loadFeedback('review')
-          } else {
-            await loadFeedback(focus)
-          }
-        } catch (caught) {
-          const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
-          if (!syncCancelled(caught) && id === applyId.current) toastError(message, { heading: 'Could not load thread replies' })
-        }
-      }
-      return true
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Refresh failed'
-      if (!syncCancelled(caught) && id === applyId.current) {
-        toastError(message, { heading: 'Refresh failed', onRetry: () => void refresh({ ...options, force: true }) })
-      }
-      return false
-    } finally {
-      window.clearInterval(poll)
-      if (id === applyId.current) setRefreshing(false)
-    }
-  }
-
-  async function showFeedback(focus: 'mine' | 'review') {
-    const id = ++applyId.current
-    setRefreshing(true)
-    setStatus('Reading thread replies')
-    setProgress(null)
-    try {
-      await loadFeedback(focus)
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Could not load thread replies'
-      if (!syncCancelled(caught) && id === applyId.current) {
-        toastError(message, { heading: 'Could not load thread replies', onRetry: () => void showFeedback(focus) })
-      }
-    } finally {
-      if (id === applyId.current) setRefreshing(false)
-    }
-  }
-
-  async function loadFeedback(which: 'mine' | 'review') {
-    const id = applyId.current
-    for (let step = 0; step < 30; step += 1) {
-      const result = await api.feedback(which)
-      if (id !== applyId.current) return
-      setData(adopt(result.snapshot))
-      if (result.pending === 0 || result.paused) return
-    }
-  }
-
-  async function mutate(work: () => Promise<Snapshot>) {
-    const id = ++applyId.current
-    clearActionError()
-    try {
-      const snap = await work()
-      if (id === applyId.current) setData(adopt(snap))
-    } catch (caught) {
-      if (id === applyId.current) toastError(caught instanceof Error ? caught.message : 'Could not save that change', { heading: 'Could not save that change' })
-      throw caught
-    } finally {
-      if (id === applyId.current) setRefreshing(false)
-    }
-  }
-
-  useEffect(() => {
-    let cancel = false
-    const pull = () => {
-      if (cancel || document.visibilityState !== 'visible') return
-      const id = applyId.current
-      void api.snapshot(listedFocus()).then((snap) => {
-        if (!cancel) showIfChanged(snap, id)
-      }).catch(() => undefined)
-    }
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return
-      const id = applyId.current
-      const page = pageRef.current
-      void api.snapshot(listedFocus()).then((snap) => {
-        if (cancel || id !== applyId.current) return
-        showIfChanged(snap, id)
-        if (page === 'mine' || page === 'review') void refresh()
-      }).catch(() => undefined)
-    }
-    ;(async () => {
-      let snap: Snapshot | null = null
-      try {
-        snap = await api.snapshot(listedFocus())
-        if (!cancel) {
-          const next = adopt(snap)
-          painted.current = snapshotKey(next)
-          setData(next)
-        }
-      } catch (caught) {
-        if (!cancel) toastError(caught instanceof Error ? caught.message : 'Could not load the saved list', { heading: 'Could not load the saved list' })
-      } finally {
-        if (!cancel) setBooting(false)
-      }
-      const page = pageRef.current
-      if (!snap || snap.repos.length === 0) return
-      if (page === 'mine' || page === 'review') await refresh()
-    })()
-    const timer = window.setInterval(pull, SNAPSHOT_POLL_MS)
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      cancel = true
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (previousPage.current === prefs.page) return
-    previousPage.current = prefs.page
-    if (prefs.page !== 'mine' && prefs.page !== 'review') return
-    void refresh({ feedback: 'always' })
-  }, [prefs.page])
-
-  useEffect(() => {
-    let cancel = false
-    const tick = () => {
-      if (document.visibilityState !== 'visible') return
-      void api.mergeQueue().then((next) => {
-        if (cancel) return
-        const done = new Set(
-          next.history.filter((entry) => entry.status === 'done' || entry.status === 'cancelled').map((entry) => entry.id),
-        )
-        const finished = [...seenQueue.current].some((id) => done.has(id))
-        seenQueue.current = new Set(next.entries.map((entry) => entry.id))
-        setQueue(next)
-        if (finished) void refresh({ force: true, focus: 'mine' })
-      }).catch(() => undefined)
-    }
-    tick()
-    const timer = window.setInterval(tick, 1000)
-    return () => {
-      cancel = true
-      window.clearInterval(timer)
-    }
-  }, [])
-
-  const syncWatch = prefs.page === 'settings' || refreshing || sync?.activity != null || (sync?.queue.length ?? 0) > 0
-  useEffect(() => {
-    if (!syncWatch) return
-    let cancel = false
-    const tick = () => {
-      void api.status().then((next) => {
-        if (cancel) return
-        const busy = next.activity != null || next.queue.length > 0
-        const finished = syncBusy.current && !busy
-        syncBusy.current = busy
-        setSync(next)
-        if (refreshing || busy) {
-          if (next.message !== 'Idle') setStatus(next.message)
-          if (next.total > 0) setProgress({ completed: next.completed, total: next.total })
-        }
-        if (busy || finished) {
-          void api.snapshot(listedFocus()).then((snap) => {
-            if (!cancel) showIfChanged(snap, applyId.current)
-          }).catch(() => undefined)
-        }
-        if (finished && !refreshing) {
-          setStatus('Idle')
-          setProgress(null)
-        }
-      }).catch(() => undefined)
-    }
-    tick()
-    const timer = window.setInterval(tick, refreshing || sync?.activity != null ? 400 : 2000)
-    return () => {
-      cancel = true
-      window.clearInterval(timer)
-    }
-  }, [syncWatch, refreshing, sync?.activity != null])
 
   const linearHint = Boolean(
     !linearHintHidden &&
@@ -558,10 +293,8 @@ export function App() {
   const syncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt ?? null) : (data?.mineSyncedAt ?? data?.syncedAt ?? null)
 
   const applyFeedback = useCallback((key: string, counts: FeedbackCounts) => {
-    setData((current) => {
-      if (!current) return current
-      const patch = (pr: Snapshot['pullRequests'][number]) =>
-        pr.key === key ? { ...pr, ...counts, feedbackAt: pr.updatedAt } : pr
+    snapshot.patch((current) => {
+      const patch = (pr: PullRequest) => (pr.key === key ? { ...pr, ...counts, feedbackAt: pr.updatedAt } : pr)
       return {
         ...current,
         pullRequests: current.pullRequests.map(patch),
@@ -733,8 +466,7 @@ export function App() {
               mineSyncedAt={data?.mineSyncedAt ?? null}
               reviewSyncedAt={data?.reviewSyncedAt ?? null}
               onEnqueue={function enqueue(kind) {
-                const focus = pageRef.current === 'review' ? 'review' : 'mine'
-                void api.enqueueSync(kind, focus).then(setSync).catch((caught) => {
+                void api.enqueueSync(kind, snapshot.focus()).then(setSync).catch((caught) => {
                   toastError(caught instanceof Error ? caught.message : 'Could not queue that sync', {
                     heading: 'Could not queue that sync',
                     onRetry: () => enqueue(kind),
@@ -766,18 +498,16 @@ export function App() {
               mergeUnapproved={prefs.mergeUnapproved}
               onMergeUnapproved={(mergeUnapproved) => setPrefs((current) => ({ ...current, mergeUnapproved }))}
               onAddRepo={async (repo) => {
-                const snap = await api.addRepo(repo)
-                setData(adopt(snap))
-                const focus = pageRef.current === 'review' ? 'review' : 'mine'
-                void refresh({ force: true, full: true, focus })
+                snapshot.show(await api.addRepo(repo))
+                void refresh({ force: true, full: true, focus: snapshot.focus() })
               }}
               onRemoveRepo={async (repo) => {
-                setData(adopt(await api.removeRepo(repo)))
+                snapshot.show(await api.removeRepo(repo))
               }}
               onRepoMark={async (repo, mark) => {
-                setData(adopt(await api.setRepoMark(repo, mark)))
+                snapshot.show(await api.setRepoMark(repo, mark))
               }}
-              onAgents={(snap) => setData(adopt(snap))}
+              onAgents={snapshot.show}
               t3Origin={prefs.t3Origin}
               onT3Origin={(t3Origin) => setPrefs((current) => ({ ...current, t3Origin }))}
               t3PairPrompt={prefs.t3PairPrompt}
@@ -906,9 +636,7 @@ export function App() {
               }}
               onStackMerge={(key) => queueMerge(key, 'downstack')}
               onMarkReady={async (key) => {
-                const snap = await api.markReady(key)
-                ++applyId.current
-                setData(adopt(snap))
+                snapshot.replace(await api.markReady(key))
               }}
               holds={holds}
               onRerun={async function rerun(keys, mode): Promise<string> {
@@ -934,17 +662,13 @@ export function App() {
               }}
               onRebase={async (key) => {
                 try {
-                  const snap = await api.rebase(key)
-                  ++applyId.current
-                  setData(adopt(snap))
+                  snapshot.replace(await api.rebase(key))
                 } finally {
                   void refresh({ force: true })
                 }
               }}
               onRefreshPr={async (key) => {
-                const snap = await api.refreshPull(key)
-                ++applyId.current
-                setData(adopt(snap))
+                snapshot.replace(await api.refreshPull(key))
               }}
               agentRouting={data?.agents}
               t3Origin={prefs.t3Origin}
@@ -955,8 +679,7 @@ export function App() {
                 setStarting((current) => [...current, { key, session }])
                 try {
                   const result = await api.startAgent(key, request, provider)
-                  ++applyId.current
-                  setData(adopt(result.snapshot))
+                  snapshot.replace(result.snapshot)
                   return { url: result.url }
                 } finally {
                   // Taken away in the same turn as the list with the real one is put in, so the count never dips.
@@ -970,111 +693,5 @@ export function App() {
     </RepoMarksProvider>
     </MenuProvider>
     </PrLinksProvider>
-  )
-}
-
-function freshness(iso: string | null, now: number): 'fresh' | 'aging' | 'stale' {
-  if (!iso) return 'stale'
-  const then = Date.parse(iso)
-  if (Number.isNaN(then)) return 'stale'
-  const age = now - then
-  if (age > STALE_MS) return 'stale'
-  if (age > FRESH_MS) return 'aging'
-  return 'fresh'
-}
-
-function RefreshControl({
-  refreshing,
-  status,
-  progress,
-  syncedAt,
-  now,
-  onRefresh,
-}: {
-  refreshing: boolean
-  status: string
-  progress: RefreshProgress | null
-  syncedAt: string | null
-  now: number
-  onRefresh: () => void
-}) {
-  const text = status && status !== 'Idle' ? status : 'Refreshing'
-  const known = progress != null && progress.total > 0
-  const label = refreshing ? text : syncedAt ? `Refresh. Last updated ${formatExact(syncedAt)}` : 'Refresh. Not updated yet'
-  return (
-    <div className="refresh-cluster">
-      {refreshing ? (
-        <div className="refresh-activity" aria-live="polite">
-          <span className="refresh-text" title={text}>
-            {text}
-          </span>
-          {known ? (
-            <span
-              className="refresh-bar"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={progress.total}
-              aria-valuenow={progress.completed}
-              aria-label="Refresh progress"
-            >
-              <span style={{ width: `${Math.min(100, (progress.completed / progress.total) * 100)}%` }} />
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      <button
-        type="button"
-        className="tool-btn refresh-tool"
-        disabled={refreshing}
-        aria-busy={refreshing}
-        aria-label={label}
-        title={label}
-        onClick={onRefresh}
-      >
-        <SyncArrows spinning={refreshing} />
-        {refreshing ? null : <span className={`pip ${freshness(syncedAt, now)}`} />}
-      </button>
-    </div>
-  )
-}
-
-function AgentsButton({ statuses, pressed, onClick }: { statuses: AgentSessionStatus[]; pressed: boolean; onClick: () => void }) {
-  const { running, waiting, label } = agentsSummary(statuses)
-  return (
-    <button type="button" className="tool-btn agents-tool" data-state={running > 0 ? 'active' : undefined} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="9" width="16" height="11" rx="3" />
-        <path d="M12 5v4M9 14v1.5M15 14v1.5M2 13.5v3M22 13.5v3" />
-        <circle cx="12" cy="3.5" r="1.5" />
-      </svg>
-      {running > 0 ? <Roll className="tool-count" value={running} /> : null}
-      {waiting > 0 ? <span className="pip waiting" /> : null}
-    </button>
-  )
-}
-
-function QueueButton({ queue, pressed, onClick }: { queue: QueueSnapshot | null; pressed: boolean; onClick: () => void }) {
-  const { count, held, state, label } = queueSummary(queue?.entries ?? [])
-  return (
-    <button type="button" className="tool-btn queue-tool" data-state={state} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="18" cy="18" r="3" />
-        <circle cx="6" cy="6" r="3" />
-        <path d="M6 21V9a9 9 0 0 0 9 9" />
-      </svg>
-      {count > 0 ? <span className="tool-count">{count}</span> : null}
-      {held > 0 ? <span className="pip held" /> : null}
-    </button>
-  )
-}
-
-function SyncArrows({ spinning }: { spinning: boolean }) {
-  return (
-    <svg className={spinning ? 'refresh-spin' : undefined} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 3v5h5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 16h5v5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   )
 }

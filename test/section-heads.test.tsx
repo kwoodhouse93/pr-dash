@@ -2,10 +2,11 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
-import { DEFAULT_FILTERS, DEFAULT_SORT, type Check, type PullRequest } from '../src/shared/types.ts'
+import { DEFAULT_FILTERS, DEFAULT_SORT, type PullRequest } from '../src/shared/types.ts'
 import { buildOutline, LOOSE_SECTION } from '../src/shared/view.ts'
 import { MenuProvider } from '../src/web/menus.tsx'
 import { PrTable } from '../src/web/table.tsx'
+import { pullRequest } from './support/pull.ts'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -13,73 +14,7 @@ declare global {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-function check(): Check {
-  return {
-    name: 'Check',
-    status: 'COMPLETED',
-    conclusion: 'SUCCESS',
-    required: true,
-    url: null,
-    workflowName: null,
-    workflowRunId: null,
-    startedAt: '2026-10-20T12:00:00Z',
-    completedAt: '2026-10-20T12:05:00Z',
-  }
-}
-
-function pull(number: number, linearIssues: PullRequest['linearIssues']): PullRequest {
-  const repoName = 'frontend'
-  const repo = repoName === 'frontend' ? 'initech/frontend' : `initech/${repoName}`
-  return {
-    id: `pr-${number}`,
-    key: `${repo}#${number}`,
-    repo,
-    repoName,
-    number,
-    title: `Change ${number}`,
-    url: `https://github.com/${repo}/pull/${number}`,
-    author: 'ada',
-    authorAvatarUrl: null,
-    isDraft: false,
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-10-02T00:00:00Z',
-    committedAt: '2026-10-02T00:00:00Z',
-    additions: 1,
-    deletions: 0,
-    changedFiles: 1,
-    baseRef: 'main',
-    headRef: `branch-${number}`,
-    defaultBranch: 'main',
-    squashMergeAllowed: true,
-    requiredApprovals: 1,
-    dismissStale: false,
-    requiredCheckNames: ['Check'],
-    mergeable: 'MERGEABLE',
-    mergeStateStatus: 'CLEAN',
-    reviewDecision: 'APPROVED',
-    mergeMark: 'met',
-    mergeDetail: '',
-    anyApproval: true,
-    humanApproval: true,
-    changesRequested: false,
-    reviewers: [],
-    conflict: false,
-    behind: false,
-    checks: [check()],
-    ci: 'green',
-    threadCount: 0,
-    unresolvedCount: 0,
-    awaitingYouCount: 0,
-    unreadCount: 0,
-    resolvedUnreadCount: 0,
-    commentAwaitingCount: 0,
-    reviewCommentAwaitingCount: 0,
-    reviewPending: false,
-    threadsTruncated: false,
-    linearIssues,
-    initiativeIds: [],
-  }
-}
+const pull = (number: number, linearIssues: PullRequest['linearIssues']) => pullRequest(number, { linearIssues })
 
 const issue = (identifier: string, projectName: string | null) => ({
   identifier,

@@ -578,7 +578,8 @@ function entry(title: string, number: number) {
   }
 }
 
-describe('git rebase', () => {
+// These run real git against repositories on disk, which takes most of the default five seconds on a busy machine.
+describe('git rebase', { timeout: 30_000 }, () => {
   it('puts a child branch onto trunk and does not push a conflict', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'pr-dash-git-'))
     const origin = path.join(root, 'origin.git')
