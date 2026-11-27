@@ -3,11 +3,13 @@ import { buildSidebar, drawStacks, isAppLink, linearRef, linearStayUrl, prRef, p
 import { buildStacks } from '../src/shared/stacks.ts'
 import { isT3Handoff, isT3PairLink, t3PromptAction, t3PromptUpdate } from '../desktop/src/t3-prompt.ts'
 import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
+import { pullRequest } from './support/pull.ts'
 
 const NOW = Date.parse('2026-11-19T12:00:00Z')
 
 function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
   return {
+    ...pullRequest(number),
     id: `id-${number}`,
     key: `acme/app#${number}`,
     repo: 'acme/app',
@@ -29,7 +31,7 @@ function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
     unreadCount: 0,
     reviewCommentAwaitingCount: 0,
     ...over,
-  } as PullRequest
+  }
 }
 
 function issue(identifier: string, projectName: string | null): LinearIssue {

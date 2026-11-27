@@ -5,6 +5,7 @@ import { rollup, segmentState } from '../src/shared/segments.ts'
 import { summarize } from '../src/shared/stacks.ts'
 import type { PullRequest } from '../src/shared/types.ts'
 import { ageHeat } from '../src/web/format.ts'
+import { pullRequest } from './support/pull.ts'
 
 const HOUR = 3_600_000
 const NOW = Date.parse('2026-11-19T12:00:00Z')
@@ -12,6 +13,7 @@ const ago = (hours: number) => new Date(NOW - hours * HOUR).toISOString()
 
 function pr(over: Partial<PullRequest> = {}): PullRequest {
   return {
+    ...pullRequest(1),
     id: 'a',
     key: 'acme/app#1',
     repo: 'acme/app',
@@ -19,46 +21,15 @@ function pr(over: Partial<PullRequest> = {}): PullRequest {
     number: 1,
     title: 'PR 1',
     url: 'https://github.com/acme/app/pull/1',
-    author: 'ada',
-    authorAvatarUrl: null,
-    isDraft: false,
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-10-02T00:00:00Z',
     committedAt: null,
-    additions: 1,
-    deletions: 0,
-    changedFiles: 1,
-    baseRef: 'main',
     headRef: 'topic',
-    defaultBranch: 'main',
-    squashMergeAllowed: true,
     requiredApprovals: 0,
-    dismissStale: false,
     requiredCheckNames: [],
-    mergeable: 'MERGEABLE',
-    mergeStateStatus: 'CLEAN',
     reviewDecision: null,
     mergeMark: 'none',
-    mergeDetail: '',
     anyApproval: false,
     humanApproval: false,
-    changesRequested: false,
-    reviewers: [],
-    conflict: false,
-    behind: false,
     checks: [],
-    ci: 'green',
-    threadCount: 0,
-    unresolvedCount: 0,
-    awaitingYouCount: 0,
-    unreadCount: 0,
-    resolvedUnreadCount: 0,
-    commentAwaitingCount: 0,
-    reviewCommentAwaitingCount: 0,
-    reviewPending: false,
-    threadsTruncated: false,
-    linearIssues: [],
-    initiativeIds: [],
     ...over,
   }
 }

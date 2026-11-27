@@ -13,9 +13,10 @@ import {
   scopedQueries,
 } from '../src/shared/repos.ts'
 import type { PullRequest } from '../src/shared/types.ts'
+import { pullRequest } from './support/pull.ts'
 
 function pr(repo: string, number: number): PullRequest {
-  return { key: `${repo}#${number}`, repo, repoName: repo.split('/')[1] ?? repo, number } as PullRequest
+  return { ...pullRequest(number), key: `${repo}#${number}`, repo, repoName: repo.split('/')[1] ?? repo, number }
 }
 
 describe('repository selection', () => {

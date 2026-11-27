@@ -8,6 +8,7 @@ import type { Check, AgentSession, PullRequest } from '../src/shared/types.ts'
 import type { Outline } from '../src/shared/view.ts'
 import { MenuProvider } from '../src/web/menus.tsx'
 import { PrTable } from '../src/web/table.tsx'
+import { pullRequest } from './support/pull.ts'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -50,6 +51,7 @@ function session(patch: Partial<AgentSession>): AgentSession {
 
 function pull(patch: Partial<PullRequest> = {}): PullRequest {
   return {
+    ...pullRequest(7),
     id: 'pr-7',
     key: 'acme/app#7',
     repo: 'acme/app',
@@ -57,46 +59,8 @@ function pull(patch: Partial<PullRequest> = {}): PullRequest {
     number: 7,
     title: 'Ship the queue',
     url: 'https://github.com/acme/app/pull/7',
-    author: 'ada',
-    authorAvatarUrl: null,
-    isDraft: false,
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-10-02T00:00:00Z',
-    committedAt: '2026-10-02T00:00:00Z',
-    additions: 1,
-    deletions: 0,
-    changedFiles: 1,
-    baseRef: 'main',
     headRef: 'queue',
-    defaultBranch: 'main',
-    squashMergeAllowed: true,
-    requiredApprovals: 1,
-    dismissStale: false,
-    requiredCheckNames: ['Check'],
-    mergeable: 'MERGEABLE',
-    mergeStateStatus: 'CLEAN',
-    reviewDecision: 'APPROVED',
-    mergeMark: 'met',
-    mergeDetail: '',
-    anyApproval: true,
-    humanApproval: true,
-    changesRequested: false,
-    reviewers: [],
-    conflict: false,
-    behind: false,
     checks: [check('SUCCESS')],
-    ci: 'green',
-    threadCount: 0,
-    unresolvedCount: 0,
-    awaitingYouCount: 0,
-    unreadCount: 0,
-    resolvedUnreadCount: 0,
-    commentAwaitingCount: 0,
-    reviewCommentAwaitingCount: 0,
-    reviewPending: false,
-    threadsTruncated: false,
-    linearIssues: [],
-    initiativeIds: [],
     agentSessions: [],
     ...patch,
   }

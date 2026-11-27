@@ -4,9 +4,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PullRequest } from '../src/shared/types.ts'
 import { openDatabase, type DashboardDb } from '../src/server/db.ts'
+import { pullRequest } from './support/pull.ts'
 
 function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
   return {
+    ...pullRequest(number),
     id: `id-${number}`,
     key: `acme/app#${number}`,
     repo: 'acme/app',
@@ -18,7 +20,7 @@ function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
     linearIssues: [],
     initiativeIds: [],
     ...over,
-  } as PullRequest
+  }
 }
 
 let dir = ''

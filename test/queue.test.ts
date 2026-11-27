@@ -9,6 +9,7 @@ import { reviewBypassBlock, reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
 import { rebaseOnto, rebaseOntoTip } from '../src/server/git.ts'
+import { pullRequest } from './support/pull.ts'
 
 function check(over: Partial<Check> & Pick<Check, 'name' | 'conclusion'>): Check {
   return {
@@ -25,51 +26,19 @@ function check(over: Partial<Check> & Pick<Check, 'name' | 'conclusion'>): Check
 
 function pr(over: Partial<PullRequest> & Pick<PullRequest, 'id' | 'number' | 'baseRef' | 'headRef'>): PullRequest {
   return {
+    ...pullRequest(1),
     key: `acme/app#${over.number}`,
     repo: 'acme/app',
     repoName: 'app',
     title: `PR ${over.number}`,
     url: `https://github.com/acme/app/pull/${over.number}`,
-    author: 'ada',
-    authorAvatarUrl: null,
-    isDraft: false,
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-10-02T00:00:00Z',
-    committedAt: '2026-10-02T00:00:00Z',
-    additions: 1,
-    deletions: 0,
-    changedFiles: 1,
-    defaultBranch: 'main',
-    squashMergeAllowed: true,
-    requiredApprovals: 1,
-    dismissStale: false,
-    requiredCheckNames: ['Check'],
-    mergeable: 'MERGEABLE',
     mergeStateStatus: over.baseRef === 'main' ? 'CLEAN' : 'CLEAN',
     reviewDecision: over.baseRef === 'main' ? 'APPROVED' : null,
     mergeMark: over.baseRef === 'main' ? 'met' : 'none',
-    mergeDetail: '',
-    anyApproval: true,
-    humanApproval: true,
-    changesRequested: false,
     reviewers: [
       { login: 'ada', human: true, state: 'APPROVED', submittedAt: '2026-10-02T01:00:00Z' },
     ],
-    conflict: false,
-    behind: false,
     checks: [check({ name: 'Check', conclusion: 'SUCCESS', required: true })],
-    ci: 'green',
-    threadCount: 0,
-    unresolvedCount: 0,
-    awaitingYouCount: 0,
-    unreadCount: 0,
-    resolvedUnreadCount: 0,
-    commentAwaitingCount: 0,
-    reviewCommentAwaitingCount: 0,
-    reviewPending: false,
-    threadsTruncated: false,
-    linearIssues: [],
-    initiativeIds: [],
     ...over,
   }
 }

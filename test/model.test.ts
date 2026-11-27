@@ -24,6 +24,7 @@ import { buildStacks, downstackChain, mergeLine, restackChain, summarize } from 
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { blockRails, buildOutline, LOOSE_SECTION } from '../src/shared/view.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT } from '../src/shared/types.ts'
+import { pullRequest } from './support/pull.ts'
 
 function check(over: Partial<Check> & Pick<Check, 'name' | 'conclusion'>): Check {
   return {
@@ -719,49 +720,24 @@ describe('linear', () => {
 
 function pr(over: Partial<PullRequest> & Pick<PullRequest, 'id' | 'number' | 'baseRef' | 'headRef'>): PullRequest {
   return {
+    ...pullRequest(1),
     key: `initech/frontend#${over.number}`,
     repo: 'initech/frontend',
     repoName: 'frontend',
     title: `PR ${over.number}`,
     url: `https://github.com/initech/frontend/pull/${over.number}`,
     author: 'grace',
-    authorAvatarUrl: null,
-    isDraft: false,
-    createdAt: '2026-10-01T00:00:00Z',
     updatedAt: `2026-10-0${over.number}T00:00:00Z`,
     committedAt: null,
     additions: 10,
     deletions: 1,
-    changedFiles: 1,
-    defaultBranch: 'main',
-    squashMergeAllowed: true,
     requiredApprovals: 0,
-    dismissStale: false,
     requiredCheckNames: [],
-    mergeable: 'MERGEABLE',
-    mergeStateStatus: 'CLEAN',
     reviewDecision: null,
     mergeMark: 'none',
-    mergeDetail: '',
     anyApproval: false,
     humanApproval: false,
-    changesRequested: false,
-    reviewers: [],
-    conflict: false,
-    behind: false,
     checks: [],
-    ci: 'green',
-    threadCount: 0,
-    unresolvedCount: 0,
-    awaitingYouCount: 0,
-    unreadCount: 0,
-    resolvedUnreadCount: 0,
-    commentAwaitingCount: 0,
-    reviewCommentAwaitingCount: 0,
-    reviewPending: false,
-    threadsTruncated: false,
-    linearIssues: [],
-    initiativeIds: [],
     ...over,
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { needsFreshBehind, needsFreshChecks, planCheckReads, readsAfterProbe } from '../src/shared/freshness.ts'
 import type { Check, CheckCursor, PullRequest } from '../src/shared/types.ts'
+import { pullRequest } from './support/pull.ts'
 
 const now = Date.parse('2026-11-05T12:00:00Z')
 
@@ -22,14 +23,12 @@ function cursor(readAt: string, over: Partial<CheckCursor> = {}): CheckCursor {
 
 function row(over: Partial<PullRequest> = {}): PullRequest {
   return {
+    ...pullRequest(1),
     id: 'pr-1',
     updatedAt: '2026-11-05T11:00:00Z',
     checks: [passed],
     checkCursor: cursor(new Date(now - 60_000).toISOString()),
     requiredCheckNames: ['build'],
-    behind: false,
-    mergeStateStatus: 'CLEAN',
-    mergeable: 'MERGEABLE',
     committedAt: '2026-11-05T11:00:00Z',
     ...over,
   } as PullRequest

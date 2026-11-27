@@ -6,6 +6,7 @@ import { agentsSummary } from '../src/shared/agents.ts'
 import type { AgentSession, PullRequest } from '../src/shared/types.ts'
 import { agentItems, AgentsPage } from '../src/web/agents.tsx'
 import { loadPreferences, locationSearch, withLocation } from '../src/web/prefs.ts'
+import { pullRequest } from './support/pull.ts'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -33,7 +34,7 @@ function session(patch: Partial<AgentSession>): AgentSession {
 }
 
 function pull(number: number, agentSessions: AgentSession[]): PullRequest {
-  return { key: `acme/app#${number}`, number, title: `Pull ${number}`, url: `https://github.com/acme/app/pull/${number}`, agentSessions } as PullRequest
+  return { ...pullRequest(number), key: `acme/app#${number}`, number, title: `Pull ${number}`, url: `https://github.com/acme/app/pull/${number}`, agentSessions }
 }
 
 describe('agents summary', () => {

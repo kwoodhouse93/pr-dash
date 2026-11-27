@@ -8,6 +8,7 @@ import { cursorLinks, cursorPushedBranch, cursorSessionStatus } from '../src/sha
 import type { Check, AgentSession, PullRequest } from '../src/shared/types.ts'
 import { agentTask } from '../src/server/agent-tasks.ts'
 import { openDatabase } from '../src/server/db.ts'
+import { pullRequest } from './support/pull.ts'
 
 function session(patch: Partial<AgentSession> = {}): AgentSession {
   return {
@@ -44,6 +45,7 @@ function failed(name: string): Check {
 
 function pull(patch: Partial<PullRequest> = {}): PullRequest {
   return {
+    ...pullRequest(1),
     key: 'acme/app#1',
     number: 1,
     repo: 'acme/app',
@@ -56,7 +58,7 @@ function pull(patch: Partial<PullRequest> = {}): PullRequest {
     linearIssues: [],
     agentSessions: [],
     ...patch,
-  } as PullRequest
+  }
 }
 
 function tempDb() {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { iconState, iconSvg } from '../src/shared/icon.ts'
 import type { PullRequest, Snapshot } from '../src/shared/types.ts'
+import { pullRequest } from './support/pull.ts'
 
 function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
-  return { key: `acme/app#${number}`, repo: 'acme/app', number, isDraft: false, ci: 'green', awaitingYouCount: 0, commentAwaitingCount: 0, unreadCount: 0, reviewCommentAwaitingCount: 0, reviewPending: false, squashMergeAllowed: false, ...over } as PullRequest
+  return { ...pullRequest(number), key: `acme/app#${number}`, repo: 'acme/app', number, isDraft: false, ci: 'green', awaitingYouCount: 0, commentAwaitingCount: 0, unreadCount: 0, reviewCommentAwaitingCount: 0, reviewPending: false, squashMergeAllowed: false, ...over }
 }
 
 function snapshot(mine: PullRequest[], review: PullRequest[] = []): Snapshot {

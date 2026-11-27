@@ -3,10 +3,11 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
 import { summarize } from '../src/shared/stacks.ts'
-import type { Check, PullRequest } from '../src/shared/types.ts'
+import type { PullRequest } from '../src/shared/types.ts'
 import type { Outline } from '../src/shared/view.ts'
 import { MenuProvider } from '../src/web/menus.tsx'
 import { PrTable } from '../src/web/table.tsx'
+import { pullRequest } from './support/pull.ts'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -14,22 +15,9 @@ declare global {
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-function check(): Check {
-  return {
-    name: 'Check',
-    status: 'COMPLETED',
-    conclusion: 'SUCCESS',
-    required: true,
-    url: null,
-    workflowName: null,
-    workflowRunId: null,
-    startedAt: '2026-10-20T12:00:00Z',
-    completedAt: '2026-10-20T12:05:00Z',
-  }
-}
-
 function pull(): PullRequest {
   return {
+    ...pullRequest(7),
     id: 'pr-7',
     key: 'acme/app#7',
     repo: 'acme/app',
@@ -37,46 +25,8 @@ function pull(): PullRequest {
     number: 7,
     title: 'Ship the queue',
     url: 'https://github.com/acme/app/pull/7',
-    author: 'ada',
-    authorAvatarUrl: null,
-    isDraft: false,
-    createdAt: '2026-10-01T00:00:00Z',
-    updatedAt: '2026-10-02T00:00:00Z',
-    committedAt: '2026-10-02T00:00:00Z',
-    additions: 1,
-    deletions: 0,
-    changedFiles: 1,
-    baseRef: 'main',
     headRef: 'queue',
-    defaultBranch: 'main',
-    squashMergeAllowed: true,
-    requiredApprovals: 1,
-    dismissStale: false,
-    requiredCheckNames: ['Check'],
-    mergeable: 'MERGEABLE',
-    mergeStateStatus: 'CLEAN',
-    reviewDecision: 'APPROVED',
-    mergeMark: 'met',
-    mergeDetail: '',
-    anyApproval: true,
-    humanApproval: true,
-    changesRequested: false,
     reviewers: [{ login: 'ada', human: true, state: 'APPROVED', submittedAt: '2026-10-02T01:00:00Z' }],
-    conflict: false,
-    behind: false,
-    checks: [check()],
-    ci: 'green',
-    threadCount: 0,
-    unresolvedCount: 0,
-    awaitingYouCount: 0,
-    unreadCount: 0,
-    resolvedUnreadCount: 0,
-    commentAwaitingCount: 0,
-    reviewCommentAwaitingCount: 0,
-    reviewPending: false,
-    threadsTruncated: false,
-    linearIssues: [],
-    initiativeIds: [],
   }
 }
 

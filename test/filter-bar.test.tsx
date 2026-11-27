@@ -6,6 +6,7 @@ import { DEFAULT_FILTERS, type CiLevel, type Filters, type PullRequest } from '.
 import { prMatches } from '../src/shared/view.ts'
 import { FilterBar, activeFilterLabels } from '../src/web/filter-bar.tsx'
 import { MenuProvider } from '../src/web/menus.tsx'
+import { pullRequest } from './support/pull.ts'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -15,6 +16,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 function pull(number: number, repoName: string, ci: CiLevel, over: Partial<PullRequest> = {}): PullRequest {
   return {
+    ...pullRequest(number),
     id: `pr-${number}`,
     key: `acme/${repoName}#${number}`,
     repo: `acme/${repoName}`,
@@ -34,7 +36,7 @@ function pull(number: number, repoName: string, ci: CiLevel, over: Partial<PullR
     linearIssues: [],
     awaitingYouCount: 0,
     ...over,
-  } as unknown as PullRequest
+  }
 }
 
 const PRS = [
