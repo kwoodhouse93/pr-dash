@@ -66,6 +66,7 @@ export const api = {
     }),
   agentChecks: () => request<AgentChecks>('/api/agents/checks'),
   pairT3: () => post<{ pairUrl: string; origin: string }>('/api/agents/t3/pair', {}),
+  pairT3Remote: (environmentId: string, ssh: string) => post<{ pairUrl: string; origin: string }>('/api/agents/t3/pair', { environmentId, ssh }),
   connectT3: () => post<{ authorizeUrl: string }>('/api/agents/t3/connect', {}),
   disconnectT3: () => post<Snapshot>('/api/agents/t3/disconnect', {}),
   setDefaultAgent: (defaultProvider: AgentProviderId) => post<Snapshot>('/api/agents', { defaultProvider }),

@@ -9,6 +9,7 @@ import { AgentUnavailable, refreshSessions, type AgentProvider } from '../src/se
 import { openDatabase } from '../src/server/db.ts'
 import { t3Origin } from '../src/server/t3-home.ts'
 import { parseRpc, readConnection, readPending, saveConnection, savePending } from '../src/server/t3-mcp.ts'
+import { readRemotes, saveRemote } from '../src/server/t3-remotes.ts'
 import { originRepo, remoteThread, remoteThreadLink, t3Projects, t3Session, worktreeNote } from '../src/server/t3.ts'
 
 function session(patch: Partial<AgentSession> = {}): AgentSession {
@@ -337,6 +338,8 @@ describe('T3 Code threads on a linked environment', () => {
   it('links such a thread to T3 Code, never to a page on this machine', () => {
     const link = remoteThreadLink('env-1', 'mcp:launch:abc')
     expect(link).toBe('https://app.t3.codes/threads/env-1/mcp%3Alaunch%3Aabc')
+    // Once PR Dash knows where that machine's T3 Code answers, the link is the thread's page there.
+    expect(remoteThreadLink('env-1', 'mcp:launch:abc', 'https://devbox.example.ts.net')).toBe('https://devbox.example.ts.net/threads/env-1/mcp%3Alaunch%3Aabc')
     expect(sessionLinks(session({ environmentId: 'env-1', url: link }), 'http://127.0.0.1:3773')).toEqual({ webUrl: link, appUrl: null })
   })
 
@@ -376,6 +379,17 @@ describe('T3 Code threads on a linked environment', () => {
     expect(readPending(file, at + 16 * 60_000)).toBeNull()
     savePending(null, file)
     expect(readPending(file, at)).toBeNull()
+  })
+
+  it("remembers where another machine's T3 Code answers and the SSH login for it", () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'pr-dash-t3-')), 'nested', 't3-environments.json')
+    expect(readRemotes(file)).toEqual({})
+    saveRemote('env-1', { origin: 'https://devbox.example.ts.net', ssh: 'dev@devbox' }, file)
+    saveRemote('env-2', { origin: 'https://other.example.ts.net', ssh: 'me@other' }, file)
+    expect(readRemotes(file)).toEqual({
+      'env-1': { origin: 'https://devbox.example.ts.net', ssh: 'dev@devbox' },
+      'env-2': { origin: 'https://other.example.ts.net', ssh: 'me@other' },
+    })
   })
 
   it('reads a tool reply sent as JSON or as an event stream', () => {

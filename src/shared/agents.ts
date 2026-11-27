@@ -59,6 +59,8 @@ export type T3Environment = {
   reachable: boolean
   /** Why it is not reachable. */
   detail: string | null
+  /** The SSH login a pairing link for it was last made through, to offer again. Null before the first. */
+  ssh: string | null
 }
 
 export function environmentName(environment: Pick<T3Environment, 'label' | 'host'>): string {

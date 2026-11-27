@@ -231,6 +231,7 @@ export function AgentSettingsPanel({
                 t3={{ connectedUntil: checks?.t3.connectedUntil ?? null, environments, environmentsProblem: unlisted, defaultEnvironmentId: fallback }}
                 unknown={checks === null}
                 unlisted={unlisted}
+                used={rows.flatMap((row) => (usesT3(row) ? (environmentFor(fallback, row.environmentId) ?? []) : []))}
                 running={running}
                 needed={remote}
                 busy={busy}
@@ -287,6 +288,7 @@ function T3Environments({
   t3,
   unknown,
   unlisted,
+  used,
   running,
   needed,
   busy,
@@ -299,6 +301,8 @@ function T3Environments({
   unknown: boolean
   /** Why T3 Code could not say what it is linked to, or null. */
   unlisted: string | null
+  /** The environments some repository's threads start on. */
+  used: string[]
   running: string | null
   /** Some repository's threads start on another environment, so being signed out is flagged. */
   needed: boolean
@@ -404,6 +408,98 @@ function T3Environments({
         </div>
       ) : null}
       {error ? <p className="agent-provider-line repo-error">{error}</p> : null}
+      {t3.environments
+        .filter((environment) => used.includes(environment.id))
+        .map((environment) => (
+          <RemotePairing key={environment.id} environment={environment} onPaired={onCheck} />
+        ))}
+    </>
+  )
+}
+
+/**
+ * Pairs this browser with the T3 Code on another machine, so a thread started there opens in a tab here.
+ * Only that machine can make the pairing link, so the server runs its `t3` command over SSH with the login given.
+ */
+function RemotePairing({ environment, onPaired }: { environment: T3Environment; onPaired: () => void }) {
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [login, setLogin] = useState(environment.ssh ?? '')
+  useEffect(() => setLogin(environment.ssh ?? ''), [environment.ssh])
+
+  async function pair() {
+    setBusy(true)
+    setError(null)
+    // A browser only allows a tab opened during the click. The desktop app opens one whenever asked.
+    const tab = inDesktopApp() ? null : window.open('', '_blank')
+    try {
+      const made = await api.pairT3Remote(environment.id, login.trim())
+      if (tab) tab.location.replace(made.pairUrl)
+      else window.open(made.pairUrl, '_blank')
+      setAsking(false)
+      onPaired()
+    } catch (caught) {
+      tab?.close()
+      setError(caught instanceof Error ? caught.message : `Could not pair with ${environment.label}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Tailscale answers an SSH login it wants approved with the page to approve it on.
+  const approve = error ? /https:\/\/login\.tailscale\.com\/\S+/.exec(error)?.[0] : null
+  return (
+    <>
+      {asking ? (
+        <form
+          className="agent-provider-line"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void pair()
+          }}
+        >
+          <input
+            className="search"
+            value={login}
+            onChange={(event) => setLogin(event.target.value)}
+            placeholder={`SSH login, such as dev@${environment.host ?? 'devbox'}`}
+            title={`PR Dash runs t3 on ${environment.label} over SSH to make the pairing link, which only that machine can make.`}
+            aria-label={`SSH login for ${environment.label}`}
+            spellCheck={false}
+            autoFocus
+            disabled={busy}
+          />
+          <button type="submit" className="text-btn" disabled={busy || !login.trim()}>
+            {busy ? 'Pairing…' : 'Pair'}
+          </button>
+          <button type="button" className="text-btn" disabled={busy} onClick={() => setAsking(false)}>
+            Cancel
+          </button>
+        </form>
+      ) : (
+        <div className="agent-provider-line">
+          <span
+            className="agent-connection"
+            title={`A thread on ${environment.label} opens in a tab here once this app is paired with T3 Code on that machine. T3 Code keeps a pairing for 30 days.`}
+          >
+            Open threads on {environment.label} here
+          </span>
+          <button type="button" className="ghost" onClick={() => setAsking(true)}>
+            {environment.ssh ? 'Pair again' : 'Pair'}
+          </button>
+        </div>
+      )}
+      {error ? (
+        <p className="agent-provider-line repo-error">
+          <span>{approve ? error.replace(approve, 'the page below') : error}</span>
+          {approve ? (
+            <a href={approve} target="_blank" rel="noreferrer">
+              Approve in Tailscale
+            </a>
+          ) : null}
+        </p>
+      ) : null}
     </>
   )
 }

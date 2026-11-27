@@ -2,7 +2,7 @@ import { agentBlocker, isAgentProvider, LOCAL_ENVIRONMENT, parseAgentRequest, T3
 import { agentChecks, launchAgent } from '../agents.ts'
 import { messageOf, Refused } from '../errors.ts'
 import { beginT3Connect, disconnectT3, finishT3Connect } from '../t3-mcp.ts'
-import { t3Environments, t3PairLink } from '../t3.ts'
+import { t3Environments, t3PairLink, t3RemotePairLink } from '../t3.ts'
 import { listedPull, read, repoNamed, type Routes } from './http.ts'
 
 export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
@@ -35,7 +35,11 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
   app.post('/api/agents/t3/pair', async (c) => {
     // The link lets its holder into T3 Code on this machine, so it is only made for a dashboard that is on this machine too.
     if (!loopbackOnly) throw new Refused('Pairing with T3 Code is only offered when the dashboard runs on this machine.', 403)
-    return c.json(await t3PairLink())
+    // With an environment, the pairing is with the T3 Code on that machine, made over SSH with the login given.
+    const { environmentId, ssh } = await read<{ environmentId: unknown; ssh: unknown }>(c)
+    if (environmentId === undefined) return c.json(await t3PairLink())
+    if (typeof environmentId !== 'string' || typeof ssh !== 'string') throw new Refused('Give the environment and an SSH login for it.')
+    return c.json(await t3RemotePairLink(environmentId, ssh.trim()))
   })
 
   app.post('/api/agents/t3/connect', async (c) => {

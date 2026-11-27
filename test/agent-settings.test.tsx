@@ -15,6 +15,7 @@ vi.mock('../src/web/api.ts', () => ({
     setDefaultEnvironment: vi.fn(),
     setRepoAgent: vi.fn(),
     pairT3: vi.fn(),
+    pairT3Remote: vi.fn(),
     connectT3: vi.fn(),
     disconnectT3: vi.fn(),
   },
@@ -197,7 +198,7 @@ describe('agent settings and launch', () => {
     expect(api.agentChecks).toHaveBeenCalledTimes(2)
   })
 
-  const devbox = { id: 'env-1', label: 'devbox', host: 'devbox.example.ts.net', reachable: true, detail: null }
+  const devbox = { id: 'env-1', label: 'devbox', host: 'devbox.example.ts.net', reachable: true, detail: null, ssh: null }
 
   it('says nothing about environments while T3 Code is linked to none', async () => {
     vi.mocked(api.agentChecks).mockResolvedValue(checks())
@@ -269,6 +270,38 @@ describe('agent settings and launch', () => {
     expect(document.body.textContent).not.toMatch(/no longer linked/i)
     // Each repository still says where it runs, and can be moved.
     expect(document.querySelectorAll('.agent-repo [aria-label^="Where T3 Code threads start"]').length).toBe(2)
+  })
+
+  it('pairs with the T3 Code on another machine through an SSH login, and offers that login again', async () => {
+    vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox], environmentsProblem: null } }))
+    vi.mocked(api.pairT3Remote).mockRejectedValueOnce(
+      new Error('Tailscale wants this SSH login approved first. Open https://login.tailscale.com/a/abc123 and then pair again.'),
+    )
+    vi.mocked(api.pairT3Remote).mockResolvedValue({ pairUrl: 'https://devbox.example.ts.net/pair#token=xyz', origin: 'https://devbox.example.ts.net' })
+    const tab = { location: { replace: vi.fn() }, close: vi.fn() }
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    await render(<Panel routing={routing({ defaultEnvironmentId: 'env-1' })} />)
+    const line = [...document.querySelectorAll('.agent-provider-line')].find((found) => found.textContent?.startsWith('Open threads on devbox here'))
+    await act(async () => button(line, 'Pair').click())
+    const login = document.querySelector<HTMLInputElement>('[aria-label="SSH login for devbox"]')
+    await act(async () => type(login as HTMLInputElement, ' dev@devbox.example.ts.net '))
+    await act(async () => login?.form?.requestSubmit())
+    // Tailscale holds the login until it is approved, which is a link to press, not an address to copy.
+    expect(document.querySelector<HTMLAnchorElement>('.repo-error a')?.href).toBe('https://login.tailscale.com/a/abc123')
+    expect(tab.close).toHaveBeenCalled()
+    vi.mocked(api.agentChecks).mockResolvedValue(
+      checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [{ ...devbox, ssh: 'dev@devbox.example.ts.net' }], environmentsProblem: null } }),
+    )
+    await act(async () => login?.form?.requestSubmit())
+    expect(api.pairT3Remote).toHaveBeenLastCalledWith('env-1', 'dev@devbox.example.ts.net')
+    expect(tab.location.replace).toHaveBeenCalledWith('https://devbox.example.ts.net/pair#token=xyz')
+    expect(button(document, 'Pair again')).toBeDefined()
+  })
+
+  it('offers no pairing with a machine nothing runs on', async () => {
+    vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: null, environments: [devbox], environmentsProblem: null } }))
+    await render(<Panel />)
+    expect(document.body.textContent).not.toMatch(/Open threads on devbox here/)
   })
 
   it('speaks of its sign-in to T3 Code only once a thread somewhere else needs it', async () => {

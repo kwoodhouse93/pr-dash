@@ -9,6 +9,7 @@ import type { AgentSession, AgentSessionStatus } from '../shared/types.ts'
 import { AgentUnavailable, newSession, type AgentProvider, type AgentStart } from './agent-provider.ts'
 import { T3_HOME, t3Origin } from './t3-home.ts'
 import { T3ToolError, t3ConnectedUntil, t3Tool } from './t3-mcp.ts'
+import { readRemotes, saveRemote } from './t3-remotes.ts'
 
 /** What `t3 thread show --json` prints, as far as this reads it. */
 export type T3Thread = {
@@ -169,6 +170,7 @@ function t3Status(thread: NonNullable<T3Thread['thread']>): AgentSessionStatus {
 type Link = { environmentId?: unknown; label?: unknown; urls?: unknown; status?: unknown; lastError?: unknown }
 
 function linked(items: unknown[]): T3Environment[] {
+  const remotes = readRemotes()
   return items.flatMap((item) => {
     const link = item as Link
     if (typeof link.environmentId !== 'string') return []
@@ -178,9 +180,10 @@ function linked(items: unknown[]): T3Environment[] {
       {
         id: link.environmentId,
         label: typeof link.label === 'string' && link.label ? link.label : link.environmentId,
-        host: hostOf(Array.isArray(link.urls) ? link.urls[0] : null),
+        host: hostOf(Array.isArray(link.urls) ? link.urls[0] : null) ?? hostOf(remotes[link.environmentId]?.origin),
         reachable,
         detail: reachable ? null : link.status === 'expired' ? 'Its link has run out. Link it again with `t3 environment link`.' : said,
+        ssh: remotes[link.environmentId]?.ssh ?? null,
       },
     ]
   })
@@ -256,9 +259,54 @@ async function reachableEnvironment(environmentId: string): Promise<T3Environmen
   return environment
 }
 
-/** Where a thread on another environment opens. T3 Code's own app takes it from there. */
-export function remoteThreadLink(environmentId: string, threadId: string): string {
-  return `https://app.t3.codes/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`
+/**
+ * Where a thread on another environment opens. Once PR Dash knows where that machine's T3 Code answers, it is the
+ * thread's page there, which a browser paired with it shows. Until then T3 Code's own app takes it from the link.
+ */
+export function remoteThreadLink(environmentId: string, threadId: string, origin: string | null = null): string {
+  return `${origin ?? 'https://app.t3.codes'}/threads/${encodeURIComponent(environmentId)}/${encodeURIComponent(threadId)}`
+}
+
+function remoteOrigin(environmentId: string): string | null {
+  return readRemotes()[environmentId]?.origin ?? null
+}
+
+const SSH_LOGIN = /^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*$/
+const TAILSCALE_CHECK = /https:\/\/login\.tailscale\.com\/\S+/
+
+/**
+ * A link that pairs whichever browser opens it with the T3 Code on another machine, so that browser can show the
+ * threads started there. Only that machine can make one, so its `t3` command is run over SSH, as `login`.
+ * The login and where that T3 Code answers are kept, for the next pairing and for the threads' links.
+ */
+export async function t3RemotePairLink(environmentId: string, login: string): Promise<{ pairUrl: string; origin: string }> {
+  if (!SSH_LOGIN.test(login)) throw new AgentUnavailable('unconfigured', 'Give the SSH login as user@host, such as dev@devbox.')
+  const environment = (await t3Environments()).find((item) => item.id === environmentId)
+  if (!environment) throw new AgentUnavailable('unconfigured', 'T3 Code is not linked to that environment.')
+  // T3 Code says where a linked environment answers when it is asked by its command. Failing that, it is the host signed in to.
+  const origin = remoteOrigin(environmentId) ?? `https://${environment.host ?? login.slice(login.indexOf('@') + 1)}`
+  const command = [
+    // A login without a terminal has a short PATH. These are where T3 Code puts its command.
+    'PATH="$HOME/.local/bin:$HOME/.t3/bin:$PATH"',
+    't3 auth pairing create --json --ttl 5m',
+    "--label 'PR Dash'",
+    `--base-url '${origin}'`,
+    ...PAIR_SCOPES.map((scope) => `--scope ${scope}`),
+  ].join(' ')
+  let made: string
+  try {
+    made = await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '--', login, command], { timeoutMs: 20_000 })
+  } catch (error) {
+    // Tailscale holds an SSH login until it is approved in a browser, and says where.
+    const check = TAILSCALE_CHECK.exec(messageOf(error))?.[0]
+    if (check) throw new AgentUnavailable('unconfigured', `Tailscale wants this SSH login approved first. Open ${check} and then pair again.`)
+    throw new Error(`Could not run t3 on ${login}: ${messageOf(error)}`)
+  }
+  // SSH may print a notice before what the command printed.
+  const pairUrl = parseJson<{ pairUrl?: string }>(made.slice(made.indexOf('{')))?.pairUrl
+  if (!pairUrl?.startsWith(`${origin}/`)) throw new Error(`T3 Code on ${login} did not return a pairing link.`)
+  saveRemote(environmentId, { origin, ssh: login })
+  return { pairUrl, origin }
 }
 
 async function startRemoteThread({ pr, request, task }: AgentStart, environmentId: string): Promise<AgentSession> {
@@ -289,7 +337,7 @@ async function startRemoteThread({ pr, request, task }: AgentStart, environmentI
     prompt: sessionNote(request),
     status: started.status ? t3Status({ status: started.status }) : 'creating',
     environmentId,
-    url: remoteThreadLink(environmentId, started.threadId),
+    url: remoteThreadLink(environmentId, started.threadId, remoteOrigin(environmentId)),
   })
 }
 
@@ -322,7 +370,8 @@ async function readRemoteSession(session: AgentSession, environmentId: string): 
   try {
     const shown = await t3Tool<RemoteThread>('t3_thread_read', { environmentId, threadId: session.agentId, limit: 6 })
     if (!shown.thread) throw new Error('T3 Code returned an unreadable thread.')
-    return t3Session(session, remoteThread(shown))
+    // The link follows what PR Dash has since learnt of where that machine's T3 Code answers.
+    return t3Session({ ...session, url: remoteThreadLink(environmentId, session.agentId, remoteOrigin(environmentId)) }, remoteThread(shown))
   } catch (error) {
     if (!(error instanceof T3ToolError)) throw error
     // The tool fails the same way for a thread that is gone and a machine that is off, so ask which.
