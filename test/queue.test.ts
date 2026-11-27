@@ -176,6 +176,14 @@ describe('merging without approval', () => {
     expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: null, behindBy: 0 }), 'main', ['Check'], { requiredApprovals: 0 })).toMatchObject({ action: 'wait', unexplained: true })
   })
 
+  it('is allowed when the branch is also behind its base, which the queue updates', () => {
+    expect(unapprovedMergeBlock(waiting({ mergeStateStatus: 'BEHIND', behind: true }))).toBeNull()
+    expect(unapprovedMergeBlock(waiting({ behind: true }))).toBeNull()
+    expect(unapprovedMergeBlock(waiting({ mergeStateStatus: 'BEHIND', behind: true, reviewDecision: 'APPROVED' }))).toMatch(/not waiting on an approval/)
+    expect(unapprovedMergeBlock(waiting({ mergeStateStatus: 'BEHIND', behind: true, unresolvedCount: 1 }))).toMatch(/unresolved/)
+    expect(interpretWait(live({ mergeStateStatus: 'BEHIND', reviewDecision: 'REVIEW_REQUIRED', behindBy: 2 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('behind')
+  })
+
   it('is refused for anything else that is not in place', () => {
     expect(unapprovedMergeBlock(waiting({ reviewDecision: 'APPROVED' }))).toMatch(/not waiting on an approval/)
     expect(unapprovedMergeBlock(waiting({ mergeStateStatus: 'CLEAN' }))).toMatch(/not waiting on an approval/)

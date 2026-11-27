@@ -116,10 +116,13 @@ export function awaitingApproval(pr: Pick<PullRequest, 'reviewDecision' | 'revie
 /**
  * Why a pull request cannot merge without its required approval, or null when the approval is the
  * only thing missing. GitHub reports such a pull request as blocked, so this reads the queue's own gates.
+ * To someone who may bypass the review, GitHub reports one that is also behind its base as behind,
+ * which does not block: the queue updates the branch and waits for its checks again.
  */
 export function unapprovedMergeBlock(pr: PullRequest): string | null {
   if (pr.baseRef !== pr.defaultBranch) return `#${pr.number} does not target ${pr.defaultBranch}.`
-  if (pr.mergeStateStatus !== 'BLOCKED' || !awaitingApproval(pr, pr.requiredApprovals)) {
+  const held = pr.mergeStateStatus === 'BLOCKED' || pr.mergeStateStatus === 'BEHIND'
+  if (!held || !awaitingApproval(pr, pr.requiredApprovals)) {
     return `#${pr.number} is not waiting on an approval.`
   }
   return upstackBlock(pr, { requiredApprovals: 0, dismissStale: false })
