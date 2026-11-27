@@ -169,7 +169,8 @@ describe('copy pull request ids', () => {
             onRerun={async () => ''}
             onStartAgent={async () => ({ url: 'https://example.test' })}
             onRebase={async () => {}}
-            byIssue={false}
+            flat={new Set()}
+            onToggleFlat={() => {}}
             onRefreshPr={async () => {}}
             linearConfigured={false}
             onUpdateIssue={async () => {}}

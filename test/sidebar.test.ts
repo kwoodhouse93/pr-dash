@@ -77,13 +77,13 @@ function tab(id: number, url: string, over: Partial<TabInfo> = {}): TabInfo {
 const HOME = tab(0, 'http://127.0.0.1:4318/', { pinned: true, title: 'Pull requests' })
 const QUIET: AgentState = { since: '2026-11-01T00:00:00Z', seen: {}, dismissed: [] }
 
-function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; activeId?: number; collapsed?: string[]; agentState?: AgentState; byIssue?: boolean; held?: string[]; linearByProject?: boolean } = {}) {
+function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; activeId?: number; collapsed?: string[]; agentState?: AgentState; flat?: string[]; held?: string[]; linearByProject?: boolean } = {}) {
   return buildSidebar({
     tabs: [HOME, ...tabs],
     activeId: over.activeId ?? 0,
     data,
     grouping: over.grouping ?? 'match',
-    prefs: { mineByIssue: over.byIssue ?? true, reviewByIssue: over.byIssue ?? true },
+    prefs: { mineFlat: over.flat ?? [], reviewFlat: over.flat ?? [] },
     collapsed: over.collapsed ?? [],
     linearByProject: over.linearByProject,
     agentState: over.agentState ?? QUIET,
@@ -228,8 +228,8 @@ describe('sidebar tabs', () => {
     ])
   })
 
-  it('drops the issue level when the dashboard does not group by issue', () => {
-    expect(outline(build(tabs, data, { byIssue: false }).nodes).slice(0, 4)).toEqual(['group:Invitations', '  #1', '    CI run', '  #2'])
+  it('drops the issue level of a section the dashboard does not group by issue', () => {
+    expect(outline(build(tabs, data, { flat: ['project:Invitations'] }).nodes).slice(0, 4)).toEqual(['group:Invitations', '  #1', '    CI run', '  #2'])
   })
 
   it('lists tabs in the order they were opened when grouping is off', () => {

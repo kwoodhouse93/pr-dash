@@ -179,7 +179,8 @@ describe('agents', () => {
             onRerun={async () => ''}
             onStartAgent={onStartAgent}
             onRebase={async () => {}}
-            byIssue={false}
+            flat={new Set()}
+            onToggleFlat={() => {}}
             onRefreshPr={async () => {}}
             linearConfigured={options.linearConfigured ?? false}
             onUpdateIssue={async () => {}}

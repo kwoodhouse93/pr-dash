@@ -419,7 +419,14 @@ tr.section .section-title {
   flex-wrap: wrap;
 }
 .section-line .section-title { margin-right: 0; }
-tr.fold { cursor: pointer; }
+button.section-title {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .section-toggle {
   flex: none;
   display: inline-grid;

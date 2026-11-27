@@ -272,13 +272,18 @@ export function outlineEmpty(outline: Outline): boolean {
   )
 }
 
+/** The id of the section for issues with no project, as a section that can be listed flat. A project's is its own id. */
+export const LOOSE_SECTION = 'band:loose'
+const NONE_FLAT: ReadonlySet<string> = new Set()
+
+/** `flat` names the sections that list their pull requests without a heading for each issue. */
 export function buildOutline(
   prs: PullRequest[],
   initiatives: Initiative[],
   filters: Filters,
   sort: Sort,
   attention: Attention = 'author',
-  byIssue = true,
+  flat: ReadonlySet<string> = NONE_FLAT,
   viewer: string | null = null,
 ): Outline {
   const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
@@ -294,14 +299,13 @@ export function buildOutline(
     )
 
   const projectIssues = new Map<string, { project: string; identifier: string; title: string; href: string | null }>()
-  const projectNames = new Set<string>()
+  const byProject = new Map<string, { identifier: string; title: string; href: string | null }[]>()
   const looseIssues = new Map<string, { identifier: string; title: string; href: string | null }>()
   for (const pr of prs) {
     const inProject = pr.linearIssues.filter((issue) => issue.projectName)
     if (inProject.length) {
       for (const issue of inProject) {
-        projectNames.add(issue.projectName!)
-        if (!byIssue) continue
+        if (!byProject.has(issue.projectName!)) byProject.set(issue.projectName!, [])
         const key = `${issue.projectName}\0${issue.identifier}`
         if (projectIssues.has(key)) continue
         projectIssues.set(key, {
@@ -313,7 +317,7 @@ export function buildOutline(
       }
       continue
     }
-    if (!byIssue || pr.initiativeIds.length) continue
+    if (pr.initiativeIds.length) continue
     for (const issue of pr.linearIssues) {
       if (looseIssues.has(issue.identifier)) continue
       looseIssues.set(issue.identifier, {
@@ -324,21 +328,12 @@ export function buildOutline(
     }
   }
 
-  const byProject = new Map<string, { identifier: string; title: string; href: string | null }[]>()
-  if (byIssue) {
-    for (const issue of projectIssues.values()) {
-      const list = byProject.get(issue.project) ?? []
-      list.push(issue)
-      byProject.set(issue.project, list)
-    }
-  } else {
-    for (const project of projectNames) byProject.set(project, [])
-  }
+  for (const issue of projectIssues.values()) byProject.get(issue.project)!.push(issue)
 
   const projects: ProjectGroup[] = []
   for (const [project, issues] of byProject) {
     const buckets = sortBuckets(
-      byIssue
+      !flat.has(`project:${project}`)
         ? issues.flatMap((issue) => {
             const bucket = toBucket(
               `project:${project}:${issue.identifier}`,
@@ -398,8 +393,17 @@ export function buildOutline(
     sort,
   )
 
-  const loose = !byIssue
-    ? []
+  const inLoose = (pr: PullRequest) => !hasProject(pr) && pr.initiativeIds.length === 0
+  const loose = flat.has(LOOSE_SECTION)
+    ? flatBucket(
+        toBucket(
+          'loose:all',
+          null,
+          null,
+          null,
+          blocksFor((pr) => inLoose(pr) && pr.linearIssues.length > 0, 'grouped elsewhere'),
+        ),
+      )
     : sortBuckets(
         [...looseIssues.values()].flatMap((issue) => {
           const bucket = toBucket(
@@ -408,10 +412,7 @@ export function buildOutline(
             issue.href,
             issue.identifier,
             blocksFor(
-              (pr) =>
-                !hasProject(pr) &&
-                pr.initiativeIds.length === 0 &&
-                pr.linearIssues.some((item) => item.identifier === issue.identifier),
+              (pr) => inLoose(pr) && pr.linearIssues.some((item) => item.identifier === issue.identifier),
               'other issues',
             ),
           )
@@ -429,10 +430,7 @@ export function buildOutline(
       null,
       null,
       null,
-      blocksFor(
-        (pr) => !hasProject(pr) && pr.initiativeIds.length === 0 && (!byIssue || pr.linearIssues.length === 0),
-        'grouped elsewhere',
-      ),
+      blocksFor((pr) => inLoose(pr) && pr.linearIssues.length === 0, 'grouped elsewhere'),
     ),
   }
 }

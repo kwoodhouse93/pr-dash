@@ -116,7 +116,7 @@ export class Tabs {
   private readonly agentFile: string
   private agentState: AgentState
   private data: Snapshot | null = null
-  private prefs: DashboardPrefs = { mineByIssue: true, reviewByIssue: true }
+  private prefs: DashboardPrefs = { mineFlat: [], reviewFlat: [] }
   /** The dashboard's colour theme, which the window follows. */
   private theme: Theme
   private overlay = false
@@ -421,15 +421,15 @@ export class Tabs {
     const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
     if (typeof raw !== 'string') return
     const { views, sort, theme, t3Origin, t3PairPrompt } = JSON.parse(raw) as {
-      views?: Record<string, { byIssue?: boolean } | undefined>
+      views?: Record<string, { flat?: unknown } | undefined>
       sort?: Partial<Sort>
       theme?: unknown
       t3Origin?: unknown
       t3PairPrompt?: unknown
     }
     this.prefs = {
-      mineByIssue: views?.mine?.byIssue !== false,
-      reviewByIssue: views?.review?.byIssue !== false,
+      mineFlat: flatSections(views?.mine?.flat),
+      reviewFlat: flatSections(views?.review?.flat),
       sort: typeof sort?.key === 'string' && (sort.dir === 'asc' || sort.dir === 'desc') ? { key: sort.key, dir: sort.dir } : undefined,
       t3Origin: typeof t3Origin === 'string' ? t3Origin : null,
       t3PairPrompt: t3PairPrompt !== false,
@@ -957,4 +957,8 @@ function readAgentState(file: string): AgentState {
     // Kept in memory for this run.
   }
   return fresh
+}
+
+function flatSections(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : []
 }

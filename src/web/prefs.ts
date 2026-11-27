@@ -11,7 +11,8 @@ export type ListPage = 'mine' | 'review'
 
 export type ListPreferences = {
   filters: Filters
-  byIssue: boolean
+  /** The sections that list their pull requests without a heading for each issue. */
+  flat: string[]
 }
 
 export type Preferences = {
@@ -36,16 +37,13 @@ export type Preferences = {
 export function loadPreferences(): Preferences {
   try {
     const raw = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? 'null') as
-      | (Partial<Preferences> & { filters?: Partial<Filters>; byIssue?: boolean })
+      | (Partial<Preferences> & { filters?: Partial<Filters> })
       | null
     if (!raw) return fresh()
     const key = SORT_KEYS.has(raw.sort?.key as SortKey) ? (raw.sort!.key as SortKey) : DEFAULT_SORT.key
     const dir = raw.sort?.dir === 'asc' || raw.sort?.dir === 'desc' ? raw.sort.dir : DEFAULT_SORT.dir
     const page: DashboardPage = raw.page === 'review' || raw.page === 'activity' || raw.page === 'agents' || raw.page === 'queue' || raw.page === 'settings' ? raw.page : 'mine'
-    const legacy = {
-      filters: { ...DEFAULT_FILTERS, ...(raw.filters ?? {}) },
-      byIssue: raw.byIssue !== false,
-    }
+    const legacy = { ...DEFAULT_FILTERS, ...(raw.filters ?? {}) }
     return {
       sort: { key, dir },
       views: {
@@ -75,8 +73,8 @@ function fresh(): Preferences {
   return {
     sort: DEFAULT_SORT,
     views: {
-      mine: { filters: { ...DEFAULT_FILTERS }, byIssue: true },
-      review: { filters: { ...DEFAULT_FILTERS }, byIssue: true },
+      mine: { filters: { ...DEFAULT_FILTERS }, flat: [] },
+      review: { filters: { ...DEFAULT_FILTERS }, flat: [] },
     },
     expanded: [],
     collapsed: [],
@@ -92,11 +90,11 @@ function fresh(): Preferences {
 
 function loadListPreferences(
   raw: Partial<ListPreferences> | undefined,
-  fallback: ListPreferences,
+  fallback: Filters,
 ): ListPreferences {
   return {
-    filters: { ...DEFAULT_FILTERS, ...fallback.filters, ...(raw?.filters ?? {}) },
-    byIssue: raw?.byIssue ?? fallback.byIssue,
+    filters: { ...fallback, ...(raw?.filters ?? {}) },
+    flat: Array.isArray(raw?.flat) ? raw.flat.filter((id) => typeof id === 'string') : [],
   }
 }
 

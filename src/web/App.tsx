@@ -528,9 +528,10 @@ export function App() {
   }, [mine, review])
   const prByKey = useMemo(() => new Map(prs.map((pr) => [pr.key, pr])), [prs])
   const viewer = data?.viewer ?? null
+  const flat = useMemo(() => new Set(viewPrefs.flat), [viewPrefs.flat])
   const outline = useMemo(
-    () => buildOutline(prs, initiatives, viewPrefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', viewPrefs.byIssue, viewer),
-    [prs, initiatives, viewPrefs, prefs.sort, page, viewer],
+    () => buildOutline(prs, initiatives, viewPrefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', flat, viewer),
+    [prs, initiatives, viewPrefs.filters, flat, prefs.sort, page, viewer],
   )
   const repos = useMemo(() => {
     const names = [...new Set(prs.map((pr) => pr.repo))]
@@ -697,7 +698,6 @@ export function App() {
             page={page}
             filters={viewPrefs.filters}
             filtersOn={filtersOn}
-            byIssue={viewPrefs.byIssue}
             prs={prs}
             repos={repos}
             initiatives={initiatives}
@@ -705,15 +705,6 @@ export function App() {
             matched={matched}
             onPatch={patchFilters}
             onClear={() => patchFilters(DEFAULT_FILTERS)}
-            onByIssue={(byIssue) =>
-              setPrefs((current) => {
-                const target = current.page === 'review' ? 'review' : 'mine'
-                return {
-                  ...current,
-                  views: { ...current.views, [target]: { ...current.views[target], byIssue } },
-                }
-              })
-            }
             onManageInitiatives={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
           />
         ) : null}
@@ -878,7 +869,15 @@ export function App() {
                   return api.assign(created.id, keys, 'add')
                 })
               }}
-              byIssue={viewPrefs.byIssue}
+              flat={flat}
+              onToggleFlat={(id) =>
+                setPrefs((current) => {
+                  const target = current.page === 'review' ? 'review' : 'mine'
+                  const view = current.views[target]
+                  const flat = view.flat.includes(id) ? view.flat.filter((item) => item !== id) : [...view.flat, id]
+                  return { ...current, views: { ...current.views, [target]: { ...view, flat } } }
+                })
+              }
               linearConfigured={Boolean(data?.linearConfigured)}
               viewer={viewer}
               onFeedback={applyFeedback}

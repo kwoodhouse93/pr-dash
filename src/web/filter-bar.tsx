@@ -65,7 +65,6 @@ export function FilterBar({
   page,
   filters,
   filtersOn,
-  byIssue,
   prs,
   repos,
   initiatives,
@@ -73,13 +72,11 @@ export function FilterBar({
   matched,
   onPatch,
   onClear,
-  onByIssue,
   onManageInitiatives,
 }: {
   page: ListPage
   filters: Filters
   filtersOn: boolean
-  byIssue: boolean
   prs: PullRequest[]
   repos: string[]
   initiatives: Initiative[]
@@ -87,7 +84,6 @@ export function FilterBar({
   matched: number
   onPatch: (patch: Partial<Filters>) => void
   onClear: () => void
-  onByIssue: (next: boolean) => void
   onManageInitiatives: () => void
 }) {
   const input = useRef<HTMLInputElement>(null)
@@ -221,16 +217,6 @@ export function FilterBar({
             </>
           )}
         </span>
-        <span className="filter-rule" aria-hidden="true" />
-        <button
-          type="button"
-          className="chip view"
-          aria-pressed={byIssue}
-          title="Group pull requests under each Linear issue. Projects and initiatives stay either way."
-          onClick={() => onByIssue(!byIssue)}
-        >
-          Group by issue
-        </button>
       </div>
     </div>
   )

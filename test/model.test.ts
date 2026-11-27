@@ -22,7 +22,7 @@ import { mergeLinkedIssues, parseLinear } from '../src/shared/linear.ts'
 import { requiredCheckNames } from '../src/shared/rules.ts'
 import { buildStacks, downstackChain, mergeLine, restackChain, summarize } from '../src/shared/stacks.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
-import { blockRails, buildOutline } from '../src/shared/view.ts'
+import { blockRails, buildOutline, LOOSE_SECTION } from '../src/shared/view.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT } from '../src/shared/types.ts'
 
 function check(over: Partial<Check> & Pick<Check, 'name' | 'conclusion'>): Check {
@@ -890,7 +890,7 @@ describe('stacks and grouping', () => {
     ])
   })
 
-  it('keeps project sections and drops only the issue layer when not grouped by issue', () => {
+  it('drops the issue layer of a project that is not grouped by issue, and of no other section', () => {
     const prs = [
       pr({
         id: 'a',
@@ -921,7 +921,7 @@ describe('stacks and grouping', () => {
       DEFAULT_FILTERS,
       DEFAULT_SORT,
       'author',
-      false,
+      new Set(['project:Updates']),
     )
     expect(view.projects.map((project) => project.title)).toEqual(['Updates'])
     expect(view.projects[0]?.issues).toHaveLength(1)
@@ -932,12 +932,13 @@ describe('stacks and grouping', () => {
       1,
     ])
     expect(view.initiatives).toEqual([])
-    expect(view.looseIssues).toEqual([])
-    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
+    expect(view.looseIssues.map((bucket) => bucket.issueId)).toEqual(['ENG-2'])
+    expect(view.looseIssues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
       'above',
       2,
       'below',
     ])
+    expect(view.unassigned).toBeNull()
   })
 
   it('keeps a stack intact under its project when not grouped by issue', () => {
@@ -959,7 +960,7 @@ describe('stacks and grouping', () => {
     ]
     const grouped = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT)
     expect(grouped.projects[0]?.issues.map((issue) => issue.issueId).sort()).toEqual(['ENG-1', 'ENG-2'])
-    const view = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT, 'author', false)
+    const view = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT, 'author', new Set(['project:Updates']))
     expect(view.projects[0]?.issues).toHaveLength(1)
     expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
       2,
@@ -969,7 +970,7 @@ describe('stacks and grouping', () => {
     expect(view.unassigned).toBeNull()
   })
 
-  it('keeps an initiative when not grouped by issue and folds loose issues into the remainder', () => {
+  it('lists issues with no project in one run when that section is not grouped by issue', () => {
     const tagged = pr({
       id: 'i',
       number: 4,
@@ -990,12 +991,13 @@ describe('stacks and grouping', () => {
       DEFAULT_FILTERS,
       DEFAULT_SORT,
       'author',
-      false,
+      new Set([LOOSE_SECTION]),
     )
     expect(view.initiatives.map((bucket) => bucket.title)).toEqual(['Auth cleanup'])
     expect(view.projects).toEqual([])
-    expect(view.looseIssues).toEqual([])
-    expect(view.unassigned?.singles.map((block) => block.summary.number)).toEqual([5])
+    expect(view.looseIssues.map((bucket) => bucket.title)).toEqual([null])
+    expect(view.looseIssues[0]?.singles.map((block) => block.summary.number)).toEqual([5])
+    expect(view.unassigned).toBeNull()
   })
 
   it('groups a tagged slice of a stack under an initiative', () => {
@@ -1074,7 +1076,7 @@ describe('stacks and grouping', () => {
     })
     const prs = [approvedByMe, approvedByOther, changesByMe, botNamedLikeMe]
     const numbers = (filters: typeof DEFAULT_FILTERS, viewer: string | null) =>
-      buildOutline(prs, [], filters, DEFAULT_SORT, 'reviewer', true, viewer)
+      buildOutline(prs, [], filters, DEFAULT_SORT, 'reviewer', undefined, viewer)
         .unassigned?.singles.map((block) => block.summary.number)
         .sort() ?? []
 

@@ -157,7 +157,8 @@ describe('merge action', () => {
             onRerun={async () => ''}
             onStartAgent={async () => ({ url: 'https://example.test' })}
             onRebase={async () => {}}
-            byIssue={false}
+            flat={new Set()}
+            onToggleFlat={() => {}}
             onRefreshPr={async () => {}}
             linearConfigured={false}
             onUpdateIssue={async () => {}}

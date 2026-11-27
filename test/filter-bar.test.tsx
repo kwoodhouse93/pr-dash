@@ -56,7 +56,6 @@ function Harness({ start }: { start: Filters }) {
         page="mine"
         filters={filters}
         filtersOn={JSON.stringify(filters) !== JSON.stringify(DEFAULT_FILTERS)}
-        byIssue
         prs={PRS}
         repos={['acme/api', 'acme/web']}
         initiatives={[]}
@@ -64,7 +63,6 @@ function Harness({ start }: { start: Filters }) {
         matched={PRS.filter((pr) => prMatches(pr, filters, names, 'author', 'ada')).length}
         onPatch={(patch) => setFilters((current) => ({ ...current, ...patch }))}
         onClear={() => setFilters(DEFAULT_FILTERS)}
-        onByIssue={() => {}}
         onManageInitiatives={() => {}}
       />
     </MenuProvider>

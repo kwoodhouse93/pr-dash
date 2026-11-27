@@ -20,7 +20,7 @@ import { downstackKeys, mergeLineKeys, upstackKeys, type Parents, type StackSumm
 import { rollup, SEGMENT_LABEL, segmentState, type SegmentState } from '../shared/segments.ts'
 import { RepoIcon } from './repo-mark.tsx'
 import type { AgentRouting, AgentSession, Check, Initiative, LinearIssue, MergeMark, PullRequest, Sort, SortKey } from '../shared/types.ts'
-import { blockRails, type Bucket, type Outline, type ProjectGroup, type StackBlock } from '../shared/view.ts'
+import { blockRails, LOOSE_SECTION, type Bucket, type Outline, type ProjectGroup, type StackBlock } from '../shared/view.ts'
 import { AgentDrawer, AgentList } from './agents.tsx'
 import { AgentProvider, launchTag, useAgentLaunch, useAgentName, useSessionLinks, type StartAgent } from './agent-launch.tsx'
 import { TagEditor } from './editors.tsx'
@@ -109,7 +109,8 @@ export function PrTable({
   agentRouting,
   t3Origin,
   onRebase,
-  byIssue,
+  flat,
+  onToggleFlat,
   onRefreshPr,
   linearConfigured,
   onUpdateIssue,
@@ -149,7 +150,9 @@ export function PrTable({
   /** The T3 Code this browser is paired with, so its threads open in a tab. */
   t3Origin?: string | null
   onRebase: (key: string) => Promise<void>
-  byIssue: boolean
+  /** The sections that list their pull requests without a heading for each issue. */
+  flat: ReadonlySet<string>
+  onToggleFlat: (id: string) => void
   onRefreshPr: (key: string) => Promise<void>
   linearConfigured: boolean
   onUpdateIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) => Promise<void>
@@ -176,6 +179,8 @@ export function PrTable({
     collapsed,
     onToggle,
     onToggleSection,
+    flat,
+    onToggleFlat,
     onAssign,
     onCreateAssigned,
     onMerge,
@@ -238,14 +243,20 @@ export function PrTable({
           </SectionBand>
         ) : null}
         {outline.looseIssues.length ? (
-          <SectionBand id="band:loose" title="Issues with no project" collapsed={collapsed} onToggle={onToggleSection}>
+          <SectionBand
+            id={LOOSE_SECTION}
+            title="Issues with no project"
+            collapsed={collapsed}
+            onToggle={onToggleSection}
+            action={<GroupToggle id={LOOSE_SECTION} flat={flat} onToggle={onToggleFlat} />}
+          >
             {outline.looseIssues.map((bucket) => (
-              <BucketRows key={bucket.id} bucket={bucket} depth={1} {...shared} />
+              <BucketRows key={bucket.id} bucket={bucket} depth={1} untitled={!bucket.title} {...shared} />
             ))}
           </SectionBand>
         ) : null}
         {outline.unassigned ? (
-          byIssue || outline.projects.length > 0 || outline.initiatives.length > 0 ? (
+          outline.projects.length > 0 || outline.initiatives.length > 0 || outline.looseIssues.length > 0 ? (
             <SectionBand id="band:unassigned" title="No issue" collapsed={collapsed} onToggle={onToggleSection}>
               <BucketRows bucket={outline.unassigned} depth={1} untitled {...shared} />
             </SectionBand>
@@ -372,6 +383,8 @@ type RowShared = {
   collapsed: Set<string>
   onToggle: (id: string) => void
   onToggleSection: (id: string) => void
+  flat: ReadonlySet<string>
+  onToggleFlat: (id: string) => void
   onAssign: (initiativeId: string, keys: string[], action: 'add' | 'remove') => Promise<void>
   onCreateAssigned: (name: string, keys: string[]) => Promise<void>
   onMerge: (key: string) => Promise<void>
@@ -394,21 +407,23 @@ function SectionBand({
   title,
   collapsed,
   onToggle,
+  action,
   children,
 }: {
   id: string
   title: string
   collapsed: Set<string>
   onToggle: (id: string) => void
+  action?: ReactNode
   children: ReactNode
 }) {
   const open = !collapsed.has(id)
   return (
     <>
-      <tr className="band fold" data-flip={id} onClick={(event) => toggleSection(event, () => onToggle(id))}>
+      <tr className="band" data-flip={id}>
         <td colSpan={COLUMNS}>
-          <SectionHead open={open} label={title} onToggle={() => onToggle(id)}>
-            <span className="section-title">{title}</span>
+          <SectionHead open={open} label={title} onToggle={() => onToggle(id)} action={action}>
+            <SectionTitle open={open} onToggle={() => onToggle(id)}>{title}</SectionTitle>
           </SectionHead>
         </td>
       </tr>
@@ -422,10 +437,15 @@ function ProjectRows({ project, ...shared }: { project: ProjectGroup } & RowShar
   const open = !shared.collapsed.has(project.id)
   return (
     <>
-      <tr className="project depth-1 fold" data-flip={project.id} onClick={(event) => toggleSection(event, () => shared.onToggleSection(project.id))}>
+      <tr className="project depth-1" data-flip={project.id}>
         <td colSpan={COLUMNS}>
-          <SectionHead open={open} label={project.title} onToggle={() => shared.onToggleSection(project.id)}>
-            <span className="section-title">{project.title}</span>
+          <SectionHead
+            open={open}
+            label={project.title}
+            onToggle={() => shared.onToggleSection(project.id)}
+            action={<GroupToggle id={project.id} flat={shared.flat} onToggle={shared.onToggleFlat} />}
+          >
+            <SectionTitle open={open} onToggle={() => shared.onToggleSection(project.id)}>{project.title}</SectionTitle>
             <span className="section-meta">{count === 1 ? '1 pull request' : `${count} pull requests`}</span>
             <SectionRollup buckets={project.issues} prByKey={shared.prByKey} mode={shared.mode} />
           </SectionHead>
@@ -444,7 +464,7 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
   return (
     <>
       {collapsible ? (
-        <tr className={`section depth-${depth} fold`} data-flip={`${depth}:${bucket.id}`} onClick={(event) => toggleSection(event, () => shared.onToggleSection(bucket.id))}>
+        <tr className={`section depth-${depth}`} data-flip={`${depth}:${bucket.id}`}>
           <td colSpan={COLUMNS}>
             <SectionHead open={open} label={bucket.title!} onToggle={() => shared.onToggleSection(bucket.id)}>
               {shared.linearConfigured ? <SectionIssue bucket={bucket} onUpdateIssue={shared.onUpdateIssue} /> : null}
@@ -453,7 +473,7 @@ function BucketRows({ bucket, depth, untitled = false, ...shared }: { bucket: Bu
                   {bucket.title}
                 </a>
               ) : (
-                <span className="section-title">{bucket.title}</span>
+                <SectionTitle open={open} onToggle={() => shared.onToggleSection(bucket.id)}>{bucket.title}</SectionTitle>
               )}
               {bucket.meta ? <span className="section-meta">{bucket.meta}</span> : null}
               <SectionRollup buckets={[bucket]} prByKey={shared.prByKey} mode={shared.mode} />
@@ -479,34 +499,53 @@ function pressedControl(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, label, .drawer-back, .popover'))
 }
 
-function toggleSection(event: { target: EventTarget | null }, toggle: () => void) {
-  if (pressedControl(event.target)) return
-  toggle()
+/** A section's name, which folds the section when pressed. */
+function SectionTitle({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <button type="button" className="section-title" aria-expanded={open} onClick={onToggle}>
+      {children}
+    </button>
+  )
+}
+
+/** Whether a section lists its pull requests under a heading for each Linear issue. */
+function GroupToggle({ id, flat, onToggle }: { id: string; flat: ReadonlySet<string>; onToggle: (id: string) => void }) {
+  return (
+    <button
+      type="button"
+      className="chip view"
+      aria-pressed={!flat.has(id)}
+      title="Group this section's pull requests under each Linear issue."
+      onClick={() => onToggle(id)}
+    >
+      Group by issue
+    </button>
+  )
 }
 
 function SectionHead({
   open,
   label,
   onToggle,
+  action,
   children,
 }: {
   open: boolean
   label: string
   onToggle: () => void
+  action?: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="section-head">
       <div className="section-line">{children}</div>
+      {action}
       <button
         type="button"
         className="section-toggle"
         aria-expanded={open}
         aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
-        onClick={(event) => {
-          event.stopPropagation()
-          onToggle()
-        }}
+        onClick={onToggle}
       >
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <path d="M6 3.5 11 8 6 12.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />

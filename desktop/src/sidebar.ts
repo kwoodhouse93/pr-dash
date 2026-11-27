@@ -2,7 +2,7 @@ import { agentKindLabel, sessionActive, sessionLinks, type StartingAgent } from 
 import { layoutRails } from '../../src/shared/rails.ts'
 import { buildStacks, type Stack } from '../../src/shared/stacks.ts'
 import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type DepartedPull, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
-import { buildOutline } from '../../src/shared/view.ts'
+import { buildOutline, LOOSE_SECTION } from '../../src/shared/view.ts'
 
 // What the sidebar and the tab strip show, worked out from the open tabs and
 // the dashboard's snapshot. Nothing here touches Electron.
@@ -39,10 +39,10 @@ export type TabInfo = {
   starting?: StartingAgent | null
 }
 
-/** Whether each dashboard list groups pull requests under their Linear issue. */
+/** The sections of each dashboard list that do not group pull requests under their Linear issue. */
 export type DashboardPrefs = {
-  mineByIssue: boolean
-  reviewByIssue: boolean
+  mineFlat: string[]
+  reviewFlat: string[]
   sort?: Sort
   /** The T3 Code the dashboard is paired with, so a T3 Code thread opens in a tab. */
   t3Origin?: string | null
@@ -328,15 +328,15 @@ function dashboardLayout(data: Snapshot | null, prefs: DashboardPrefs): Layout {
   if (layoutCache && layoutCache.data === data && layoutCache.prefs === key) return layoutCache.layout
   const rank = new Map<string, number>()
   const stacks = new Map<string, Stack>()
-  for (const [prs, attention, byIssue] of [
-    [data?.pullRequests ?? [], 'author', prefs.mineByIssue],
-    [data?.reviewPullRequests ?? [], 'reviewer', prefs.reviewByIssue],
+  for (const [prs, attention, flat] of [
+    [data?.pullRequests ?? [], 'author', prefs.mineFlat],
+    [data?.reviewPullRequests ?? [], 'reviewer', prefs.reviewFlat],
   ] as const) {
     for (const stack of buildStacks(prs)) {
       if (stack.prs.length < 2) continue
       for (const pr of stack.prs) if (!stacks.has(pr.key)) stacks.set(pr.key, stack)
     }
-    const outline = buildOutline(prs, data?.initiatives ?? [], DEFAULT_FILTERS, prefs.sort ?? DEFAULT_SORT, attention, byIssue, data?.viewer ?? null)
+    const outline = buildOutline(prs, data?.initiatives ?? [], DEFAULT_FILTERS, prefs.sort ?? DEFAULT_SORT, attention, new Set(flat), data?.viewer ?? null)
     const buckets = [...outline.projects.flatMap((project) => project.issues), ...outline.initiatives, ...outline.looseIssues, ...(outline.unassigned ? [outline.unassigned] : [])]
     for (const bucket of buckets) {
       for (const block of [...bucket.stacks, ...bucket.singles]) {
@@ -434,10 +434,10 @@ function pathOf(
       return [stacks.get(pr.key) ?? { id: 'stack:none', title: 'Not stacked', last: true }]
     case 'match': {
       // The dashboard's order: a project first, then an initiative, then a bare issue.
-      const byIssue = list === 'review' ? prefs.reviewByIssue : prefs.mineByIssue
-      if (projectStep) return byIssue ? [projectStep, { id: `${projectStep.id}:${project!.identifier}`, title: issueTitle(project!) }] : [projectStep]
+      const flat = list === 'review' ? prefs.reviewFlat : prefs.mineFlat
+      if (projectStep) return !flat.includes(projectStep.id) ? [projectStep, { id: `${projectStep.id}:${project!.identifier}`, title: issueTitle(project!) }] : [projectStep]
       if (initiativeStep) return [initiativeStep]
-      if (byIssue && issue) return [{ id: `issue:${issue.identifier}`, title: issueTitle(issue) }]
+      if (issue && !flat.includes(LOOSE_SECTION)) return [{ id: `issue:${issue.identifier}`, title: issueTitle(issue) }]
       return [{ id: 'match:none', title: 'Ungrouped', last: true }]
     }
   }
