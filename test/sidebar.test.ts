@@ -16,14 +16,15 @@ import {
 } from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
 import {
+  connectAnswer,
   connectOutcome,
   isConnectAction,
   isT3ConnectLink,
   isT3Handoff,
   isT3PairLink,
-  T3_CONNECT_SCRIPT,
   T3_PROMPT_SCRIPT,
   t3PromptAction,
+  t3ConnectScript,
   t3PromptUpdate,
 } from '../desktop/src/t3-prompt.ts'
 import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
@@ -168,8 +169,13 @@ describe('the pairing note on T3 Code’s hand-off page', () => {
     // Each note offers only its own buttons.
     expect(T3_PROMPT_SCRIPT).toContain('"action":"pair"')
     expect(T3_PROMPT_SCRIPT).not.toContain('"action":"copy"')
-    expect(T3_CONNECT_SCRIPT).toContain('"action":"copy"')
-    expect(T3_CONNECT_SCRIPT).toContain('"closed":"dismiss"')
+    const note = t3ConnectScript('abc123')
+    expect(note).toContain('"action":"copy"')
+    expect(note).toContain('"closed":"dismiss"')
+    // The code is shown on the button that copies it again.
+    expect(note).toContain('"text":"Copy again:","className":"pdt-copy","code":"abc123"')
+    expect(note).toContain('Sign-in code copied to clipboard')
+    expect(t3ConnectScript('"); alert(1); ("')).toContain(JSON.stringify('"); alert(1); ("'))
   })
 
   it("knows the page where PR Dash's sign-in is approved, on this machine only", () => {
@@ -189,6 +195,10 @@ describe('the pairing note on T3 Code’s hand-off page', () => {
     expect(connectOutcome(`${back}?code=abc&state=stale`, 400, dash)).toBe('failed')
     expect(connectOutcome('http://127.0.0.1:3773/oauth/mcp/approval', 200, dash)).toBeNull()
     expect(connectOutcome('https://evil.example/agents/t3/connected?code=abc', 200, dash)).toBeNull()
+    // The answer is in the address T3 Code sends the tab to, so a denial is known before anything loads.
+    expect(connectAnswer(`${back}?error=access_denied&state=xyz`, dash)).toBe('denied')
+    expect(connectAnswer(`${back}?code=abc&state=xyz`, dash)).toBe('approved')
+    expect(connectAnswer('http://127.0.0.1:3773/oauth/mcp/approval', dash)).toBeNull()
   })
 
   it('carries a failure onto the note as text, not as markup or script', () => {

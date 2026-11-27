@@ -42,20 +42,30 @@ export function isT3ConnectLink(url: string): boolean {
 }
 
 /**
- * How a sign-in ended, from the address T3 Code sent the tab to and how the dashboard's server answered it.
- * `done` covers approved and turned down alike: both go back to Settings. `failed` is a sign-in that was
- * approved and still did not take, which that page explains. Null for any other address.
+ * What T3 Code answered a sign-in with, from the address it sends the tab to: the dashboard's own page for
+ * the answer, carrying a code when the user approved and an error when they did not. Null for any other address.
+ */
+export function connectAnswer(url: string, dashboardUrl: string): 'approved' | 'denied' | null {
+  try {
+    const sent = new URL(url)
+    if (sent.origin !== new URL(dashboardUrl).origin || sent.pathname !== T3_CONNECTED_PATH) return null
+    return sent.searchParams.has('error') ? 'denied' : 'approved'
+  } catch {
+    return null
+  }
+}
+
+/**
+ * How a sign-in ended, from the page its tab reached and how the dashboard's server answered. `done` goes
+ * back to Settings. `failed` is a sign-in that was approved and still did not take, which that page explains.
+ * Null while the tab is anywhere else.
  */
 export function connectOutcome(url: string, status: number, dashboardUrl: string): 'done' | 'failed' | null {
   // T3 Code's page emptied the tab instead of sending it anywhere.
   if (url === 'about:blank') return 'done'
-  try {
-    const landed = new URL(url)
-    if (landed.origin !== new URL(dashboardUrl).origin || landed.pathname !== T3_CONNECTED_PATH) return null
-    return status === 200 || landed.searchParams.has('error') ? 'done' : 'failed'
-  } catch {
-    return null
-  }
+  const answer = connectAnswer(url, dashboardUrl)
+  if (!answer) return null
+  return answer === 'denied' || status === 200 ? 'done' : 'failed'
 }
 
 /** A link that pairs whichever browser opens it with the T3 Code on this machine. */
@@ -88,6 +98,14 @@ export const T3_PROMPT_CSS = `
 #pr-dash-t3-prompt a.pdt-primary:hover { background: #ecb373; color: #10110f; }
 #pr-dash-t3-prompt[data-busy] a { pointer-events: none; opacity: 0.6; }
 #pr-dash-t3-prompt .pdt-never { margin-left: auto; }
+#pr-dash-t3-prompt a.pdt-copy {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border: 1px solid #55564c; border-radius: 8px; background: #262720; color: #f3f0e7;
+}
+#pr-dash-t3-prompt a.pdt-copy:hover { border-color: #8d8a7f; background: #2f3028; }
+#pr-dash-t3-prompt a.pdt-copy code { font: 13px "Source Code Pro", ui-monospace, monospace; color: #e0a15a; }
+#pr-dash-t3-prompt a.pdt-copy svg { width: 15px; height: 15px; flex: none; color: #b9b5a8; }
+#pr-dash-t3-prompt a.pdt-copy:hover svg { color: #f3f0e7; }
 #pr-dash-t3-prompt .pdt-close {
   position: absolute; top: 10px; right: 12px; padding: 2px 6px; border: 0; background: none;
   color: #8d8a7f; font-size: 16px; line-height: 1; cursor: pointer;
@@ -100,7 +118,13 @@ type Note = {
   label: string
   title: string
   text: string
-  actions: { action: T3PromptAction | T3ConnectAction; text: string; className?: string }[]
+  actions: {
+    action: T3PromptAction | T3ConnectAction
+    text: string
+    className?: string
+    /** Shown after the text, in the type a code is written in, with a clipboard beside it. */
+    code?: string
+  }[]
   /** Asked for when the note is closed, for a note that should stay closed on the next page. */
   closed?: T3ConnectAction
 }
@@ -129,8 +153,19 @@ function noteScript(note: Note): string {
   }
   const actions = make('div', 'pdt-actions')
   for (const button of note.actions) {
-    const link = make('a', button.className, button.text)
+    const link = make('a', button.className, button.code ? '' : button.text)
     link.href = ${JSON.stringify(ACTION)} + button.action
+    if (button.code) {
+      // Drawn node by node: T3 Code's page may not let markup in as text.
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      for (const [name, value] of [['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '2'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) svg.setAttribute(name, value)
+      const top = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      for (const [name, value] of [['x', '8'], ['y', '2'], ['width', '8'], ['height', '4'], ['rx', '1']]) top.setAttribute(name, value)
+      const board = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      board.setAttribute('d', 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2')
+      svg.append(top, board)
+      link.append(make('span', 'pdt-label', button.text), make('code', '', button.code), svg)
+    }
     actions.append(link)
   }
   card.append(close, make('p', 'pdt-title', note.title), make('p', 'pdt-text', note.text), make('p', 'pdt-error'), actions)
@@ -150,18 +185,25 @@ export const T3_PROMPT_SCRIPT = noteScript({
   ],
 })
 
-export const T3_CONNECT_SCRIPT = noteScript({
-  label: 'Pairing code for T3 Code',
-  title: 'If T3 Code asks for a pairing code, paste it',
-  text: 'PR Dash has put one on your clipboard, so ⌘V in the box is all it needs. The code works once, and for five minutes. Then approve PR Dash, or deny it, and you are taken back to Settings.',
-  actions: [{ action: 'copy', text: 'Copy the code again' }],
-  closed: 'dismiss',
-})
+const COPY_AGAIN = 'Copy again:'
 
-/** Says on the sign-in note that the code is on the clipboard again. */
+/** The note on the page where PR Dash's sign-in is approved. `code` is the pairing code already on the clipboard. */
+export function t3ConnectScript(code: string): string {
+  return noteScript({
+    label: 'Sign-in code for T3 Code',
+    title: 'Sign-in code copied to clipboard',
+    text: 'Paste and Approve to connect PR Dash',
+    actions: [{ action: 'copy', text: COPY_AGAIN, className: 'pdt-copy', code }],
+    closed: 'dismiss',
+  })
+}
+
+/** Says on the sign-in note, for a moment, that the code is on the clipboard again. */
 export const T3_CONNECT_COPIED = `(() => {
-  const link = document.querySelector('#pr-dash-t3-prompt .pdt-actions a')
-  if (link) link.textContent = 'Copied'
+  const label = document.querySelector('#pr-dash-t3-prompt .pdt-copy .pdt-label')
+  if (!label) return
+  label.textContent = 'Copied:'
+  setTimeout(() => { label.textContent = ${JSON.stringify(COPY_AGAIN)} }, 1500)
 })()`
 
 /** Marks the note busy while pairing, shows why pairing failed, or takes the note away. */

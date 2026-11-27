@@ -26,15 +26,16 @@ import {
   type TabInfo,
 } from './sidebar.ts'
 import {
+  connectAnswer,
   connectOutcome,
   isConnectAction,
   isT3ConnectLink,
   isT3Handoff,
   isT3PairLink,
   T3_CONNECT_COPIED,
-  T3_CONNECT_SCRIPT,
   T3_PROMPT_CSS,
   T3_PROMPT_SCRIPT,
+  t3ConnectScript,
   t3PromptAction,
   t3PromptUpdate,
   type T3ConnectAction,
@@ -53,6 +54,8 @@ const QUEUE_INTERVAL_MS = 2_000
 const REST_AFTER_MS = 30 * 60_000
 const REST_CHECK_MS = 60_000
 const PREFERENCES_KEY = 'pr-dash.preferences.v1'
+/** Chromium's code for a load that was called off, as a navigation this window stopped is. */
+const LOAD_ABORTED = -3
 
 type Tab = {
   id: number
@@ -572,12 +575,13 @@ export class Tabs {
   private async explainConnect(tab: Tab) {
     const connect = tab.connect
     // With no code on the clipboard there is nothing to paste, and the note would mislead.
-    if (!connect || !(await connect.code)) return
+    const code = connect ? await connect.code : null
+    if (!connect || !code) return
     const contents = tab.view?.webContents
     if (!contents || contents.isDestroyed() || tab.connect !== connect || connect.dismissed || !contents.getURL().startsWith(`${connect.origin}/`)) return
     await contents
       .insertCSS(T3_PROMPT_CSS)
-      .then(() => contents.executeJavaScript(T3_CONNECT_SCRIPT))
+      .then(() => contents.executeJavaScript(t3ConnectScript(code)))
       .catch(() => undefined)
   }
 
@@ -601,19 +605,23 @@ export class Tabs {
     void this.dash.executeJavaScript(raiseInPage('pr-dash:t3-connect', { ended: true })).catch(() => undefined)
   }
 
-  /** Where the sign-in's tab went. Once T3 Code has sent it back with an answer, the tab has nothing left to show. */
-  private connectMoved(tab: Tab, url: string, status: number) {
-    if (!tab.connect) return
-    const outcome = connectOutcome(url, status, this.dashboardUrl)
-    if (!outcome) return
+  /** Closes the sign-in's tab, which has nothing left to show, and goes back to Settings. */
+  private connectDone(tab: Tab) {
     tab.connect = null
-    // A sign-in that was approved and still did not take stays, since its page says why.
-    if (outcome === 'failed') return
     // Not `close`, which would keep the address to reopen, and it works once.
     const contents = tab.view?.webContents
     this.forget(tab.id)
     contents?.close()
     this.connectEnded()
+  }
+
+  /** Where the sign-in's tab went. Once T3 Code has sent it back with an answer, the tab has nothing left to show. */
+  private connectMoved(tab: Tab, url: string, status: number) {
+    if (!tab.connect) return
+    const outcome = connectOutcome(url, status, this.dashboardUrl)
+    // A sign-in that was approved and still did not take stays, since its page says why.
+    if (outcome === 'failed') tab.connect = null
+    else if (outcome === 'done') this.connectDone(tab)
   }
 
   private async pairingAction(tab: Tab, action: T3PromptAction) {
@@ -986,6 +994,13 @@ export class Tabs {
           else if (isT3Handoff(contents.getURL())) void this.pairingAction(tab, action)
           return
         }
+        // A sign-in turned down in T3 Code. The answer is in the address, so there is nothing to load:
+        // the dashboard's server may be restarting on an update just then, and the tab would be left on nothing.
+        if (tab.connect && connectAnswer(event.url, this.dashboardUrl) === 'denied') {
+          event.preventDefault()
+          this.connectDone(tab)
+          return
+        }
         if (!isAppLink(event.url)) return
         event.preventDefault()
         void shell.openExternal(event.url)
@@ -995,6 +1010,10 @@ export class Tabs {
         void this.explainConnect(tab)
       })
       contents.on('did-navigate', (_event, url, status) => this.connectMoved(tab, url, status))
+      // The dashboard's server did not answer T3 Code's reply, so the tab is on nothing. Settings says how things stand.
+      contents.on('did-fail-load', (_event, code, _text, url, isMainFrame) => {
+        if (isMainFrame && code !== LOAD_ABORTED && tab.connect && connectAnswer(url, this.dashboardUrl)) this.connectDone(tab)
+      })
       contents.on('page-title-updated', (_event, title) => {
         tab.title = title
         this.publish()
