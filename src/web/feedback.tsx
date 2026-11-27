@@ -16,7 +16,7 @@ import {
   type LocalResolutions,
 } from '../shared/feedback.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
-import type { PullRequest } from '../shared/types.ts'
+import type { PullRequest, ListName } from '../shared/types.ts'
 import { useAgentLaunch, useAgentName } from './agent-launch.tsx'
 import { api } from './api.ts'
 import { formatExact, formatWhen } from './format.ts'
@@ -97,7 +97,7 @@ export function feedbackTarget(pr: PullRequest): FeedbackTarget {
   }
 }
 
-const FILTERS: Record<'mine' | 'review', FeedbackFocus[]> = {
+const FILTERS: Record<ListName, FeedbackFocus[]> = {
   mine: ['all', 'awaiting', 'comments', 'unresolved'],
   review: ['all', 'unread', 'comments', 'resolved', 'unresolved'],
 }
@@ -110,7 +110,7 @@ const FILTER_COUNT: Record<Exclude<FeedbackFocus, 'all'>, (target: FeedbackTarge
   comments: (target) => target.comments,
 }
 
-export function Feedback({ mode, targets }: { mode: 'mine' | 'review'; targets: FeedbackTarget[] }) {
+export function Feedback({ mode, targets }: { mode: ListName; targets: FeedbackTarget[] }) {
   const [open, setOpen] = useState<{ focus: FeedbackFocus; targets: FeedbackTarget[] } | null>(null)
   const threads = sum(targets, (target) => target.threads)
   const unresolved = sum(targets, (target) => target.unresolved)
@@ -238,7 +238,7 @@ function FeedbackDrawer({
   targets,
   onClose,
 }: {
-  mode: 'mine' | 'review'
+  mode: ListName
   focus: FeedbackFocus
   targets: FeedbackTarget[]
   onClose: () => void

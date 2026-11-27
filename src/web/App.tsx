@@ -7,16 +7,16 @@ import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { themeOf } from '../shared/themes.ts'
-import { DEFAULT_FILTERS, type AgentSession, type Filters, type PullRequest, type SortKey } from '../shared/types.ts'
+import { DEFAULT_FILTERS, type AgentSession, isListName, type Filters, type ListName, type PullRequest, type SortKey } from '../shared/types.ts'
 import { providerFor, startingSession, withStartingSessions } from '../shared/agents.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
-import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
+import { attentionOf, buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { ActivityPage } from './activity.tsx'
 import { api } from './api.ts'
 import { ManageInitiatives } from './editors.tsx'
 import { FilterBar, activeFilterLabels } from './filter-bar.tsx'
 import { MenuProvider } from './menus.tsx'
-import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage, type ListPage } from './prefs.ts'
+import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage } from './prefs.ts'
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { AgentProvider } from './agent-launch.tsx'
@@ -159,8 +159,10 @@ export function App() {
   // settings comes back to the same place in the list.
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrolls = useRef<Partial<Record<DashboardPage, number>>>({})
-  const lastList = useRef<ListPage>('mine')
-  if (page === 'mine' || page === 'review') lastList.current = page
+  const lastList = useRef<ListName>('mine')
+  if (isListName(page)) lastList.current = page
+  // The list on screen. Every other page works from your own.
+  const list: ListName = page === 'review' ? 'review' : 'mine'
   useLayoutEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrolls.current[page] ?? 0
   }, [page])
@@ -184,7 +186,7 @@ export function App() {
       if (detail?.prompt === false) setPrefs((current) => ({ ...current, t3PairPrompt: false }))
     })
   }, [])
-  const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']
+  const viewPrefs = prefs.views[list]
   const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])
   const mine = useMemo(
     () => withStartingSessions((data?.pullRequests ?? []).filter((pr) => watched.has(pr.repo)), starting),
@@ -265,7 +267,7 @@ export function App() {
   const viewer = data?.viewer ?? null
   const flat = useMemo(() => new Set(viewPrefs.flat), [viewPrefs.flat])
   const outline = useMemo(
-    () => buildOutline(prs, initiatives, viewPrefs.filters, prefs.sort, page === 'review' ? 'reviewer' : 'author', flat, viewer),
+    () => buildOutline(prs, initiatives, viewPrefs.filters, prefs.sort, attentionOf(list), flat, viewer),
     [prs, initiatives, viewPrefs.filters, flat, prefs.sort, page, viewer],
   )
   const repos = useMemo(() => {
@@ -279,12 +281,11 @@ export function App() {
   const closeShortcuts = useCallback(() => setShortcutsOpen(false), [])
   const visible = !outlineEmpty(outline)
   const reviewBadge = review.filter((pr) => pr.reviewPending || needsAttention(pr, 'reviewer')).length
-  const listPage = page === 'mine' || page === 'review'
+  const listPage = isListName(page)
   const filtersOn = JSON.stringify(viewPrefs.filters) !== JSON.stringify(DEFAULT_FILTERS)
   const matched = useMemo(() => {
     const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
-    const attention = page === 'review' ? 'reviewer' : 'author'
-    return prs.filter((pr) => prMatches(pr, viewPrefs.filters, names, attention, viewer)).length
+    return prs.filter((pr) => prMatches(pr, viewPrefs.filters, names, attentionOf(list), viewer)).length
   }, [prs, initiatives, viewPrefs.filters, page, viewer])
   const syncedAt = page === 'review' ? (data?.reviewSyncedAt ?? data?.syncedAt ?? null) : (data?.mineSyncedAt ?? data?.syncedAt ?? null)
 
@@ -301,7 +302,7 @@ export function App() {
 
   function patchFilters(patch: Partial<Filters>) {
     setPrefs((current) => {
-      const target = current.page === 'review' ? 'review' : 'mine'
+      const target = isListName(current.page) ? current.page : 'mine'
       return {
         ...current,
         views: {
@@ -523,10 +524,10 @@ export function App() {
               onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
             />
           ) : null}
-          {listPage && booting && prs.length === 0 ? <SkeletonTable mode={page === 'review' ? 'review' : 'mine'} note="Loading saved pull requests…" /> : null}
+          {listPage && booting && prs.length === 0 ? <SkeletonTable mode={list} note="Loading saved pull requests…" /> : null}
           {listPage && !booting && prs.length === 0 && refreshing ? (
             <>
-              <SkeletonTable mode={page === 'review' ? 'review' : 'mine'} note={status} />
+              <SkeletonTable mode={list} note={status} />
               <p className="skeleton-note" aria-hidden="true">{status}</p>
             </>
           ) : null}
@@ -557,7 +558,7 @@ export function App() {
               {filtersOn ? (
                 <>
                   <p>
-                    No pull request here matches {activeFilterLabels(viewPrefs.filters, page === 'review' ? 'review' : 'mine', initiatives).join(', ')}.
+                    No pull request here matches {activeFilterLabels(viewPrefs.filters, list, initiatives).join(', ')}.
                   </p>
                   <button type="button" className="primary" onClick={() => patchFilters(DEFAULT_FILTERS)}>
                     Clear filters
@@ -568,7 +569,7 @@ export function App() {
           ) : null}
           {listPage && prs.length > 0 && visible ? (
             <PrTable
-              mode={page === 'review' ? 'review' : 'mine'}
+              mode={list}
               outline={outline}
               sort={prefs.sort}
               initiatives={initiatives}
@@ -609,7 +610,7 @@ export function App() {
               flat={flat}
               onToggleFlat={(id) =>
                 setPrefs((current) => {
-                  const target = current.page === 'review' ? 'review' : 'mine'
+                  const target = isListName(current.page) ? current.page : 'mine'
                   const view = current.views[target]
                   const flat = view.flat.includes(id) ? view.flat.filter((item) => item !== id) : [...view.flat, id]
                   return { ...current, views: { ...current.views, [target]: { ...view, flat } } }

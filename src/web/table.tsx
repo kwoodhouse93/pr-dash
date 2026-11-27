@@ -2,7 +2,7 @@ import { useMemo, useRef, type CSSProperties } from 'react'
 import type { CheckHold } from '../shared/ci.ts'
 import type { FeedbackCounts } from '../shared/feedback.ts'
 import type { RowMark } from '../shared/queue.ts'
-import type { AgentRouting, Initiative, PullRequest, Sort, SortKey } from '../shared/types.ts'
+import type { AgentRouting, Initiative, PullRequest, Sort, SortKey, ListName } from '../shared/types.ts'
 import { blockRails, type Bucket, LOOSE_SECTION, type Outline } from '../shared/view.ts'
 import { AgentProvider, type StartAgent } from './agent-launch.tsx'
 import { FeedbackProvider } from './feedback.tsx'
@@ -52,7 +52,7 @@ export function PrTable({
   onFeedback,
   leaving = NONE_LEAVING,
 }: {
-  mode: 'mine' | 'review'
+  mode: ListName
   outline: Outline
   sort: Sort
   initiatives: Initiative[]
@@ -206,7 +206,7 @@ const NONE_LEAVING: Set<string> = new Set()
 const SKELETON_TITLES = [62, 44, 71, 38, 56, 49, 66, 41]
 
 /** The list while it loads: the table's own columns, with a bar where each value will be. */
-export function SkeletonTable({ mode, note }: { mode: 'mine' | 'review'; note: string }) {
+export function SkeletonTable({ mode, note }: { mode: ListName; note: string }) {
   const bar = (width: number, height?: number, extra = '') => <span className={`sk${extra}`} style={{ width, height }} />
   return (
     <div role="status">

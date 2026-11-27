@@ -1,10 +1,11 @@
+import type { ListName } from '../../shared/types.ts'
 import { pullGone, Refused } from '../errors.ts'
 import { loadGithubToken } from '../github-client.ts'
 import { markPullReadyForReview } from '../github-pull.ts'
 import { cancelQueuedSync, describeSync, enqueueSync, loadThreadFeedback, noteListFocus, refreshPull, refreshSnapshot } from '../sync.ts'
 import { read, required, type Routes } from './http.ts'
 
-function focusOf(value: unknown): 'mine' | 'review' {
+function focusOf(value: unknown): ListName {
   return value === 'review' ? 'review' : 'mine'
 }
 

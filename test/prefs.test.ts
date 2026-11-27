@@ -21,19 +21,6 @@ describe('dashboard preferences', () => {
     expect(loaded.views.review.flat).toEqual([])
   })
 
-  it('copies legacy shared filters into both tabs', () => {
-    localStorage.setItem('pr-dash.preferences.v1', JSON.stringify({
-      filters: { repo: 'acme/app', review: 'unmet' },
-      page: 'review',
-    }))
-
-    const loaded = loadPreferences()
-    expect(loaded.views.mine.filters.repo).toBe('acme/app')
-    expect(loaded.views.review.filters.repo).toBe('acme/app')
-    expect(loaded.views.mine.filters.review).toBe('unmet')
-    expect(loaded.views.review.filters.review).toBe('unmet')
-  })
-
   it('keeps the pull request link host, and defaults to GitHub', () => {
     expect(loadPreferences().prLinks).toBe('github')
     const prefs = loadPreferences()

@@ -4,7 +4,7 @@ import { applyThreadDetails, mapPullRequest } from '../shared/map.ts'
 import { refreshSteps, stepIndex, type RefreshStep } from '../shared/progress.ts'
 import { pullKeyRepo, replaceRepoPulls } from '../shared/repos.ts'
 import { landedMergeVisible, type RemotePullState } from '../shared/queue.ts'
-import type { PullRequest, Snapshot } from '../shared/types.ts'
+import type { PullRequest, Snapshot, ListName } from '../shared/types.ts'
 import { GRAPHQL_PAUSE_BELOW } from '../shared/budget.ts'
 import { rulesFresh } from '../shared/rules.ts'
 import { refreshSessions } from './agent-provider.ts'
@@ -91,11 +91,10 @@ function note(message: string) {
   syncStatus.completed = next
 }
 
-export type RefreshFocus = 'mine' | 'review'
 
 export function refreshSnapshot(
   db: DashboardDb,
-  next: RefreshFocus = 'mine',
+  next: ListName = 'mine',
   options?: { full?: boolean; interactive?: boolean },
 ): Promise<Snapshot> {
   const full = options?.full === true
@@ -109,15 +108,15 @@ export function refreshSnapshot(
 }
 
 /** The list a connected dashboard is showing. Background refresh keeps that one warm first. */
-let watchedFocus: RefreshFocus = 'mine'
+let watchedFocus: ListName = 'mine'
 
-export function noteListFocus(focus: RefreshFocus) {
+export function noteListFocus(focus: ListName) {
   watchedFocus = focus
 }
 
 const BACKGROUND_MS = 60_000
 
-function listAge(db: DashboardDb, focus: RefreshFocus): number {
+function listAge(db: DashboardDb, focus: ListName): number {
   const snap = db.snapshot()
   const stamp = focus === 'review' ? snap.reviewSyncedAt : snap.mineSyncedAt
   if (!stamp) return Number.POSITIVE_INFINITY
@@ -125,7 +124,7 @@ function listAge(db: DashboardDb, focus: RefreshFocus): number {
   return Number.isFinite(at) ? Date.now() - at : Number.POSITIVE_INFINITY
 }
 
-function refreshIfDue(db: DashboardDb, focus: RefreshFocus) {
+function refreshIfDue(db: DashboardDb, focus: ListName) {
   if (listAge(db, focus) < BACKGROUND_MS - 5_000) return
   void refreshSnapshot(db, focus).catch(() => undefined)
 }
@@ -149,7 +148,7 @@ export function startBackgroundSync(db: DashboardDb) {
   }
 }
 
-export function enqueueSync(db: DashboardDb, kind: 'full' | 'rules', focus: RefreshFocus = 'mine') {
+export function enqueueSync(db: DashboardDb, kind: 'full' | 'rules', focus: ListName = 'mine') {
   jobs.enqueueUser({
     kind,
     summary: (snapshot: Snapshot) => snapshot.warning?.trim() || (db.watchedRepos().length === 0 ? 'No repositories selected' : 'Finished'),
@@ -163,7 +162,7 @@ export function cancelQueuedSync(db: DashboardDb, id: string) {
   return describeSync(db)
 }
 
-export function loadThreadFeedback(db: DashboardDb, next: RefreshFocus): Promise<FeedbackLoad> {
+export function loadThreadFeedback(db: DashboardDb, next: ListName): Promise<FeedbackLoad> {
   return jobs.enqueue({
     kind: 'threads',
     key: `threads:${next}`,
@@ -239,7 +238,7 @@ async function rulesFor(
   return rules
 }
 
-async function run(db: DashboardDb, requested: RefreshFocus, full: boolean, signal: AbortSignal): Promise<Snapshot> {
+async function run(db: DashboardDb, requested: ListName, full: boolean, signal: AbortSignal): Promise<Snapshot> {
   beginSteps(full)
   const warnings: string[] = []
   let failed: string | null = null
@@ -251,7 +250,7 @@ async function run(db: DashboardDb, requested: RefreshFocus, full: boolean, sign
     }
     const token = loadGithubToken()
     if (full) forgetViewerContext()
-    const order: RefreshFocus[] = full ? [requested, requested === 'review' ? 'mine' : 'review'] : [requested]
+    const order: ListName[] = full ? [requested, requested === 'review' ? 'mine' : 'review'] : [requested]
     const paused = pauseNow()
     if (paused) {
       warnings.push(paused)
@@ -475,7 +474,7 @@ function staleFeedback(list: PullRequest[]): PullRequest[] {
 
 async function readFeedback(
   db: DashboardDb,
-  next: RefreshFocus,
+  next: ListName,
   signal: AbortSignal,
 ): Promise<FeedbackLoad> {
   const snap = db.snapshot()

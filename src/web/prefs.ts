@@ -1,4 +1,4 @@
-import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type Filters, type Sort, type SortKey } from '../shared/types.ts'
+import { DEFAULT_FILTERS, DEFAULT_SORT, isListName, type CiLevel, type Filters, type ListName, type Sort, type SortKey } from '../shared/types.ts'
 import { DEFAULT_THEME, themeOf, type ThemeId } from '../shared/themes.ts'
 import { animationsOf, type Animations } from './animations.ts'
 import type { PrLinkHost } from './pr-links.tsx'
@@ -7,8 +7,7 @@ import type { PrLinkHost } from './pr-links.tsx'
 export const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 const SORT_KEYS = new Set<SortKey>(['updated', 'created', 'size', 'title', 'repo', 'ci'])
 
-export type DashboardPage = 'mine' | 'review' | 'activity' | 'agents' | 'queue' | 'settings'
-export type ListPage = 'mine' | 'review'
+export type DashboardPage = ListName | 'activity' | 'agents' | 'queue' | 'settings'
 
 export type ListPreferences = {
   filters: Filters
@@ -18,7 +17,7 @@ export type ListPreferences = {
 
 export type Preferences = {
   sort: Sort
-  views: Record<ListPage, ListPreferences>
+  views: Record<ListName, ListPreferences>
   expanded: string[]
   collapsed: string[]
   page: DashboardPage
@@ -39,19 +38,16 @@ export type Preferences = {
 
 export function loadPreferences(): Preferences {
   try {
-    const raw = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? 'null') as
-      | (Partial<Preferences> & { filters?: Partial<Filters> })
-      | null
+    const raw = JSON.parse(localStorage.getItem(PREFERENCES_KEY) ?? 'null') as Partial<Preferences> | null
     if (!raw) return fresh()
     const key = SORT_KEYS.has(raw.sort?.key as SortKey) ? (raw.sort!.key as SortKey) : DEFAULT_SORT.key
     const dir = raw.sort?.dir === 'asc' || raw.sort?.dir === 'desc' ? raw.sort.dir : DEFAULT_SORT.dir
-    const page: DashboardPage = raw.page === 'review' || raw.page === 'activity' || raw.page === 'agents' || raw.page === 'queue' || raw.page === 'settings' ? raw.page : 'mine'
-    const legacy = { ...DEFAULT_FILTERS, ...(raw.filters ?? {}) }
+    const page: DashboardPage = raw.page && PAGES.has(raw.page) ? raw.page : 'mine'
     return {
       sort: { key, dir },
       views: {
-        mine: loadListPreferences(raw.views?.mine, legacy),
-        review: loadListPreferences(raw.views?.review, legacy),
+        mine: loadListPreferences(raw.views?.mine),
+        review: loadListPreferences(raw.views?.review),
       },
       expanded: Array.isArray(raw.expanded) ? raw.expanded.filter((id) => typeof id === 'string') : [],
       collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
@@ -93,12 +89,9 @@ function fresh(): Preferences {
   }
 }
 
-function loadListPreferences(
-  raw: Partial<ListPreferences> | undefined,
-  fallback: Filters,
-): ListPreferences {
+function loadListPreferences(raw: Partial<ListPreferences> | undefined): ListPreferences {
   return {
-    filters: { ...fallback, ...(raw?.filters ?? {}) },
+    filters: { ...DEFAULT_FILTERS, ...(raw?.filters ?? {}) },
     flat: Array.isArray(raw?.flat) ? raw.flat.filter((id) => typeof id === 'string') : [],
   }
 }
@@ -112,7 +105,7 @@ const FILTER_PARAMS = ['q', 'repo', 'ci', 'review', 'approved', 'initiative', 'a
 export function locationSearch(prefs: Preferences): string {
   const params = new URLSearchParams()
   if (prefs.page !== 'mine') params.set('view', prefs.page)
-  if (prefs.page === 'mine' || prefs.page === 'review') {
+  if (isListName(prefs.page)) {
     const filters = prefs.views[prefs.page].filters
     if (filters.query) params.set('q', filters.query)
     if (filters.repo) params.set('repo', filters.repo)

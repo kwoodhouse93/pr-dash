@@ -178,7 +178,7 @@ export type DepartedPull = {
   url: string
   author: string
   /** The list it was last on. */
-  list: 'mine' | 'review'
+  list: ListName
   outcome: 'merged' | 'closed'
   /** When it merged or closed. */
   at: string
@@ -210,6 +210,13 @@ export type Snapshot = {
   initiatives: Initiative[]
   linearConfigured: boolean
   warning: string | null
+}
+
+/** The two lists: the pull requests you wrote, and the ones that want your review. */
+export type ListName = 'mine' | 'review'
+
+export function isListName(value: unknown): value is ListName {
+  return value === 'mine' || value === 'review'
 }
 
 export type SortKey = 'updated' | 'created' | 'size' | 'title' | 'repo' | 'ci'

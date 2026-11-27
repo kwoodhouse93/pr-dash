@@ -4,7 +4,7 @@ import type { FeedbackPayload } from '../shared/feedback.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import type { RepoCatalog } from '../shared/repos.ts'
 import { SYNC_CANCELLED, type FeedbackLoad, type SyncStatus } from '../shared/sync.ts'
-import type { AgentProviderId, LinearAssignee, LinearStatus, RepoMark, Snapshot } from '../shared/types.ts'
+import type { AgentProviderId, LinearAssignee, LinearStatus, RepoMark, Snapshot, ListName } from '../shared/types.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -35,17 +35,17 @@ function post<T>(path: string, payload: unknown): Promise<T> {
 export type { FeedbackLoad, SyncHistoryEntry, SyncJob, SyncKind, SyncStatus } from '../shared/sync.ts'
 
 export const api = {
-  snapshot: (focus?: 'mine' | 'review') => request<Snapshot>(focus ? `/api/snapshot?focus=${focus}` : '/api/snapshot'),
+  snapshot: (focus?: ListName) => request<Snapshot>(focus ? `/api/snapshot?focus=${focus}` : '/api/snapshot'),
   status: () => request<SyncStatus>('/api/status'),
   repos: () => request<RepoCatalog>('/api/repos'),
   addRepo: (repo: string) => post<Snapshot>('/api/repos', { repo }),
   removeRepo: (repo: string) => post<Snapshot>('/api/repos/remove', { repo }),
   setRepoMark: (repo: string, mark: RepoMark) => post<Snapshot>('/api/repos/mark', { repo, ...mark }),
-  refresh: (focus: 'mine' | 'review' = 'mine', full = false, interactive = false) =>
+  refresh: (focus: ListName = 'mine', full = false, interactive = false) =>
     post<Snapshot>('/api/refresh', { focus, full, interactive }),
-  enqueueSync: (kind: 'full' | 'rules', focus: 'mine' | 'review') => post<SyncStatus>('/api/sync', { kind, focus }),
+  enqueueSync: (kind: 'full' | 'rules', focus: ListName) => post<SyncStatus>('/api/sync', { kind, focus }),
   cancelSync: (id: string) => post<SyncStatus>(`/api/sync/${encodeURIComponent(id)}/cancel`, {}),
-  feedback: (focus: 'mine' | 'review') => post<FeedbackLoad>('/api/feedback', { focus }),
+  feedback: (focus: ListName) => post<FeedbackLoad>('/api/feedback', { focus }),
   refreshPull: (key: string) => post<Snapshot>('/api/pulls/refresh', { key }),
   markReady: (key: string) => post<Snapshot>('/api/pulls/ready', { key }),
   createInitiative: (name: string) => post<Snapshot>('/api/initiatives', { name }),

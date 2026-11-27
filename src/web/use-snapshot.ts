@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SyncStatus } from '../shared/sync.ts'
-import type { Snapshot } from '../shared/types.ts'
+import { isListName, type ListName, type Snapshot } from '../shared/types.ts'
 import { api, syncCancelled } from './api.ts'
 import type { DashboardPage } from './prefs.ts'
 import { clearActionError, toastError } from './toasts.tsx'
@@ -25,7 +25,7 @@ function snapshotKey(snap: Snapshot): string {
 
 export type RefreshProgress = { completed: number; total: number }
 
-type RefreshOptions = { force?: boolean; focus?: 'mine' | 'review'; full?: boolean; feedback?: 'if-ran' | 'always' }
+type RefreshOptions = { force?: boolean; focus?: ListName; full?: boolean; feedback?: 'if-ran' | 'always' }
 
 /**
  * The saved lists and the refreshes that keep them current. The server holds the lists; this reads them when the
@@ -56,11 +56,9 @@ export function useSnapshot(page: DashboardPage) {
     return next
   }
 
-  function listedFocus(): 'mine' | 'review' | undefined {
+  function listedFocus(): ListName | undefined {
     const page = pageRef.current
-    if (page === 'review') return 'review'
-    if (page === 'mine') return 'mine'
-    return undefined
+    return isListName(page) ? page : undefined
   }
 
   function showIfChanged(snap: Snapshot, id: number) {
@@ -75,7 +73,7 @@ export function useSnapshot(page: DashboardPage) {
   async function refresh(options: RefreshOptions = {}) {
     const page = pageRef.current
     const focus = options.focus ?? (page === 'review' ? 'review' : 'mine')
-    const listed = page === 'mine' || page === 'review'
+    const listed = isListName(page)
     if (watchedRef.current.length === 0 && !options.force) return false
     const feedback = options.feedback ?? 'if-ran'
     if (!options.full && !listed && !options.force) return false
@@ -129,7 +127,7 @@ export function useSnapshot(page: DashboardPage) {
     }
   }
 
-  async function showFeedback(focus: 'mine' | 'review') {
+  async function showFeedback(focus: ListName) {
     const id = ++applyId.current
     setRefreshing(true)
     setStatus('Reading thread replies')
@@ -146,7 +144,7 @@ export function useSnapshot(page: DashboardPage) {
     }
   }
 
-  async function loadFeedback(which: 'mine' | 'review') {
+  async function loadFeedback(which: ListName) {
     const id = applyId.current
     for (let step = 0; step < 30; step += 1) {
       const result = await api.feedback(which)
@@ -186,7 +184,7 @@ export function useSnapshot(page: DashboardPage) {
       void api.snapshot(listedFocus()).then((snap) => {
         if (cancel || id !== applyId.current) return
         showIfChanged(snap, id)
-        if (page === 'mine' || page === 'review') void refresh()
+        if (isListName(page)) void refresh()
       }).catch(() => undefined)
     }
     ;(async () => {
@@ -205,7 +203,7 @@ export function useSnapshot(page: DashboardPage) {
       }
       const page = pageRef.current
       if (!snap || snap.repos.length === 0) return
-      if (page === 'mine' || page === 'review') await refresh()
+      if (isListName(page)) await refresh()
     })()
     const timer = window.setInterval(pull, SNAPSHOT_POLL_MS)
     document.addEventListener('visibilitychange', onVisible)
@@ -219,7 +217,7 @@ export function useSnapshot(page: DashboardPage) {
   useEffect(() => {
     if (previousPage.current === page) return
     previousPage.current = page
-    if (page !== 'mine' && page !== 'review') return
+    if (!isListName(page)) return
     void refresh({ feedback: 'always' })
   }, [page])
 
@@ -268,7 +266,7 @@ export function useSnapshot(page: DashboardPage) {
     refresh,
     mutate,
     /** The list the page is on, or yours when it is on neither. */
-    focus: (): 'mine' | 'review' => (pageRef.current === 'review' ? 'review' : 'mine'),
+    focus: (): ListName => (pageRef.current === 'review' ? 'review' : 'mine'),
     /** Puts a snapshot the server answered with on screen. */
     show: (snap: Snapshot) => setData(adopt(snap)),
     /** The same, and any read already on its way is dropped, since this is newer. */

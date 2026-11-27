@@ -1,4 +1,4 @@
-import type { Filters, Initiative, PullRequest, Sort } from './types.ts'
+import type { Filters, Initiative, ListName, PullRequest, Sort } from './types.ts'
 import { approvedByLogin } from './approval.ts'
 import { layoutRails, type Rail } from './rails.ts'
 import { buildStacks, downstackKeys, leadKey, summarize, type Parents, type Stack, type StackSummary } from './stacks.ts'
@@ -42,6 +42,11 @@ export type Outline = {
 }
 
 export type Attention = 'author' | 'reviewer'
+
+/** Whose turn a list watches for: yours as the author on your own, yours as a reviewer on the other. */
+export function attentionOf(list: ListName): Attention {
+  return list === 'review' ? 'reviewer' : 'author'
+}
 
 export function needsAttention(pr: PullRequest, attention: Attention): boolean {
   if (attention === 'reviewer') return (pr.unreadCount ?? 0) > 0 || (pr.reviewCommentAwaitingCount ?? 0) > 0

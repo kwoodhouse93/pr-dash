@@ -1,6 +1,6 @@
 import { approvedByLogin } from './approval.ts'
 import { canMergeSlice, canSquashMerge } from './merge.ts'
-import type { PullRequest } from './types.ts'
+import type { PullRequest, ListName } from './types.ts'
 import { needsAttention } from './view.ts'
 
 /** Where one pull request stands, worst first: broken, waiting on you, draft, ready, or waiting on someone else. */
@@ -13,7 +13,7 @@ export type SegmentState = 'broken' | 'you' | 'draft' | 'ready' | 'waiting'
 export function segmentState(
   pr: PullRequest,
   orderedTopToBottom: PullRequest[],
-  mode: 'mine' | 'review',
+  mode: ListName,
   viewer: string | null,
 ): SegmentState {
   if (pr.conflict || pr.ci === 'red') return 'broken'
@@ -35,7 +35,7 @@ export function rollup(states: SegmentState[]): Rollup {
   return { ready: count('ready'), you: count('you'), broken: count('broken') }
 }
 
-export const SEGMENT_LABEL: Record<'mine' | 'review', Record<SegmentState, string>> = {
+export const SEGMENT_LABEL: Record<ListName, Record<SegmentState, string>> = {
   mine: { broken: 'conflict or failing CI', you: 'needs you', draft: 'draft', ready: 'ready to merge', waiting: 'waiting' },
   review: { broken: 'conflict or failing CI', you: 'needs you', draft: 'draft', ready: 'approved by you', waiting: 'waiting' },
 }

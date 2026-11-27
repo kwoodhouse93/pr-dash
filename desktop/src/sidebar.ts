@@ -1,7 +1,7 @@
 import { agentKindLabel, sessionActive, sessionLinks, type StartingAgent } from '../../src/shared/agents.ts'
 import { layoutRails } from '../../src/shared/rails.ts'
 import { buildStacks, type Stack } from '../../src/shared/stacks.ts'
-import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type DepartedPull, type PullRequest, type Snapshot, type Sort } from '../../src/shared/types.ts'
+import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type DepartedPull, type PullRequest, type Snapshot, type Sort, type ListName } from '../../src/shared/types.ts'
 import { buildOutline, LOOSE_SECTION } from '../../src/shared/view.ts'
 
 // What the sidebar and the tab strip show, worked out from the open tabs and
@@ -204,7 +204,7 @@ function linearProject(ref: LinearRef, known: Map<string, Known>): string | null
 }
 
 /** A pull request on the dashboard, or one that merged or closed and is shown as it last looked. */
-type Known = { pr: PullRequest; list: 'mine' | 'review'; gone: null } | { pr: DepartedPull; list: 'mine' | 'review'; gone: 'merged' | 'closed' }
+type Known = { pr: PullRequest; list: ListName; gone: null } | { pr: DepartedPull; list: ListName; gone: 'merged' | 'closed' }
 type Run = { key: string; session: AgentSession; pr: { key: string; number: number } }
 type Step = { id: string; title: string; last?: boolean }
 

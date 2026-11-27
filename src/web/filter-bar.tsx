@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
-import type { Filters, Initiative, PullRequest } from '../shared/types.ts'
-import { prMatches } from '../shared/view.ts'
+import type { Filters, Initiative, ListName, PullRequest } from '../shared/types.ts'
+import { attentionOf, prMatches } from '../shared/view.ts'
 import { ClickCard, PopBody, PopHead, useMenuClose } from './menus.tsx'
-import type { ListPage } from './prefs.ts'
 
 type Option<T> = { value: T; label: string; count: number }
 
@@ -38,12 +37,12 @@ function repoLabel(repo: string): string {
   return repo.split('/')[1] ?? repo
 }
 
-function awaitingLabel(page: ListPage): string {
+function awaitingLabel(page: ListName): string {
   return page === 'review' ? 'Unread' : 'Awaiting you'
 }
 
 /** One phrase for each filter that is set, in the order the bar shows them. */
-export function activeFilterLabels(filters: Filters, page: ListPage, initiatives: Initiative[]): string[] {
+export function activeFilterLabels(filters: Filters, page: ListName, initiatives: Initiative[]): string[] {
   const labels: string[] = []
   const query = filters.query.trim()
   if (query) labels.push(`search “${query}”`)
@@ -74,7 +73,7 @@ export function FilterBar({
   onClear,
   onManageInitiatives,
 }: {
-  page: ListPage
+  page: ListName
   filters: Filters
   filtersOn: boolean
   prs: PullRequest[]
@@ -105,7 +104,7 @@ export function FilterBar({
   /** Each option's count is what the list would hold with that option picked and every other filter left as it is. */
   const options = useMemo(() => {
     const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
-    const attention = page === 'review' ? 'reviewer' : 'author'
+    const attention = attentionOf(page)
     const count = (patch: Partial<Filters>) =>
       prs.filter((pr) => prMatches(pr, { ...filters, ...patch }, names, attention, viewer)).length
     return {

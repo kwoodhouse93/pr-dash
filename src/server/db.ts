@@ -7,7 +7,7 @@ import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
 import type { Activity, ActivityEvent } from '../shared/activity.ts'
-import type { AgentProviderId, AgentRouting, AgentSession, DepartedPull, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot } from '../shared/types.ts'
+import type { AgentProviderId, AgentRouting, AgentSession, DepartedPull, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot, ListName } from '../shared/types.ts'
 import { pullGone, Refused } from './errors.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 import { migrate, reviewLogger } from './schema.ts'
@@ -284,7 +284,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     const since = new Date(Date.now() - DEPARTED_SHOWN_MS).toISOString()
     const rows = db
       .prepare(`SELECT pr_key, list, outcome, at, pull_request FROM departed_pulls WHERE outcome <> 'pending' AND at >= ? ORDER BY at DESC`)
-      .all(since) as { pr_key: string; list: 'mine' | 'review'; outcome: 'merged' | 'closed'; at: string; pull_request: string }[]
+      .all(since) as { pr_key: string; list: ListName; outcome: 'merged' | 'closed'; at: string; pull_request: string }[]
     return rows.map((row) => ({
       ...(JSON.parse(row.pull_request) as StoredDeparture),
       list: row.list,

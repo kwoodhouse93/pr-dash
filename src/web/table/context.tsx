@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 import { activeHoldNames, type CheckHold, type CiDisplay, displayCi, worstDisplay } from '../../shared/ci.ts'
 import type { RowMark } from '../../shared/queue.ts'
 import { mergeLineKeys } from '../../shared/stacks.ts'
-import type { Initiative, PullRequest } from '../../shared/types.ts'
+import type { Initiative, PullRequest, ListName } from '../../shared/types.ts'
 import type { StackBlock } from '../../shared/view.ts'
 
 export type StackLock = {
@@ -27,7 +27,7 @@ export type IssuePatch = { statusId?: string; assigneeId?: string | null }
 
 /** What every heading, row and control in the table reads: the list being drawn, and what its buttons do. */
 export type TableShared = {
-  mode: 'mine' | 'review'
+  mode: ListName
   initiatives: Initiative[]
   prByKey: Map<string, PullRequest>
   /** False when every pull request in the list is in one repository, so the column would say the same thing on each row. */
