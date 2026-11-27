@@ -53,11 +53,11 @@ const PULL_STATE_QUERY = `
 export async function fetchPullState(token: string, repo: string, number: number): Promise<RemotePullState> {
   const [owner, name] = repo.split('/')
   if (!owner || !name) return 'unknown'
-  const data = await graphql<{ repository: { pullRequest: { state: 'OPEN' | 'CLOSED' | 'MERGED' } | null } | null }>(
-    token,
-    PULL_STATE_QUERY,
-    { owner, name, number },
-  )
+  const data = await graphql<{ repository: { pullRequest: { state: 'OPEN' | 'CLOSED' | 'MERGED' } | null } | null }>(token, PULL_STATE_QUERY, {
+    owner,
+    name,
+    number,
+  })
   const state = data.repository?.pullRequest?.state
   if (state === 'OPEN' || state === 'CLOSED' || state === 'MERGED') return state
   return 'unknown'
@@ -227,12 +227,7 @@ export async function markPullReadyForReview(token: string, pullRequestId: strin
  * Merges the base into the pull request's branch. `moved` means the branch head is no longer
  * `expectedHeadSha`, as when GitHub reported a head that a push had just replaced.
  */
-export async function updatePullBranch(
-  token: string,
-  repo: string,
-  number: number,
-  expectedHeadSha: string,
-): Promise<'updated' | 'moved'> {
+export async function updatePullBranch(token: string, repo: string, number: number, expectedHeadSha: string): Promise<'updated' | 'moved'> {
   const response = await rest(token, `/repos/${repo}/pulls/${number}/update-branch`, 'PUT', {
     expected_head_sha: expectedHeadSha,
   })

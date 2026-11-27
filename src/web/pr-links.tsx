@@ -10,8 +10,7 @@ export type PrLinkHost = 'github' | 'graphite'
  * and review summaries use the activity tab. The id is GitHub's GraphQL node id
  * (`PRRT_…`, `PRRC_…`, `IC_…`, `PRR_…`), not the numeric id in a GitHub hash.
  */
-export type GraphiteAnchor =
-  | { kind: 'thread' | 'comment' | 'discussion' | 'review'; id: string }
+export type GraphiteAnchor = { kind: 'thread' | 'comment' | 'discussion' | 'review'; id: string }
 
 const GITHUB_PULL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#]|$)/
 const GITHUB_COMMENT_HASH = /^(?:discussion_r\d+|issuecomment-\d+|pullrequestreview-\d+|r\d+)$/

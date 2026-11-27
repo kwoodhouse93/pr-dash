@@ -1,7 +1,17 @@
 import { agentKindLabel, sessionActive, sessionLinks, type StartingAgent } from '../../src/shared/agents.ts'
 import { layoutRails } from '../../src/shared/rails.ts'
 import { buildStacks, type Stack } from '../../src/shared/stacks.ts'
-import { DEFAULT_FILTERS, DEFAULT_SORT, type CiLevel, type AgentSession, type DepartedPull, type PullRequest, type Snapshot, type Sort, type ListName } from '../../src/shared/types.ts'
+import {
+  DEFAULT_FILTERS,
+  DEFAULT_SORT,
+  type CiLevel,
+  type AgentSession,
+  type DepartedPull,
+  type PullRequest,
+  type Snapshot,
+  type Sort,
+  type ListName,
+} from '../../src/shared/types.ts'
 import { buildOutline, LOOSE_SECTION } from '../../src/shared/view.ts'
 
 // What the sidebar and the tab strip show, worked out from the open tabs and
@@ -187,7 +197,10 @@ export function shareUrl(url: string): string {
 }
 
 function slug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 }
 
 /** The project a Linear page belongs to, as far as the pull requests on the dashboard tell. */
@@ -210,7 +223,10 @@ type Step = { id: string; title: string; last?: boolean }
 
 function indexPrs(data: Snapshot | null): Map<string, Known> {
   const known = new Map<string, Known>()
-  for (const [list, prs] of [['mine', data?.pullRequests ?? []], ['review', data?.reviewPullRequests ?? []]] as const) {
+  for (const [list, prs] of [
+    ['mine', data?.pullRequests ?? []],
+    ['review', data?.reviewPullRequests ?? []],
+  ] as const) {
     for (const pr of prs) {
       const key = `${pr.repo.toLowerCase()}#${pr.number}`
       if (!known.has(key)) known.set(key, { pr, list, gone: null })
@@ -292,7 +308,9 @@ export function runsShownAt(url: string, data: Snapshot | null, state: AgentStat
 }
 
 export function unreadRuns(data: Snapshot | null, state: AgentState): string[] {
-  return collectRuns(indexPrs(data)).filter((run) => isUnread(run, state) && !state.dismissed.includes(run.key)).map((run) => run.key)
+  return collectRuns(indexPrs(data))
+    .filter((run) => isUnread(run, state) && !state.dismissed.includes(run.key))
+    .map((run) => run.key)
 }
 
 /** Drops what is remembered about runs the snapshot no longer has. */
@@ -337,7 +355,12 @@ function dashboardLayout(data: Snapshot | null, prefs: DashboardPrefs): Layout {
       for (const pr of stack.prs) if (!stacks.has(pr.key)) stacks.set(pr.key, stack)
     }
     const outline = buildOutline(prs, data?.initiatives ?? [], DEFAULT_FILTERS, prefs.sort ?? DEFAULT_SORT, attention, new Set(flat), data?.viewer ?? null)
-    const buckets = [...outline.projects.flatMap((project) => project.issues), ...outline.initiatives, ...outline.looseIssues, ...(outline.unassigned ? [outline.unassigned] : [])]
+    const buckets = [
+      ...outline.projects.flatMap((project) => project.issues),
+      ...outline.initiatives,
+      ...outline.looseIssues,
+      ...(outline.unassigned ? [outline.unassigned] : []),
+    ]
     for (const bucket of buckets) {
       for (const block of [...bucket.stacks, ...bucket.singles]) {
         for (const row of block.rows) {
@@ -435,7 +458,8 @@ function pathOf(
     case 'match': {
       // The dashboard's order: a project first, then an initiative, then a bare issue.
       const flat = list === 'review' ? prefs.reviewFlat : prefs.mineFlat
-      if (projectStep) return !flat.includes(projectStep.id) ? [projectStep, { id: `${projectStep.id}:${project!.identifier}`, title: issueTitle(project!) }] : [projectStep]
+      if (projectStep)
+        return !flat.includes(projectStep.id) ? [projectStep, { id: `${projectStep.id}:${project!.identifier}`, title: issueTitle(project!) }] : [projectStep]
       if (initiativeStep) return [initiativeStep]
       if (issue && !flat.includes(LOOSE_SECTION)) return [{ id: `issue:${issue.identifier}`, title: issueTitle(issue) }]
       return [{ id: 'match:none', title: 'Ungrouped', last: true }]
@@ -488,7 +512,14 @@ export function buildSidebar(input: {
     const label = agentLabel(tab.starting)
     // The run can be known before the tab has reached its page. The tab is that run's from then on.
     const run = runs
-      .filter((item) => item.pr.key === key && item.session.kind === kind && sessionActive(item.session.status) && !tabOfRun.has(item.key) && agentLabel(item.session) === label)
+      .filter(
+        (item) =>
+          item.pr.key === key &&
+          item.session.kind === kind &&
+          sessionActive(item.session.status) &&
+          !tabOfRun.has(item.key) &&
+          agentLabel(item.session) === label,
+      )
       .sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt))[0]
     if (run) {
       runOfTab.set(tab.id, run)
@@ -519,7 +550,9 @@ export function buildSidebar(input: {
   const newest = (a: AgentRow, b: AgentRow) => stamp.get(b.key)!.localeCompare(stamp.get(a.key)!)
   const listed = (row: AgentRow) => (row.mark !== 'read' || held.has(row.key)) && !dismissed.has(row.key)
   const current = rows.filter(listed)
-  const starting = [...startingOfTab].map(([tabId, { label, pr }]): AgentRow => ({ key: `starting:${tabId}`, label, number: pr.number, mark: 'running', age: 'now', url: null, tabId }))
+  const starting = [...startingOfTab].map(
+    ([tabId, { label, pr }]): AgentRow => ({ key: `starting:${tabId}`, label, number: pr.number, mark: 'running', age: 'now', url: null, tabId }),
+  )
   const agents = [...starting, ...current.filter((row) => row.mark === 'running').sort(newest), ...current.filter((row) => row.mark !== 'running').sort(newest)]
   const earlier = rows.filter((row) => !listed(row)).sort(newest)
 
@@ -548,7 +581,10 @@ export function buildSidebar(input: {
     else top.push(tab)
   }
 
-  const activeRuns = new Set([...runs.filter((run) => sessionActive(run.session.status)).map((run) => run.pr.key), ...[...startingOfTab.values()].map(({ pr }) => pr.key)])
+  const activeRuns = new Set([
+    ...runs.filter((run) => sessionActive(run.session.status)).map((run) => run.pr.key),
+    ...[...startingOfTab.values()].map(({ pr }) => pr.key),
+  ])
   const rowOf = (tab: TabInfo): TabRow => {
     const shown = lookup(tab.url)
     return {
@@ -659,21 +695,23 @@ export function buildSidebar(input: {
   }
 
   // Agent tabs live in the agents menu, as they do in the sidebar. The one being looked at stays, so the strip shows where you are.
-  const strip: StripTab[] = tabs.filter((tab) => tab.id === activeId || !agentTab(tab.id)).map((tab) => {
-    const run = runOfTab.get(tab.id)
-    const begun = startingOfTab.get(tab.id)
-    const shown = tab.pinned || run || begun ? null : lookup(tab.url)
-    return {
-      id: tab.id,
-      pinned: tab.pinned,
-      title: run ? agentLabel(run.session) : begun ? begun.label : shown ? prTitle(shown.pr) : tab.title,
-      favicon: tab.favicon,
-      loading: tab.loading,
-      ci: shown && !shown.gone ? shown.pr.ci : null,
-      gone: shown?.gone ?? null,
-      agent: run ? markOf(run) : begun ? 'running' : null,
-    }
-  })
+  const strip: StripTab[] = tabs
+    .filter((tab) => tab.id === activeId || !agentTab(tab.id))
+    .map((tab) => {
+      const run = runOfTab.get(tab.id)
+      const begun = startingOfTab.get(tab.id)
+      const shown = tab.pinned || run || begun ? null : lookup(tab.url)
+      return {
+        id: tab.id,
+        pinned: tab.pinned,
+        title: run ? agentLabel(run.session) : begun ? begun.label : shown ? prTitle(shown.pr) : tab.title,
+        favicon: tab.favicon,
+        loading: tab.loading,
+        ci: shown && !shown.gone ? shown.pr.ci : null,
+        gone: shown?.gone ?? null,
+        agent: run ? markOf(run) : begun ? 'running' : null,
+      }
+    })
 
   const active = byId.get(activeId)
   const activeRun = runOfTab.get(activeId)
@@ -687,7 +725,7 @@ export function buildSidebar(input: {
         ? ['Agents', `${agentLabel(activeRun.session)} · #${activeRun.pr.number}`]
         : activeStart
           ? ['Agents', `${activeStart.label} · #${activeStart.pr.number}`]
-        : [...(crumbs.get(activeId) ?? []), activePr ? prTitle(activePr.pr) : active.title]
+          : [...(crumbs.get(activeId) ?? []), activePr ? prTitle(activePr.pr) : active.title]
 
   return {
     nodes,

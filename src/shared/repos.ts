@@ -105,21 +105,14 @@ export function authoredSearchQueries(repos: string[]): string[] {
 
 export function reviewSearchQueries(teams: string[], repos: string[]): string[] {
   const base = 'sort:updated-desc is:open is:pr archived:false -author:@me'
-  const prefixes = [
-    `${base} review-requested:@me`,
-    `${base} reviewed-by:@me`,
-    ...teams.map((team) => `${base} team-review-requested:${team}`),
-  ]
+  const prefixes = [`${base} review-requested:@me`, `${base} reviewed-by:@me`, ...teams.map((team) => `${base} team-review-requested:${team}`)]
   return prefixes.flatMap((prefix) => scopedQueries(prefix, repos))
 }
 
 /** Replace pull requests for selected repositories and leave every other repository untouched. */
 export function replaceRepoPulls(existing: PullRequest[], fetched: PullRequest[], watched: string[]): PullRequest[] {
   const selected = new Set(watched)
-  return [
-    ...existing.filter((pr) => !selected.has(pr.repo)),
-    ...fetched.filter((pr) => selected.has(pr.repo)),
-  ]
+  return [...existing.filter((pr) => !selected.has(pr.repo)), ...fetched.filter((pr) => selected.has(pr.repo))]
 }
 
 export function removalWarning(repo: string, stored: boolean, busy: boolean): { title: string; body: string; confirm: string | null } {

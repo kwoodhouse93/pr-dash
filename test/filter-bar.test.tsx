@@ -39,12 +39,7 @@ function pull(number: number, repoName: string, ci: CiLevel, over: Partial<PullR
   }
 }
 
-const PRS = [
-  pull(1, 'api', 'red', { awaitingYouCount: 1 }),
-  pull(2, 'api', 'red'),
-  pull(3, 'api', 'green'),
-  pull(4, 'web', 'red'),
-]
+const PRS = [pull(1, 'api', 'red', { awaitingYouCount: 1 }), pull(2, 'api', 'red'), pull(3, 'api', 'green'), pull(4, 'web', 'red')]
 
 let latest: Filters = DEFAULT_FILTERS
 
@@ -148,11 +143,9 @@ describe('filter bar', () => {
 
   it('names the filters that are set', () => {
     expect(
-      activeFilterLabels(
-        { ...DEFAULT_FILTERS, query: ' hook ', repo: 'acme/api', ci: 'red', initiativeId: 'i1', awaitingOnly: true },
-        'review',
-        [{ id: 'i1', name: 'Cleanup' } as never],
-      ),
+      activeFilterLabels({ ...DEFAULT_FILTERS, query: ' hook ', repo: 'acme/api', ci: 'red', initiativeId: 'i1', awaitingOnly: true }, 'review', [
+        { id: 'i1', name: 'Cleanup' } as never,
+      ]),
     ).toEqual(['search “hook”', 'repo api', 'CI: Required failed', 'initiative: Cleanup', 'Unread'])
   })
 })

@@ -4,7 +4,17 @@ import { formatSpan, personalBests, summarizeActivity, type Activity, type Activ
 let next = 1
 function event(at: Date, over: Partial<ActivityEvent> = {}): ActivityEvent {
   const number = over.number ?? next++
-  return { key: `acme/app#${number}`, repo: 'acme/app', repoName: 'app', number, title: `PR ${number}`, url: `https://github.com/acme/app/pull/${number}`, at: at.toISOString(), readyAt: null, ...over }
+  return {
+    key: `acme/app#${number}`,
+    repo: 'acme/app',
+    repoName: 'app',
+    number,
+    title: `PR ${number}`,
+    url: `https://github.com/acme/app/pull/${number}`,
+    at: at.toISOString(),
+    readyAt: null,
+    ...over,
+  }
 }
 /** Local time on a day in November 2026; the 25th is a Wednesday. */
 const on = (day: number, hour = 10, minute = 0) => new Date(2026, 10, day, hour, minute)
@@ -48,7 +58,12 @@ describe('activity summary', () => {
   it('takes the median from ready to merged, and to the first review of each pull request', () => {
     const ready = on(24, 8)
     const activity: Activity = {
-      merged: [event(on(24, 9), { readyAt: ready.toISOString() }), event(on(24, 11), { readyAt: ready.toISOString() }), event(on(24, 18), { readyAt: ready.toISOString() }), event(on(24, 19))],
+      merged: [
+        event(on(24, 9), { readyAt: ready.toISOString() }),
+        event(on(24, 11), { readyAt: ready.toISOString() }),
+        event(on(24, 18), { readyAt: ready.toISOString() }),
+        event(on(24, 19)),
+      ],
       reviewed: [event(on(24, 8, 30), { number: 90, readyAt: ready.toISOString() }), event(on(25, 8), { number: 90, readyAt: ready.toISOString() })],
     }
     const summary = summarizeActivity(activity, now, '6w')

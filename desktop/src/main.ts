@@ -131,7 +131,9 @@ async function checkForUpdate(announce = false) {
       await applyWhenUnwatched()
     }
     if (announce && !found && win) {
-      const detail = pending ? 'An update is downloaded and waiting. Use the Update button at the top of the window.' : `Build ${running.sha.slice(0, 7)} is the latest.`
+      const detail = pending
+        ? 'An update is downloaded and waiting. Use the Update button at the top of the window.'
+        : `Build ${running.sha.slice(0, 7)} is the latest.`
       void dialog.showMessageBox(win, { message: pending ? 'Update ready' : 'Up to date', detail })
     }
   } catch (error) {

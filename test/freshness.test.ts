@@ -77,9 +77,7 @@ describe('check freshness', () => {
     )
     const changed = row({ id: 'changed' })
     const previous = new Map([fresh, ...stale, changed].map((pr) => [pr.id, pr]))
-    const seen = new Map(
-      [fresh, ...stale, changed].map((pr) => [pr.id, { oid: 'abc', rollup: pr.id === 'changed' ? 'PENDING' : 'SUCCESS', count: 4 }]),
-    )
+    const seen = new Map([fresh, ...stale, changed].map((pr) => [pr.id, { oid: 'abc', rollup: pr.id === 'changed' ? 'PENDING' : 'SUCCESS', count: 4 }]))
     const ids = [fresh, ...stale, changed].map((pr) => pr.id)
     const decided = readsAfterProbe(ids, previous, seen, now)
     expect(decided.fetch).toContain('changed')

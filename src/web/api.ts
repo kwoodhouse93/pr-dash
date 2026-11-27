@@ -41,8 +41,7 @@ export const api = {
   addRepo: (repo: string) => post<Snapshot>('/api/repos', { repo }),
   removeRepo: (repo: string) => post<Snapshot>('/api/repos/remove', { repo }),
   setRepoMark: (repo: string, mark: RepoMark) => post<Snapshot>('/api/repos/mark', { repo, ...mark }),
-  refresh: (focus: ListName = 'mine', full = false, interactive = false) =>
-    post<Snapshot>('/api/refresh', { focus, full, interactive }),
+  refresh: (focus: ListName = 'mine', full = false, interactive = false) => post<Snapshot>('/api/refresh', { focus, full, interactive }),
   enqueueSync: (kind: 'full' | 'rules', focus: ListName) => post<SyncStatus>('/api/sync', { kind, focus }),
   cancelSync: (id: string) => post<SyncStatus>(`/api/sync/${encodeURIComponent(id)}/cancel`, {}),
   feedback: (focus: ListName) => post<FeedbackLoad>('/api/feedback', { focus }),
@@ -56,8 +55,7 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
   deleteInitiative: (id: string) => request<Snapshot>(`/api/initiatives/${id}`, { method: 'DELETE' }),
-  assign: (initiativeId: string, prKeys: string[], action: 'add' | 'remove') =>
-    post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
+  assign: (initiativeId: string, prKeys: string[], action: 'add' | 'remove') => post<Snapshot>('/api/assignments', { initiativeId, prKeys, action }),
   rerun: (keys: string[], mode: 'failed' | 'all') =>
     post<{ reran: number; errors: string[]; runs: { repo: string; runId: number }[] }>('/api/rerun', { keys, mode }),
   startAgent: (key: string, request: AgentRequest, provider?: AgentProviderId) =>
@@ -77,9 +75,7 @@ export const api = {
   linearStatuses: (query: { teamId?: string | null; issue: string }) => {
     const key = query.teamId || query.issue
     return cached(statusRequests, key, () => {
-      const params = query.teamId
-        ? `teamId=${encodeURIComponent(query.teamId)}`
-        : `issue=${encodeURIComponent(query.issue)}`
+      const params = query.teamId ? `teamId=${encodeURIComponent(query.teamId)}` : `issue=${encodeURIComponent(query.issue)}`
       return request<{ statuses: LinearStatus[] }>(`/api/linear/statuses?${params}`).then((body) => body.statuses)
     })
   },
@@ -87,17 +83,15 @@ export const api = {
   updateLinearIssue: (identifier: string, patch: { statusId?: string; assigneeId?: string | null }) =>
     post<Snapshot>(`/api/linear/issues/${encodeURIComponent(identifier)}`, patch),
   searchLinearIssues: (query: string) =>
-    request<{ issues: { identifier: string; title: string | null; url: string | null }[] }>(
-      `/api/linear/issues?q=${encodeURIComponent(query)}`,
-    ).then((body) => body.issues),
+    request<{ issues: { identifier: string; title: string | null; url: string | null }[] }>(`/api/linear/issues?q=${encodeURIComponent(query)}`).then(
+      (body) => body.issues,
+    ),
   linkLinearIssue: (key: string, identifier: string) => post<Snapshot>('/api/linear/links', { key, identifier }),
-  setLocallyResolved: (key: string, itemId: string, resolved: boolean) =>
-    post<FeedbackPayload>('/api/feedback/local', { key, itemId, resolved }),
+  setLocallyResolved: (key: string, itemId: string, resolved: boolean) => post<FeedbackPayload>('/api/feedback/local', { key, itemId, resolved }),
   pullFeedback: (key: string) => request<FeedbackPayload>(`/api/feedback?key=${encodeURIComponent(key)}`),
   replyToThread: (key: string, threadId: string, body: string) => post<FeedbackPayload>('/api/feedback/reply', { key, threadId, body }),
   replyToNote: (key: string, noteId: string, body: string) => post<FeedbackPayload>('/api/feedback/note', { key, noteId, body }),
-  setThreadResolved: (key: string, threadId: string, resolved: boolean) =>
-    post<FeedbackPayload>('/api/feedback/resolve', { key, threadId, resolved }),
+  setThreadResolved: (key: string, threadId: string, resolved: boolean) => post<FeedbackPayload>('/api/feedback/resolve', { key, threadId, resolved }),
 }
 
 const statusRequests = new Map<string, Promise<LinearStatus[]>>()

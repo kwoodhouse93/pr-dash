@@ -83,16 +83,16 @@ export function AgentList({ items, showPr, onOpen }: { items: AgentItem[]; showP
     <>
       <PopHead title="Agents" />
       <PopBody list className="agent-list">
-      {items.map((item) => (
-        <button key={item.session.agentId} type="button" className="agent-row" onClick={() => onOpen(item.session.agentId)}>
-          <Summary item={item} showPr={showPr} />
-        </button>
-      ))}
-      {items.length > 1 ? (
-        <button type="button" className="agent-all" onClick={() => onOpen(null)}>
-          Open all
-        </button>
-      ) : null}
+        {items.map((item) => (
+          <button key={item.session.agentId} type="button" className="agent-row" onClick={() => onOpen(item.session.agentId)}>
+            <Summary item={item} showPr={showPr} />
+          </button>
+        ))}
+        {items.length > 1 ? (
+          <button type="button" className="agent-all" onClick={() => onOpen(null)}>
+            Open all
+          </button>
+        ) : null}
       </PopBody>
     </>
   )
@@ -165,7 +165,9 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
       <aside className="drawer agent-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="drawer-head">
           <div>
-            <p className="eyebrow" id={titleId}>Agents</p>
+            <p className="eyebrow" id={titleId}>
+              Agents
+            </p>
             {single ? (
               <a className="drawer-pr external" href={prHref(single.url, host)} target="_blank" rel="noreferrer">
                 #{single.number} {single.title}
@@ -187,7 +189,13 @@ export function AgentDrawer({ prs, items, focus, onClose }: { prs: PullRequest[]
         </header>
         <div className="drawer-body">
           {items.map((item) => (
-            <Section key={item.session.agentId} item={item} showPr={!single} open={open.has(item.session.agentId)} onToggle={() => toggle(item.session.agentId)} />
+            <Section
+              key={item.session.agentId}
+              item={item}
+              showPr={!single}
+              open={open.has(item.session.agentId)}
+              onToggle={() => toggle(item.session.agentId)}
+            />
           ))}
         </div>
       </aside>

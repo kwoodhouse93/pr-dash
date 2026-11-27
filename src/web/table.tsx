@@ -13,7 +13,18 @@ import { Icon } from './icons.tsx'
 
 /** What a row shows of a pull request's state. When this changes, the row is washed warm for a moment. */
 function rowSignature(pr: PullRequest): string {
-  return [pr.ci, pr.awaitingYouCount, pr.commentAwaitingCount, pr.unreadCount, pr.resolvedUnreadCount, pr.reviewCommentAwaitingCount, pr.reviewDecision, pr.mergeMark, pr.conflict, pr.isDraft].join('|')
+  return [
+    pr.ci,
+    pr.awaitingYouCount,
+    pr.commentAwaitingCount,
+    pr.unreadCount,
+    pr.resolvedUnreadCount,
+    pr.reviewCommentAwaitingCount,
+    pr.reviewDecision,
+    pr.mergeMark,
+    pr.conflict,
+    pr.isDraft,
+  ].join('|')
 }
 
 export function PrTable({
@@ -126,77 +137,82 @@ export function PrTable({
   }
   return (
     <FeedbackProvider viewer={viewer} onCounts={onFeedback}>
-    <AgentProvider start={onStartAgent} routing={agentRouting} t3Origin={t3Origin}>
-    <UnapprovedMergeContext.Provider value={mode === 'mine' ? (onMergeUnapproved ?? null) : null}>
-    <HoldContext.Provider value={holds}>
-    <MotionContext.Provider value={motion}>
-    <TableContext.Provider value={table}>
-    <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
-      <thead>
-        <tr>
-          <th className="grip" aria-label="Stack" />
-          <th className="num">#</th>
-          <SortHeader label="Title" sortKey="title" sort={sort} onSort={onSort} />
-          {mode === 'review' ? <th className="author">Author</th> : null}
-          {showRepo ? <SortHeader className="repo" label="Repo" sortKey="repo" sort={sort} onSort={onSort} /> : null}
-          <SortHeader className="size" colSpan={3} label="Size" sortKey="size" sort={sort} onSort={onSort} />
-          <SortHeader className="when" label="Age" title="Time since it was ready for review, as a ring that fills over two days. Hover one for the time. A draft shows the time since it was opened." sortKey="created" sort={sort} onSort={onSort} />
-          <SortHeader className="when" label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
-          <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
-          <th className="branch" title="A red cross is a merge conflict. A white cross is behind the base branch.">Branch</th>
-          <th>Review</th>
-          <th>Feedback</th>
-          <th className="agents" title="Agents started from this dashboard">
-            <span className="sr">Agents</span>
-            <Icon name="robot" className="robot-icon" />
-          </th>
-          {mode === 'mine' ? <th className="merge">Merge</th> : null}
-          <th className="open">Open</th>
-          <th aria-label="Actions" />
-        </tr>
-      </thead>
-      <tbody ref={body}>
-        {outline.projects.length ? (
-          <SectionBand id="band:projects" title="Linear projects">
-            {outline.projects.map((project) => (
-              <ProjectRows key={project.id} project={project} />
-            ))}
-          </SectionBand>
-        ) : null}
-        {outline.initiatives.length ? (
-          <SectionBand id="band:initiatives" title="Initiatives">
-            {outline.initiatives.map((bucket) => (
-              <BucketRows key={bucket.id} bucket={bucket} depth={1} />
-            ))}
-          </SectionBand>
-        ) : null}
-        {outline.looseIssues.length ? (
-          <SectionBand
-            id={LOOSE_SECTION}
-            title="Issues with no project"
-            action={<GroupToggle id={LOOSE_SECTION} />}
-          >
-            {outline.looseIssues.map((bucket) => (
-              <BucketRows key={bucket.id} bucket={bucket} depth={1} untitled={!bucket.title} />
-            ))}
-          </SectionBand>
-        ) : null}
-        {outline.unassigned ? (
-          outline.projects.length > 0 || outline.initiatives.length > 0 || outline.looseIssues.length > 0 ? (
-            <SectionBand id="band:unassigned" title="No issue">
-              <BucketRows bucket={outline.unassigned} depth={1} untitled />
-            </SectionBand>
-          ) : (
-            <BucketRows bucket={outline.unassigned} depth={1} untitled />
-          )
-        ) : null}
-      </tbody>
-    </table>
-    </TableContext.Provider>
-    </MotionContext.Provider>
-    </HoldContext.Provider>
-    </UnapprovedMergeContext.Provider>
-    </AgentProvider>
+      <AgentProvider start={onStartAgent} routing={agentRouting} t3Origin={t3Origin}>
+        <UnapprovedMergeContext.Provider value={mode === 'mine' ? (onMergeUnapproved ?? null) : null}>
+          <HoldContext.Provider value={holds}>
+            <MotionContext.Provider value={motion}>
+              <TableContext.Provider value={table}>
+                <table className="prs" style={{ '--lanes': lanes } as CSSProperties}>
+                  <thead>
+                    <tr>
+                      <th className="grip" aria-label="Stack" />
+                      <th className="num">#</th>
+                      <SortHeader label="Title" sortKey="title" sort={sort} onSort={onSort} />
+                      {mode === 'review' ? <th className="author">Author</th> : null}
+                      {showRepo ? <SortHeader className="repo" label="Repo" sortKey="repo" sort={sort} onSort={onSort} /> : null}
+                      <SortHeader className="size" colSpan={3} label="Size" sortKey="size" sort={sort} onSort={onSort} />
+                      <SortHeader
+                        className="when"
+                        label="Age"
+                        title="Time since it was ready for review, as a ring that fills over two days. Hover one for the time. A draft shows the time since it was opened."
+                        sortKey="created"
+                        sort={sort}
+                        onSort={onSort}
+                      />
+                      <SortHeader className="when" label="Updated" sortKey="updated" sort={sort} onSort={onSort} />
+                      <SortHeader label="CI" sortKey="ci" sort={sort} onSort={onSort} />
+                      <th className="branch" title="A red cross is a merge conflict. A white cross is behind the base branch.">
+                        Branch
+                      </th>
+                      <th>Review</th>
+                      <th>Feedback</th>
+                      <th className="agents" title="Agents started from this dashboard">
+                        <span className="sr">Agents</span>
+                        <Icon name="robot" className="robot-icon" />
+                      </th>
+                      {mode === 'mine' ? <th className="merge">Merge</th> : null}
+                      <th className="open">Open</th>
+                      <th aria-label="Actions" />
+                    </tr>
+                  </thead>
+                  <tbody ref={body}>
+                    {outline.projects.length ? (
+                      <SectionBand id="band:projects" title="Linear projects">
+                        {outline.projects.map((project) => (
+                          <ProjectRows key={project.id} project={project} />
+                        ))}
+                      </SectionBand>
+                    ) : null}
+                    {outline.initiatives.length ? (
+                      <SectionBand id="band:initiatives" title="Initiatives">
+                        {outline.initiatives.map((bucket) => (
+                          <BucketRows key={bucket.id} bucket={bucket} depth={1} />
+                        ))}
+                      </SectionBand>
+                    ) : null}
+                    {outline.looseIssues.length ? (
+                      <SectionBand id={LOOSE_SECTION} title="Issues with no project" action={<GroupToggle id={LOOSE_SECTION} />}>
+                        {outline.looseIssues.map((bucket) => (
+                          <BucketRows key={bucket.id} bucket={bucket} depth={1} untitled={!bucket.title} />
+                        ))}
+                      </SectionBand>
+                    ) : null}
+                    {outline.unassigned ? (
+                      outline.projects.length > 0 || outline.initiatives.length > 0 || outline.looseIssues.length > 0 ? (
+                        <SectionBand id="band:unassigned" title="No issue">
+                          <BucketRows bucket={outline.unassigned} depth={1} untitled />
+                        </SectionBand>
+                      ) : (
+                        <BucketRows bucket={outline.unassigned} depth={1} untitled />
+                      )
+                    ) : null}
+                  </tbody>
+                </table>
+              </TableContext.Provider>
+            </MotionContext.Provider>
+          </HoldContext.Provider>
+        </UnapprovedMergeContext.Provider>
+      </AgentProvider>
     </FeedbackProvider>
   )
 }
@@ -218,14 +234,18 @@ export function SkeletonTable({ mode, note }: { mode: ListName; note: string }) 
             <th className="num">#</th>
             <th>Title</th>
             {mode === 'review' ? <th className="author">Author</th> : null}
-            <th className="size" colSpan={3}>Size</th>
+            <th className="size" colSpan={3}>
+              Size
+            </th>
             <th className="when">Age</th>
             <th className="when">Updated</th>
             <th>CI</th>
             <th className="branch">Branch</th>
             <th>Review</th>
             <th>Feedback</th>
-            <th className="agents"><Icon name="robot" className="robot-icon" /></th>
+            <th className="agents">
+              <Icon name="robot" className="robot-icon" />
+            </th>
             {mode === 'mine' ? <th className="merge">Merge</th> : null}
             <th className="open">Open</th>
             <th />
@@ -251,11 +271,18 @@ export function SkeletonTable({ mode, note }: { mode: ListName; note: string }) 
               <td className="when">{bar(22)}</td>
               <td>{bar(56, 18, ' round')}</td>
               <td className="uptodate" />
-              <td>{bar(16, 16, ' square')}{bar(16, 16, ' square')}{bar(16, 16, ' square')}</td>
+              <td>
+                {bar(16, 16, ' square')}
+                {bar(16, 16, ' square')}
+                {bar(16, 16, ' square')}
+              </td>
               <td>{bar(26)}</td>
               <td className="agents" />
               {mode === 'mine' ? <td className="merge">{index % 3 === 0 ? bar(64, 26, ' amber') : null}</td> : null}
-              <td className="open">{bar(16, 16, ' square')}{bar(16, 16, ' square')}</td>
+              <td className="open">
+                {bar(16, 16, ' square')}
+                {bar(16, 16, ' square')}
+              </td>
               <td className="row-actions" />
             </tr>
           ))}

@@ -4,14 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mirrorPath, removeMirror } from '../src/server/git.ts'
 import { openDatabase } from '../src/server/db.ts'
-import {
-  authoredSearchQueries,
-  ownersFromRepos,
-  parseRepoName,
-  removalWarning,
-  replaceRepoPulls,
-  scopedQueries,
-} from '../src/shared/repos.ts'
+import { authoredSearchQueries, ownersFromRepos, parseRepoName, removalWarning, replaceRepoPulls, scopedQueries } from '../src/shared/repos.ts'
 import type { PullRequest } from '../src/shared/types.ts'
 import { pullRequest } from './support/pull.ts'
 
@@ -43,9 +36,7 @@ describe('repository selection', () => {
 
   it('uses repeated repo qualifiers and splits long queries', () => {
     expect(authoredSearchQueries([])).toEqual([])
-    expect(authoredSearchQueries(['acme/web', 'acme/app'])).toEqual([
-      'sort:updated-desc is:open is:pr archived:false author:@me repo:acme/app repo:acme/web',
-    ])
+    expect(authoredSearchQueries(['acme/web', 'acme/app'])).toEqual(['sort:updated-desc is:open is:pr archived:false author:@me repo:acme/app repo:acme/web'])
     const repos = Array.from({ length: 20 }, (_, index) => `acme/repository-name-${String(index).padStart(2, '0')}`)
     const queries = scopedQueries('is:open is:pr', repos)
     expect(queries.length).toBeGreaterThan(1)

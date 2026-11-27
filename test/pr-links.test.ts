@@ -29,9 +29,7 @@ describe('pull request links', () => {
     expect(prHref(threadUrl, 'graphite', { kind: 'comment', id: 'PRRC_kwDOAbc' })).toBe(
       'https://app.graphite.com/github/pr/acme/app/7/changes#comment-PRRC_kwDOAbc',
     )
-    expect(prHref(pull, 'graphite', { kind: 'thread', id: 'PRRT_kwDOAbc' })).toBe(
-      'https://app.graphite.com/github/pr/acme/app/7/changes#thread-PRRT_kwDOAbc',
-    )
+    expect(prHref(pull, 'graphite', { kind: 'thread', id: 'PRRT_kwDOAbc' })).toBe('https://app.graphite.com/github/pr/acme/app/7/changes#thread-PRRT_kwDOAbc')
     expect(prHref(commentUrl, 'graphite', { kind: 'discussion', id: 'IC_kwDOAbc' })).toBe(
       'https://app.graphite.com/github/pr/acme/app/7/activity#discussion-IC_kwDOAbc',
     )

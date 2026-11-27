@@ -1,4 +1,15 @@
-import { asNote, asThread, type FeedbackAuthor, feedbackCounts, type FeedbackDetail, type FeedbackNote, type FeedbackPayload, type LocalResolutions, quoteReply, threadPermalink } from '../shared/feedback.ts'
+import {
+  asNote,
+  asThread,
+  type FeedbackAuthor,
+  feedbackCounts,
+  type FeedbackDetail,
+  type FeedbackNote,
+  type FeedbackPayload,
+  type LocalResolutions,
+  quoteReply,
+  threadPermalink,
+} from '../shared/feedback.ts'
 import { COMMENT_GONE, Refused } from './errors.ts'
 import { graphql } from './github-client.ts'
 
@@ -130,30 +141,34 @@ function feedbackAuthor(author: RawActor): FeedbackAuthor | null {
 function mapFeedback(data: RawFeedback): FeedbackDetail {
   const pull = data.repository?.pullRequest
   if (!pull) throw new Error('That pull request was not found.')
-  const threads = (pull.reviewThreads.nodes ?? []).filter((thread): thread is NonNullable<typeof thread> => thread != null).map((thread) => {
-    const comments = (thread.comments.nodes ?? []).filter((comment): comment is RawFeedbackComment => comment != null).map((comment) => ({
-      id: comment.id,
-      author: feedbackAuthor(comment.author),
-      createdAt: comment.createdAt,
-      body: comment.body ?? '',
-      url: comment.url,
-      diffHunk: comment.diffHunk ?? null,
-    }))
-    const hunk = comments.find((comment) => comment.diffHunk)?.diffHunk ?? null
-    return {
-      id: thread.id,
-      isResolved: thread.isResolved,
-      isOutdated: thread.isOutdated,
-      resolvedBy: thread.resolvedBy?.login ?? null,
-      path: thread.path,
-      line: thread.line ?? thread.originalLine,
-      startLine: thread.startLine ?? thread.originalStartLine,
-      url: threadPermalink(comments),
-      diffHunk: hunk,
-      commentsTruncated: thread.comments.pageInfo.hasPreviousPage,
-      comments,
-    }
-  })
+  const threads = (pull.reviewThreads.nodes ?? [])
+    .filter((thread): thread is NonNullable<typeof thread> => thread != null)
+    .map((thread) => {
+      const comments = (thread.comments.nodes ?? [])
+        .filter((comment): comment is RawFeedbackComment => comment != null)
+        .map((comment) => ({
+          id: comment.id,
+          author: feedbackAuthor(comment.author),
+          createdAt: comment.createdAt,
+          body: comment.body ?? '',
+          url: comment.url,
+          diffHunk: comment.diffHunk ?? null,
+        }))
+      const hunk = comments.find((comment) => comment.diffHunk)?.diffHunk ?? null
+      return {
+        id: thread.id,
+        isResolved: thread.isResolved,
+        isOutdated: thread.isOutdated,
+        resolvedBy: thread.resolvedBy?.login ?? null,
+        path: thread.path,
+        line: thread.line ?? thread.originalLine,
+        startLine: thread.startLine ?? thread.originalStartLine,
+        url: threadPermalink(comments),
+        diffHunk: hunk,
+        commentsTruncated: thread.comments.pageInfo.hasPreviousPage,
+        comments,
+      }
+    })
   const commentNotes: FeedbackNote[] = (pull.comments.nodes ?? []).flatMap((comment) => {
     if (!comment) return []
     const author = feedbackAuthor(comment.author)
@@ -164,14 +179,16 @@ function mapFeedback(data: RawFeedback): FeedbackDetail {
     if (!review || SKIPPED_REVIEW.has(review.state) || !review.body?.trim()) return []
     const author = feedbackAuthor(review.author)
     if (author?.__typename !== 'User') return []
-    return [{
-      id: review.id,
-      author,
-      createdAt: review.submittedAt ?? '',
-      body: review.body ?? '',
-      url: review.url,
-      kind: 'review' as const,
-    }]
+    return [
+      {
+        id: review.id,
+        author,
+        createdAt: review.submittedAt ?? '',
+        body: review.body ?? '',
+        url: review.url,
+        kind: 'review' as const,
+      },
+    ]
   })
   return {
     pullId: pull.id,
@@ -210,13 +227,7 @@ export async function replyToReviewThread(token: string, repo: string, number: n
   return fetchPullFeedback(token, repo, number)
 }
 
-export async function setReviewThreadResolved(
-  token: string,
-  repo: string,
-  number: number,
-  threadId: string,
-  resolved: boolean,
-): Promise<FeedbackDetail> {
+export async function setReviewThreadResolved(token: string, repo: string, number: number, threadId: string, resolved: boolean): Promise<FeedbackDetail> {
   await graphql(token, resolved ? RESOLVE_THREAD : UNRESOLVE_THREAD, { threadId })
   return fetchPullFeedback(token, repo, number)
 }

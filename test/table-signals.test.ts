@@ -162,7 +162,12 @@ describe('where a pull request stands', () => {
 })
 
 describe('when the viewer last reviewed a pull request', () => {
-  const review = (login: string, state: string, submittedAt: string | null) => ({ state, submittedAt, body: '', author: { __typename: 'User', login, avatarUrl: null } })
+  const review = (login: string, state: string, submittedAt: string | null) => ({
+    state,
+    submittedAt,
+    body: '',
+    author: { __typename: 'User', login, avatarUrl: null },
+  })
 
   it('is their latest review of any kind, and no one else’s', () => {
     const viewer = extras.viewer

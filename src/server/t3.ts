@@ -50,7 +50,10 @@ async function startT3Thread({ pr, request, task, target }: AgentStart): Promise
     throw new AgentUnavailable('unconfigured', 'T3 Code can only start threads on this machine so far.')
   }
   if (!target.checkout) {
-    throw new AgentUnavailable('unconfigured', `T3 Code has no project for ${pr.repo}. Add its folder as a project in T3 Code, or set a folder under Agents in Settings.`)
+    throw new AgentUnavailable(
+      'unconfigured',
+      `T3 Code has no project for ${pr.repo}. Add its folder as a project in T3 Code, or set a folder under Agents in Settings.`,
+    )
   }
   const problem = await checkoutProblem(pr.repo, target.checkout)
   if (problem) throw new AgentUnavailable('unconfigured', problem)
@@ -118,7 +121,11 @@ export function t3Session(session: AgentSession, shown: T3Thread, now = new Date
   const reply = [...(shown.messages ?? [])].reverse().find((message) => message.role === 'assistant' && (!message.runId || message.runId === runId))
   const text = reply?.text?.trim() || null
   const result =
-    status === 'failed' && !text ? 'T3 Code could not run this thread. Open it in T3 Code to see why.' : status === 'creating' || status === 'running' ? session.result : (text ?? session.result)
+    status === 'failed' && !text
+      ? 'T3 Code could not run this thread. Open it in T3 Code to see why.'
+      : status === 'creating' || status === 'running'
+        ? session.result
+        : (text ?? session.result)
   return {
     ...session,
     runId,

@@ -70,14 +70,13 @@ function DetailsBlock({ block }: { block: Extract<Block, { type: 'details' }> })
       }}
     >
       <summary>{renderInlines(block.summary)}</summary>
-      {block.children.length > 0 ? (
-        <div className="md-details-body">{block.children.map((child, index) => renderBlock(child, index))}</div>
-      ) : null}
+      {block.children.length > 0 ? <div className="md-details-body">{block.children.map((child, index) => renderBlock(child, index))}</div> : null}
     </details>
   )
 }
 
 function renderInlines(nodes: Inline[]): ReactNode[] {
+  // biome-ignore lint/suspicious/useIterableCallbackReturn: the switch covers every kind of node, which the type checker holds it to
   return nodes.map((node, index) => {
     switch (node.type) {
       case 'text':

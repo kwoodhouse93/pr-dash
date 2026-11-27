@@ -56,10 +56,7 @@ export async function enrichLinearProjects(pullRequests: PullRequest[], token: s
   }
 }
 
-export async function listStatuses(
-  token: string,
-  query: { teamId?: string; issue?: string },
-): Promise<LinearStatus[]> {
+export async function listStatuses(token: string, query: { teamId?: string; issue?: string }): Promise<LinearStatus[]> {
   if (query.teamId) {
     const data = await linear<{ team: { states: { nodes: RawState[] } } | null }>(
       token,
@@ -82,17 +79,16 @@ export async function listUsers(token: string): Promise<LinearAssignee[]> {
   const users: LinearAssignee[] = []
   let after: string | null = null
   for (let page = 0; page < 20; page += 1) {
-    const data: { users: { nodes: RawUser[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } =
-      await linear(
-        token,
-        `query($after: String) {
+    const data: { users: { nodes: RawUser[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } = await linear(
+      token,
+      `query($after: String) {
           users(first: 100, after: $after) {
             nodes { id name displayName avatarUrl active }
             pageInfo { hasNextPage endCursor }
           }
         }`,
-        { after },
-      )
+      { after },
+    )
     for (const user of data.users.nodes) {
       if (user.active === false) continue
       const mapped = mapUser(user)
@@ -105,16 +101,8 @@ export async function listUsers(token: string): Promise<LinearAssignee[]> {
   return users
 }
 
-export async function updateLinearIssue(
-  token: string,
-  identifier: string,
-  input: { statusId?: string; assigneeId?: string | null },
-): Promise<LinearIssue> {
-  const found = await linear<{ issue: { id: string } | null }>(
-    token,
-    `query($id: String!) { issue(id: $id) { id } }`,
-    { id: identifier },
-  )
+export async function updateLinearIssue(token: string, identifier: string, input: { statusId?: string; assigneeId?: string | null }): Promise<LinearIssue> {
+  const found = await linear<{ issue: { id: string } | null }>(token, `query($id: String!) { issue(id: $id) { id } }`, { id: identifier })
   if (!found.issue) throw new Error(`Linear issue ${identifier} was not found.`)
   const patch: { stateId?: string; assigneeId?: string | null } = {}
   if (input.statusId) patch.stateId = input.statusId
@@ -165,12 +153,7 @@ export async function searchLinearIssues(token: string, term: string): Promise<L
   return matches
 }
 
-export async function linkGitHubPullRequest(
-  token: string,
-  identifier: string,
-  url: string,
-  title: string,
-): Promise<LinearIssue> {
+export async function linkGitHubPullRequest(token: string, identifier: string, url: string, title: string): Promise<LinearIssue> {
   const data = await linear<{ attachmentLinkGitHubPR: { success: boolean } }>(
     token,
     `mutation($issueId: String!, $url: String!, $title: String, $linkKind: GitLinkKind) {
@@ -185,11 +168,7 @@ export async function linkGitHubPullRequest(
 }
 
 async function fetchIssue(token: string, identifier: string): Promise<LinearIssue | null> {
-  const data = await linear<{ issue: RawIssue | null }>(
-    token,
-    `query($id: String!) { issue(id: $id) { ${ISSUE_FIELDS} } }`,
-    { id: identifier },
-  )
+  const data = await linear<{ issue: RawIssue | null }>(token, `query($id: String!) { issue(id: $id) { ${ISSUE_FIELDS} } }`, { id: identifier })
   return data.issue ? mapIssue(data.issue) : null
 }
 

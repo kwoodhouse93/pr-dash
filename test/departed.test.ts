@@ -33,7 +33,14 @@ function open(): DashboardDb {
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
 function save(db: DashboardDb, mine: PullRequest[], review: PullRequest[] = []) {
-  return db.saveSnapshot({ viewer: 'ada', syncedAt: new Date().toISOString(), pullRequests: mine, reviewPullRequests: review, linearConfigured: false, warning: null })
+  return db.saveSnapshot({
+    viewer: 'ada',
+    syncedAt: new Date().toISOString(),
+    pullRequests: mine,
+    reviewPullRequests: review,
+    linearConfigured: false,
+    warning: null,
+  })
 }
 
 describe('departed pull requests', () => {
@@ -75,12 +82,38 @@ describe('departed pull requests', () => {
     const db = open()
     save(db, [pr(5)])
     db.saveAgentSession('acme/app#5', {
-      provider: 'cursor', agentId: 'a1', runId: 'r1', kind: 'ci', prompt: null, status: 'finished', result: null, branch: null,
-      environmentId: null, url: null, unreachableSince: null, createdAt: '2026-11-20T09:00:00Z', updatedAt: '2026-11-20T09:05:00Z',
+      provider: 'cursor',
+      agentId: 'a1',
+      runId: 'r1',
+      kind: 'ci',
+      prompt: null,
+      status: 'finished',
+      result: null,
+      branch: null,
+      environmentId: null,
+      url: null,
+      unreachableSince: null,
+      createdAt: '2026-11-20T09:00:00Z',
+      updatedAt: '2026-11-20T09:05:00Z',
     })
     const entry = db.queue.enqueue({
-      kind: 'pr', repo: 'acme/app', trunk: 'main', title: 'PR 5',
-      steps: [{ prKey: 'acme/app#5', number: 5, title: 'PR 5', url: 'https://example.test', headRef: 'a', headOid: 'a'.repeat(40), baseRef: 'main', baseOid: null, role: 'merge' }],
+      kind: 'pr',
+      repo: 'acme/app',
+      trunk: 'main',
+      title: 'PR 5',
+      steps: [
+        {
+          prKey: 'acme/app#5',
+          number: 5,
+          title: 'PR 5',
+          url: 'https://example.test',
+          headRef: 'a',
+          headOid: 'a'.repeat(40),
+          baseRef: 'main',
+          baseOid: null,
+          role: 'merge',
+        },
+      ],
     })
     db.queue.setStep(entry.steps[0]!.id, 'merged', null)
     const [gone] = db.snapshot().departed!
@@ -112,7 +145,16 @@ describe('departed pull requests', () => {
 
     const activity = db.activity()
     expect(activity.merged).toEqual([
-      { key: 'acme/app#1', repo: 'acme/app', repoName: 'app', number: 1, title: 'PR 1', url: 'https://github.com/acme/app/pull/1', at: '2026-11-22T12:00:00.000Z', readyAt: ready },
+      {
+        key: 'acme/app#1',
+        repo: 'acme/app',
+        repoName: 'app',
+        number: 1,
+        title: 'PR 1',
+        url: 'https://github.com/acme/app/pull/1',
+        at: '2026-11-22T12:00:00.000Z',
+        readyAt: ready,
+      },
     ])
     expect(activity.reviewed.map((event) => [event.key, event.at, event.readyAt])).toEqual([
       ['acme/app#5', '2026-11-21T10:00:00.000Z', ready],

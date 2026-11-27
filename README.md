@@ -65,9 +65,11 @@ The API refuses requests from pages on another site. On the default local addres
 ```bash
 npm test            # every test, once
 npm run typecheck   # the dashboard; run it in desktop/ for the app
+npm run lint        # formatting and lint rules, for the dashboard and the app
+npm run format      # rewrites what lint would complain about, where it can
 ```
 
-A push to `main` runs both, and publishes the build the desktop app downloads only when they pass.
+Formatting and linting are Biome's, set up in `biome.json`. A push to `main` runs all three, and publishes the build the desktop app downloads only when they pass.
 
 - `src/shared` is what the server, the page and the desktop app all use: the types, and the rules for stacks, checks, reviews and the merge queue. Nothing in it touches the network, the database or the page.
 - `src/server` is the API. `app.ts` builds it from the route files in `routes/`, which throw what went wrong for one handler to answer. `github.ts` reads the lists, `github-pull.ts` reads and changes one pull request, and `github-feedback.ts` is review threads. `schema.ts` holds the database's tables as numbered steps; a change to a table is a new step at the end.

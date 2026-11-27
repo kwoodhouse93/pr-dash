@@ -3,15 +3,7 @@ import { awaitingApproval, mergeStateReady, requiredCheckGate } from './merge.ts
 import type { Check, Mergeable, Reviewer } from './types.ts'
 import type { ReviewDecision } from './approval.ts'
 
-export type StepStatus =
-  | 'queued'
-  | 'waiting'
-  | 'rebasing'
-  | 'merging'
-  | 'merged'
-  | 'restacked'
-  | 'failed'
-  | 'cancelled'
+export type StepStatus = 'queued' | 'waiting' | 'rebasing' | 'merging' | 'merged' | 'restacked' | 'failed' | 'cancelled'
 
 export type EntryStatus = 'queued' | 'active' | 'failed' | 'cancelled' | 'done'
 
@@ -223,12 +215,7 @@ export function cancelGrace(since: number | null, now: number, restarting: boole
  * how many approvals the trunk asks for. GitHub only says such a pull request is blocked, so every other
  * gate here has to hold on its own.
  */
-export function interpretWait(
-  live: LivePull,
-  trunk: string,
-  requiredNames: string[],
-  unapproved: { requiredApprovals: number } | null = null,
-): WaitDecision {
+export function interpretWait(live: LivePull, trunk: string, requiredNames: string[], unapproved: { requiredApprovals: number } | null = null): WaitDecision {
   if (live.state === 'MERGED') return { action: 'merged' }
   if (live.state === 'CLOSED') return { action: 'fail', reason: `#${live.number} is closed.` }
   if (live.baseRef !== trunk) {
@@ -283,9 +270,7 @@ export function interpretWait(
   return { action: 'wait', reason: `Waiting on GitHub for #${live.number} (${live.mergeStateStatus ?? 'unknown'}).` }
 }
 
-export type BootAction =
-  | { type: 'resume' }
-  | { type: 'hold'; reason: string; merged: boolean }
+export type BootAction = { type: 'resume' } | { type: 'hold'; reason: string; merged: boolean }
 
 /** Decide whether a restart may continue the active entry, or must hold it aside. */
 export function bootAction(status: StepStatus, github: 'OPEN' | 'MERGED' | 'CLOSED' | 'unknown'): BootAction {
@@ -301,7 +286,8 @@ export function bootAction(status: StepStatus, github: 'OPEN' | 'MERGED' | 'CLOS
     return {
       type: 'hold',
       merged: true,
-      reason: 'Restarted after this pull request merged. The rest of the entry was not rebased. Restack the remaining branches and retry, or remove this entry.',
+      reason:
+        'Restarted after this pull request merged. The rest of the entry was not rebased. Restack the remaining branches and retry, or remove this entry.',
     }
   }
   if (status === 'merging') {

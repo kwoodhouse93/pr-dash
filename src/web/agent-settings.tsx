@@ -141,13 +141,7 @@ export function AgentSettingsPanel({
           </div>
           <ul className="agent-repos" aria-label="Agent provider for each repository">
             {settings.repos.map((row) => (
-              <RepoRow
-                key={row.repo}
-                row={row}
-                needsCheckout={usesT3(row)}
-                busy={busy}
-                onSave={(agent) => save(() => api.setRepoAgent(row.repo, agent))}
-              />
+              <RepoRow key={row.repo} row={row} needsCheckout={usesT3(row)} busy={busy} onSave={(agent) => save(() => api.setRepoAgent(row.repo, agent))} />
             ))}
           </ul>
         </>
@@ -261,7 +255,13 @@ function T3Pairing({
             {busy ? 'Pairing…' : paired ? 'Pair again' : 'Pair'}
           </button>
           {paired ? (
-            <button type="button" className="text-btn" disabled={busy} title="Stops opening threads here. To end the pairing itself, revoke PR Dash in T3 Code." onClick={() => onPaired(null)}>
+            <button
+              type="button"
+              className="text-btn"
+              disabled={busy}
+              title="Stops opening threads here. To end the pairing itself, revoke PR Dash in T3 Code."
+              onClick={() => onPaired(null)}
+            >
               Forget
             </button>
           ) : (

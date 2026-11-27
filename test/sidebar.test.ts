@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { buildSidebar, drawStacks, isAppLink, linearRef, linearStayUrl, prRef, pruneAgentState, runsShownAt, shareUrl, type AgentState, type Grouping, type SidebarNode, type TabInfo } from '../desktop/src/sidebar.ts'
+import {
+  buildSidebar,
+  drawStacks,
+  isAppLink,
+  linearRef,
+  linearStayUrl,
+  prRef,
+  pruneAgentState,
+  runsShownAt,
+  shareUrl,
+  type AgentState,
+  type Grouping,
+  type SidebarNode,
+  type TabInfo,
+} from '../desktop/src/sidebar.ts'
 import { buildStacks } from '../src/shared/stacks.ts'
 import { isT3Handoff, isT3PairLink, t3PromptAction, t3PromptUpdate } from '../desktop/src/t3-prompt.ts'
 import type { AgentSession, LinearIssue, PullRequest, Snapshot } from '../src/shared/types.ts'
@@ -79,7 +93,19 @@ function tab(id: number, url: string, over: Partial<TabInfo> = {}): TabInfo {
 const HOME = tab(0, 'http://127.0.0.1:4318/', { pinned: true, title: 'Pull requests' })
 const QUIET: AgentState = { since: '2026-11-01T00:00:00Z', seen: {}, dismissed: [] }
 
-function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; activeId?: number; collapsed?: string[]; agentState?: AgentState; flat?: string[]; held?: string[]; linearByProject?: boolean } = {}) {
+function build(
+  tabs: TabInfo[],
+  data: Snapshot,
+  over: {
+    grouping?: Grouping
+    activeId?: number
+    collapsed?: string[]
+    agentState?: AgentState
+    flat?: string[]
+    held?: string[]
+    linearByProject?: boolean
+  } = {},
+) {
   return buildSidebar({
     tabs: [HOME, ...tabs],
     activeId: over.activeId ?? 0,
@@ -95,7 +121,9 @@ function build(tabs: TabInfo[], data: Snapshot, over: { grouping?: Grouping; act
 }
 
 function outline(nodes: SidebarNode[]): string[] {
-  return nodes.map((node) => (node.kind === 'tab' ? `${'  '.repeat(node.depth)}${node.row.number === null ? node.row.title : `#${node.row.number}`}` : `${node.kind}:${node.title}`))
+  return nodes.map((node) =>
+    node.kind === 'tab' ? `${'  '.repeat(node.depth)}${node.row.number === null ? node.row.title : `#${node.row.number}`}` : `${node.kind}:${node.title}`,
+  )
 }
 
 describe('the pairing note on T3 Code’s hand-off page', () => {
@@ -254,7 +282,10 @@ describe('sidebar tabs', () => {
   })
 
   it('nests a tab that has left its pull request under a tab still on it', () => {
-    const wandered = [tab(5, 'https://github.com/acme/app/pull/3'), tab(7, 'https://github.com/acme/app/actions/runs/9', { origin: 'acme/app#3', title: 'CI run' })]
+    const wandered = [
+      tab(5, 'https://github.com/acme/app/pull/3'),
+      tab(7, 'https://github.com/acme/app/actions/runs/9', { origin: 'acme/app#3', title: 'CI run' }),
+    ]
     expect(outline(build(wandered, data).nodes)).toEqual(['group:Onboarding', '  #3', '    CI run'])
   })
 
@@ -324,7 +355,13 @@ describe('stack rails', () => {
 
   it('carries lanes past a page nested under a pull request', () => {
     const drawn = drawStacks([key(21), key(20), key(12), key(11)], stacks)
-    expect(drawn[2]!.passing).toMatchObject({ lane: null, through: [{ lane: 0, line: 'solid' }, { lane: 1, line: 'solid' }] })
+    expect(drawn[2]!.passing).toMatchObject({
+      lane: null,
+      through: [
+        { lane: 0, line: 'solid' },
+        { lane: 1, line: 'solid' },
+      ],
+    })
     expect(drawn[2]!.note).toBe('Based on #11')
     expect(drawn[3]!.note).toBe('Based on #10, which is not open here')
   })
@@ -340,7 +377,11 @@ describe('stack rails', () => {
     const tabs = [10, 12, 11].map((number, index) => tab(index + 1, `https://github.com/acme/app/pull/${number}`))
     const nodes = build(tabs, snapshot(prs)).nodes
     expect(outline(nodes)).toEqual(['group:Ungrouped', '  #12', '  #11', '  #10'])
-    expect(nodes.flatMap((node) => (node.kind === 'tab' ? [[node.rail?.up, node.rail?.down]] : []))).toEqual([[null, 'solid'], ['solid', 'solid'], ['solid', null]])
+    expect(nodes.flatMap((node) => (node.kind === 'tab' ? [[node.rail?.up, node.rail?.down]] : []))).toEqual([
+      [null, 'solid'],
+      ['solid', 'solid'],
+      ['solid', null],
+    ])
   })
 })
 
@@ -392,7 +433,11 @@ describe('sidebar agents', () => {
   })
 
   it('keeps an agent tab out of the strip unless it is the one being looked at', () => {
-    const tabs = [tab(7, 'https://cursor.com/agents/bc-done'), tab(8, 'https://github.com/acme/app/pull/1'), tab(9, 'about:blank', { starting: { key: 'acme/app#2', kind: 'prompt', prompt: 'Tidy' } })]
+    const tabs = [
+      tab(7, 'https://cursor.com/agents/bc-done'),
+      tab(8, 'https://github.com/acme/app/pull/1'),
+      tab(9, 'about:blank', { starting: { key: 'acme/app#2', kind: 'prompt', prompt: 'Tidy' } }),
+    ]
     expect(build(tabs, data, { activeId: 8 }).strip.map((item) => item.id)).toEqual([0, 8])
     expect(build(tabs, data, { activeId: 7 }).strip.map((item) => item.id)).toEqual([0, 7, 8])
   })
@@ -423,7 +468,6 @@ describe('sidebar agents', () => {
   })
 
   it('finds the unread runs a tab is showing', () => {
-
     expect(runsShownAt('https://cursor.com/agents/bc-done', data, QUIET)).toEqual(['bc-done:run-1'])
     expect(runsShownAt('https://cursor.com/agents/bc-run', data, QUIET)).toEqual([])
     expect(runsShownAt('https://example.com/bc-done', data, QUIET)).toEqual([])
@@ -439,19 +483,43 @@ describe('pull requests that merged or closed', () => {
   const old = session('bc-old', { status: 'finished', updatedAt: '2026-10-01T00:00:00Z' })
   const gone = (number: number, outcome: 'merged' | 'closed', over: Partial<PullRequest> = {}) => {
     const last = pr(number, over)
-    return { key: last.key, repo: last.repo, repoName: last.repoName, number, title: last.title, url: last.url, author: 'me', list: 'mine' as const, outcome, at: '2026-11-19T11:00:00Z', linearIssues: last.linearIssues, initiativeIds: last.initiativeIds, agentSessions: last.agentSessions ?? [] }
+    return {
+      key: last.key,
+      repo: last.repo,
+      repoName: last.repoName,
+      number,
+      title: last.title,
+      url: last.url,
+      author: 'me',
+      list: 'mine' as const,
+      outcome,
+      at: '2026-11-19T11:00:00Z',
+      linearIssues: last.linearIssues,
+      initiativeIds: last.initiativeIds,
+      agentSessions: last.agentSessions ?? [],
+    }
   }
   const data: Snapshot = {
     ...snapshot([pr(1, { linearIssues: [issue('ENG-1', 'Deals')] })]),
     departed: [gone(2, 'merged', { linearIssues: [issue('ENG-1', 'Deals')], agentSessions: [old] }), gone(3, 'closed')],
   }
-  const tabs = [tab(1, 'https://github.com/acme/app/pull/2'), tab(2, 'https://github.com/acme/app/pull/1'), tab(3, 'https://github.com/acme/app/pull/3'), tab(4, 'https://example.com/')]
+  const tabs = [
+    tab(1, 'https://github.com/acme/app/pull/2'),
+    tab(2, 'https://github.com/acme/app/pull/1'),
+    tab(3, 'https://github.com/acme/app/pull/3'),
+    tab(4, 'https://example.com/'),
+  ]
 
   it('keeps their tabs where they were, after the open ones, with a mark in place of checks', () => {
     const model = build(tabs, data)
     expect(outline(model.nodes)).toEqual(['group:Deals', 'issue:ENG-1 · Title ENG-1', '  #1', '  #2', 'group:Ungrouped', '  #3', 'label:Other', 'Page 4'])
     const rows = model.nodes.flatMap((node) => (node.kind === 'tab' ? [node.row] : []))
-    expect(rows.map((row) => [row.number, row.gone, row.ci])).toEqual([[1, null, 'green'], [2, 'merged', null], [3, 'closed', null], [null, null, null]])
+    expect(rows.map((row) => [row.number, row.gone, row.ci])).toEqual([
+      [1, null, 'green'],
+      [2, 'merged', null],
+      [3, 'closed', null],
+      [null, null, null],
+    ])
     expect(model.strip.map((item) => item.gone)).toEqual([null, 'merged', null, 'closed', null])
   })
 

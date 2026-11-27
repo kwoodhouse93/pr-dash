@@ -64,9 +64,7 @@ describe('merge queue logs', () => {
     document.body.appendChild(container)
     root = createRoot(container)
     await act(async () => {
-      root?.render(
-        <MergeQueuePage queue={queue} onCancel={async () => {}} onRetry={async () => {}} onMove={async () => {}} />,
-      )
+      root?.render(<MergeQueuePage queue={queue} onCancel={async () => {}} onRetry={async () => {}} onMove={async () => {}} />)
     })
   }
 

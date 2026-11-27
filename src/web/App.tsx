@@ -86,9 +86,7 @@ export function App() {
   useEffect(() => {
     setHolds((current) => {
       if (current.size === 0) return current
-      const byKey = new Map(
-        [...(data?.pullRequests ?? []), ...(data?.reviewPullRequests ?? [])].map((pr) => [pr.key, pr]),
-      )
+      const byKey = new Map([...(data?.pullRequests ?? []), ...(data?.reviewPullRequests ?? [])].map((pr) => [pr.key, pr]))
       let changed = false
       const next = new Map<string, CheckHold[]>()
       for (const [key, list] of current) {
@@ -103,10 +101,7 @@ export function App() {
   }, [data])
 
   const linearHint = Boolean(
-    !linearHintHidden &&
-    data &&
-    !data.linearConfigured &&
-    [...data.pullRequests, ...(data.reviewPullRequests ?? [])].some((pr) => pr.linearIssues.length > 0),
+    !linearHintHidden && data && !data.linearConfigured && [...data.pullRequests, ...(data.reviewPullRequests ?? [])].some((pr) => pr.linearIssues.length > 0),
   )
 
   useEffect(() => {
@@ -182,7 +177,9 @@ export function App() {
       if (typeof origin === 'string') setPrefs((current) => ({ ...current, t3Origin: origin }))
       if (detail?.failed === true) {
         setPrefs((current) => ({ ...current, t3Origin: null }))
-        toastError('T3 Code did not take the pairing link. Try again, or enter a pairing code under Agents in Settings.', { heading: 'Could not pair with T3 Code' })
+        toastError('T3 Code did not take the pairing link. Try again, or enter a pairing code under Agents in Settings.', {
+          heading: 'Could not pair with T3 Code',
+        })
       }
       if (detail?.prompt === false) setPrefs((current) => ({ ...current, t3PairPrompt: false }))
     })
@@ -190,11 +187,19 @@ export function App() {
   const viewPrefs = prefs.views[list]
   const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])
   const mine = useMemo(
-    () => withStartingSessions((data?.pullRequests ?? []).filter((pr) => watched.has(pr.repo)), starting),
+    () =>
+      withStartingSessions(
+        (data?.pullRequests ?? []).filter((pr) => watched.has(pr.repo)),
+        starting,
+      ),
     [data?.pullRequests, watched, starting],
   )
   const review = useMemo(
-    () => withStartingSessions((data?.reviewPullRequests ?? []).filter((pr) => watched.has(pr.repo)), starting),
+    () =>
+      withStartingSessions(
+        (data?.reviewPullRequests ?? []).filter((pr) => watched.has(pr.repo)),
+        starting,
+      ),
     [data?.reviewPullRequests, watched, starting],
   )
   const agents = useMemo(() => agentItems([...mine, ...review]), [mine, review])
@@ -330,7 +335,15 @@ export function App() {
   /** Queues a merge. What was pressed folds into a parcel, which flies to the queue button once the queue has taken it. */
   function queueMerge(key: string, scope: 'pr' | 'downstack' | 'unapproved'): Promise<void> {
     const queued = api.enqueue(key, scope).then(setQueue)
-    void sendOff(QUEUE_BUTTON, pressBox(), 'Merge', queued.then(() => true, () => false))
+    void sendOff(
+      QUEUE_BUTTON,
+      pressBox(),
+      'Merge',
+      queued.then(
+        () => true,
+        () => false,
+      ),
+    )
     return queued
   }
 
@@ -346,344 +359,358 @@ export function App() {
 
   return (
     <PrLinksProvider host={prefs.prLinks}>
-    <MenuProvider>
-    <RepoMarksProvider marks={data?.repoMarks}>
-      <Toasts scheme={themeOf(prefs.theme).scheme} />
-      <Shortcuts open={shortcutsOpen} onOpen={openShortcuts} onClose={closeShortcuts} />
-      <div className="app">
-        <header className="top">
-          <nav className="nav" aria-label="Lists">
-            <button type="button" className="tab" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
-              My PRs
-            </button>
-            <button type="button" className="tab" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
-              Review
-              {reviewBadge > 0 ? <Roll className="nav-count" value={reviewBadge} /> : null}
-            </button>
-            <button type="button" className="tab" aria-pressed={page === 'activity'} onClick={() => setPrefs((current) => ({ ...current, page: 'activity' }))}>
-              Activity
-            </button>
-          </nav>
-          <div className="top-tools">
-            {listPage && mergedToday.length + reviewedToday.length > 0 ? (
-              <button type="button" className="tally" aria-label="Activity" onClick={() => setPrefs((current) => ({ ...current, page: 'activity' }))}>
-                {mergedToday.length > 0 ? (
-                  <span className="tally-part" title={`Your pull requests merged today: ${mergedToday.map((pr) => `#${pr.number}`).join(', ')}`}>
-                    <span className="ticks" aria-hidden="true">
-                      {mergedToday.slice(0, TICKS_SHOWN).map((pr) => (
-                        <i key={pr.key} />
-                      ))}
-                    </span>
-                    <span>
-                      <Roll value={mergedToday.length} /> merged
-                    </span>
-                  </span>
-                ) : null}
-                {reviewedToday.length > 0 ? (
-                  <span className="tally-part reviewed" title={`Pull requests you reviewed today: ${reviewedToday.map((number) => `#${number}`).join(', ')}`}>
-                    <span className="ticks" aria-hidden="true">
-                      {reviewedToday.slice(0, TICKS_SHOWN).map((number) => (
-                        <i key={number} />
-                      ))}
-                    </span>
-                    <span>
-                      <Roll value={reviewedToday.length} /> reviewed
-                    </span>
-                  </span>
-                ) : null}
-                <span>today</span>
-              </button>
-            ) : null}
-            {page === 'settings' ? null : (
-              <RefreshControl
-                refreshing={refreshing}
-                status={status}
-                progress={progress}
-                syncedAt={syncedAt}
-                now={now}
-                onRefresh={() => void refresh({ force: true })}
-              />
-            )}
-            <AgentsButton statuses={agents.map((item) => item.session.status)} pressed={page === 'agents'} onClick={() => setPrefs((current) => ({ ...current, page: 'agents' }))} />
-            <QueueButton queue={queue} pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))} />
-            <button
-              type="button"
-              className="tool-btn"
-              aria-pressed={shortcutsOpen}
-              aria-label="Keyboard shortcuts"
-              aria-keyshortcuts="?"
-              title="Keyboard shortcuts (?)"
-              onClick={() => setShortcutsOpen((current) => !current)}
-            >
-              <Icon name="keyboard" />
-            </button>
-            <button
-              type="button"
-              className="tool-btn"
-              aria-pressed={page === 'settings'}
-              aria-label="Settings"
-              title="Settings"
-              onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
-            >
-              <Icon name="settings" />
-            </button>
-          </div>
-        </header>
-        {listPage ? (
-          <FilterBar
-            page={page}
-            filters={viewPrefs.filters}
-            filtersOn={filtersOn}
-            prs={prs}
-            repos={repos}
-            initiatives={initiatives}
-            viewer={viewer}
-            matched={matched}
-            onPatch={patchFilters}
-            onClear={() => patchFilters(DEFAULT_FILTERS)}
-            onManageInitiatives={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
-          />
-        ) : null}
-        <div
-          className="scroll"
-          ref={scrollRef}
-          onScroll={(event) => {
-            scrolls.current[page] = event.currentTarget.scrollTop
-          }}
-        >
-          {page === 'settings' ? (
-            <SettingsPage
-              status={sync}
-              repos={data?.repos ?? []}
-              mineSyncedAt={data?.mineSyncedAt ?? null}
-              reviewSyncedAt={data?.reviewSyncedAt ?? null}
-              onEnqueue={function enqueue(kind) {
-                void api.enqueueSync(kind, snapshot.focus()).then(setSync).catch((caught) => {
-                  toastError(caught instanceof Error ? caught.message : 'Could not queue that sync', {
-                    heading: 'Could not queue that sync',
-                    onRetry: () => enqueue(kind),
-                  })
-                })
-              }}
-              onCancelSync={(id) => {
-                void api.cancelSync(id).then(setSync).catch((caught) => {
-                  toastError(caught instanceof Error ? caught.message : 'Could not cancel that sync', { heading: 'Could not cancel that sync' })
-                })
-              }}
-              initiatives={
-                <ManageInitiatives
-                  initiatives={initiatives}
-                  counts={initiativeCounts}
-                  onCreate={(name) => mutate(() => api.createInitiative(name))}
-                  onRename={(id, name) => mutate(() => api.renameInitiative(id, name))}
-                  onDelete={(id) => mutate(() => api.deleteInitiative(id))}
-                />
-              }
-              prLinks={prefs.prLinks}
-              onPrLinks={(prLinks) => setPrefs((current) => ({ ...current, prLinks }))}
-              theme={prefs.theme}
-              onTheme={(theme) => setPrefs((current) => ({ ...current, theme }))}
-              sounds={prefs.sounds}
-              onSounds={(sounds) => setPrefs((current) => ({ ...current, sounds }))}
-              animations={prefs.animations}
-              onAnimations={(animations) => setPrefs((current) => ({ ...current, animations }))}
-              mergeUnapproved={prefs.mergeUnapproved}
-              onMergeUnapproved={(mergeUnapproved) => setPrefs((current) => ({ ...current, mergeUnapproved }))}
-              onAddRepo={async (repo) => {
-                snapshot.show(await api.addRepo(repo))
-                void refresh({ force: true, full: true, focus: snapshot.focus() })
-              }}
-              onRemoveRepo={async (repo) => {
-                snapshot.show(await api.removeRepo(repo))
-              }}
-              onRepoMark={async (repo, mark) => {
-                snapshot.show(await api.setRepoMark(repo, mark))
-              }}
-              onAgents={snapshot.show}
-              t3Origin={prefs.t3Origin}
-              onT3Origin={(t3Origin) => setPrefs((current) => ({ ...current, t3Origin }))}
-              t3PairPrompt={prefs.t3PairPrompt}
-            />
-          ) : null}
-          {page === 'activity' ? <ActivityPage activity={activity} now={now} /> : null}
-          {page === 'agents' ? (
-            <AgentProvider start={() => Promise.reject(new Error('Start an agent from its pull request.'))} routing={data?.agents} t3Origin={prefs.t3Origin}>
-              <AgentsPage items={agents} />
-            </AgentProvider>
-          ) : null}
-          {page === 'queue' ? (
-            <MergeQueuePage
-              queue={queue}
-              onCancel={(id) => changeQueue(() => api.cancelMerge(id), true)}
-              onRetry={(id) => changeQueue(() => api.retryMerge(id))}
-              onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
-            />
-          ) : null}
-          {listPage && booting && prs.length === 0 ? <SkeletonTable mode={list} note="Loading saved pull requests…" /> : null}
-          {listPage && !booting && prs.length === 0 && refreshing ? (
-            <>
-              <SkeletonTable mode={list} note={status} />
-              <p className="skeleton-note" aria-hidden="true">{status}</p>
-            </>
-          ) : null}
-          {listPage && !booting && data && data.repos.length === 0 && !refreshing ? (
-            <div className="empty">
-              <h2>No repositories selected</h2>
-              <p>Choose which repositories to sync. Until you do, this dashboard does not ask GitHub for pull requests.</p>
-              <button type="button" className="primary" onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}>
-                Choose repositories
-              </button>
-            </div>
-          ) : null}
-          {page === 'mine' && !booting && data && data.repos.length > 0 && prs.length === 0 && !refreshing ? (
-            <div className="empty">
-              <h2>No open pull requests</h2>
-              <p>This view is pull requests you authored. Refresh again after the next one is open.</p>
-            </div>
-          ) : null}
-          {page === 'review' && !booting && data && data.repos.length > 0 && prs.length === 0 && !refreshing ? (
-            <div className="empty">
-              <h2>No pull requests to review</h2>
-              <p>This view is open pull requests that request your review, including your teams, and open pull requests you have already reviewed.</p>
-            </div>
-          ) : null}
-          {listPage && prs.length > 0 && !visible ? (
-            <div className="empty">
-              <h2>Nothing matches</h2>
-              {filtersOn ? (
-                <>
-                  <p>
-                    No pull request here matches {activeFilterLabels(viewPrefs.filters, list, initiatives).join(', ')}.
-                  </p>
-                  <button type="button" className="primary" onClick={() => patchFilters(DEFAULT_FILTERS)}>
-                    Clear filters
+      <MenuProvider>
+        <RepoMarksProvider marks={data?.repoMarks}>
+          <Toasts scheme={themeOf(prefs.theme).scheme} />
+          <Shortcuts open={shortcutsOpen} onOpen={openShortcuts} onClose={closeShortcuts} />
+          <div className="app">
+            <header className="top">
+              <nav className="nav" aria-label="Lists">
+                <button type="button" className="tab" aria-pressed={page === 'mine'} onClick={() => setPrefs((current) => ({ ...current, page: 'mine' }))}>
+                  My PRs
+                </button>
+                <button type="button" className="tab" aria-pressed={page === 'review'} onClick={() => setPrefs((current) => ({ ...current, page: 'review' }))}>
+                  Review
+                  {reviewBadge > 0 ? <Roll className="nav-count" value={reviewBadge} /> : null}
+                </button>
+                <button
+                  type="button"
+                  className="tab"
+                  aria-pressed={page === 'activity'}
+                  onClick={() => setPrefs((current) => ({ ...current, page: 'activity' }))}
+                >
+                  Activity
+                </button>
+              </nav>
+              <div className="top-tools">
+                {listPage && mergedToday.length + reviewedToday.length > 0 ? (
+                  <button type="button" className="tally" aria-label="Activity" onClick={() => setPrefs((current) => ({ ...current, page: 'activity' }))}>
+                    {mergedToday.length > 0 ? (
+                      <span className="tally-part" title={`Your pull requests merged today: ${mergedToday.map((pr) => `#${pr.number}`).join(', ')}`}>
+                        <span className="ticks" aria-hidden="true">
+                          {mergedToday.slice(0, TICKS_SHOWN).map((pr) => (
+                            <i key={pr.key} />
+                          ))}
+                        </span>
+                        <span>
+                          <Roll value={mergedToday.length} /> merged
+                        </span>
+                      </span>
+                    ) : null}
+                    {reviewedToday.length > 0 ? (
+                      <span
+                        className="tally-part reviewed"
+                        title={`Pull requests you reviewed today: ${reviewedToday.map((number) => `#${number}`).join(', ')}`}
+                      >
+                        <span className="ticks" aria-hidden="true">
+                          {reviewedToday.slice(0, TICKS_SHOWN).map((number) => (
+                            <i key={number} />
+                          ))}
+                        </span>
+                        <span>
+                          <Roll value={reviewedToday.length} /> reviewed
+                        </span>
+                      </span>
+                    ) : null}
+                    <span>today</span>
                   </button>
+                ) : null}
+                {page === 'settings' ? null : (
+                  <RefreshControl
+                    refreshing={refreshing}
+                    status={status}
+                    progress={progress}
+                    syncedAt={syncedAt}
+                    now={now}
+                    onRefresh={() => void refresh({ force: true })}
+                  />
+                )}
+                <AgentsButton
+                  statuses={agents.map((item) => item.session.status)}
+                  pressed={page === 'agents'}
+                  onClick={() => setPrefs((current) => ({ ...current, page: 'agents' }))}
+                />
+                <QueueButton queue={queue} pressed={page === 'queue'} onClick={() => setPrefs((current) => ({ ...current, page: 'queue' }))} />
+                <button
+                  type="button"
+                  className="tool-btn"
+                  aria-pressed={shortcutsOpen}
+                  aria-label="Keyboard shortcuts"
+                  aria-keyshortcuts="?"
+                  title="Keyboard shortcuts (?)"
+                  onClick={() => setShortcutsOpen((current) => !current)}
+                >
+                  <Icon name="keyboard" />
+                </button>
+                <button
+                  type="button"
+                  className="tool-btn"
+                  aria-pressed={page === 'settings'}
+                  aria-label="Settings"
+                  title="Settings"
+                  onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
+                >
+                  <Icon name="settings" />
+                </button>
+              </div>
+            </header>
+            {listPage ? (
+              <FilterBar
+                page={page}
+                filters={viewPrefs.filters}
+                filtersOn={filtersOn}
+                prs={prs}
+                repos={repos}
+                initiatives={initiatives}
+                viewer={viewer}
+                matched={matched}
+                onPatch={patchFilters}
+                onClear={() => patchFilters(DEFAULT_FILTERS)}
+                onManageInitiatives={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
+              />
+            ) : null}
+            <div
+              className="scroll"
+              ref={scrollRef}
+              onScroll={(event) => {
+                scrolls.current[page] = event.currentTarget.scrollTop
+              }}
+            >
+              {page === 'settings' ? (
+                <SettingsPage
+                  status={sync}
+                  repos={data?.repos ?? []}
+                  mineSyncedAt={data?.mineSyncedAt ?? null}
+                  reviewSyncedAt={data?.reviewSyncedAt ?? null}
+                  onEnqueue={function enqueue(kind) {
+                    void api
+                      .enqueueSync(kind, snapshot.focus())
+                      .then(setSync)
+                      .catch((caught) => {
+                        toastError(caught instanceof Error ? caught.message : 'Could not queue that sync', {
+                          heading: 'Could not queue that sync',
+                          onRetry: () => enqueue(kind),
+                        })
+                      })
+                  }}
+                  onCancelSync={(id) => {
+                    void api
+                      .cancelSync(id)
+                      .then(setSync)
+                      .catch((caught) => {
+                        toastError(caught instanceof Error ? caught.message : 'Could not cancel that sync', { heading: 'Could not cancel that sync' })
+                      })
+                  }}
+                  initiatives={
+                    <ManageInitiatives
+                      initiatives={initiatives}
+                      counts={initiativeCounts}
+                      onCreate={(name) => mutate(() => api.createInitiative(name))}
+                      onRename={(id, name) => mutate(() => api.renameInitiative(id, name))}
+                      onDelete={(id) => mutate(() => api.deleteInitiative(id))}
+                    />
+                  }
+                  prLinks={prefs.prLinks}
+                  onPrLinks={(prLinks) => setPrefs((current) => ({ ...current, prLinks }))}
+                  theme={prefs.theme}
+                  onTheme={(theme) => setPrefs((current) => ({ ...current, theme }))}
+                  sounds={prefs.sounds}
+                  onSounds={(sounds) => setPrefs((current) => ({ ...current, sounds }))}
+                  animations={prefs.animations}
+                  onAnimations={(animations) => setPrefs((current) => ({ ...current, animations }))}
+                  mergeUnapproved={prefs.mergeUnapproved}
+                  onMergeUnapproved={(mergeUnapproved) => setPrefs((current) => ({ ...current, mergeUnapproved }))}
+                  onAddRepo={async (repo) => {
+                    snapshot.show(await api.addRepo(repo))
+                    void refresh({ force: true, full: true, focus: snapshot.focus() })
+                  }}
+                  onRemoveRepo={async (repo) => {
+                    snapshot.show(await api.removeRepo(repo))
+                  }}
+                  onRepoMark={async (repo, mark) => {
+                    snapshot.show(await api.setRepoMark(repo, mark))
+                  }}
+                  onAgents={snapshot.show}
+                  t3Origin={prefs.t3Origin}
+                  onT3Origin={(t3Origin) => setPrefs((current) => ({ ...current, t3Origin }))}
+                  t3PairPrompt={prefs.t3PairPrompt}
+                />
+              ) : null}
+              {page === 'activity' ? <ActivityPage activity={activity} now={now} /> : null}
+              {page === 'agents' ? (
+                <AgentProvider
+                  start={() => Promise.reject(new Error('Start an agent from its pull request.'))}
+                  routing={data?.agents}
+                  t3Origin={prefs.t3Origin}
+                >
+                  <AgentsPage items={agents} />
+                </AgentProvider>
+              ) : null}
+              {page === 'queue' ? (
+                <MergeQueuePage
+                  queue={queue}
+                  onCancel={(id) => changeQueue(() => api.cancelMerge(id), true)}
+                  onRetry={(id) => changeQueue(() => api.retryMerge(id))}
+                  onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
+                />
+              ) : null}
+              {listPage && booting && prs.length === 0 ? <SkeletonTable mode={list} note="Loading saved pull requests…" /> : null}
+              {listPage && !booting && prs.length === 0 && refreshing ? (
+                <>
+                  <SkeletonTable mode={list} note={status} />
+                  <p className="skeleton-note" aria-hidden="true">
+                    {status}
+                  </p>
                 </>
               ) : null}
+              {listPage && !booting && data && data.repos.length === 0 && !refreshing ? (
+                <div className="empty">
+                  <h2>No repositories selected</h2>
+                  <p>Choose which repositories to sync. Until you do, this dashboard does not ask GitHub for pull requests.</p>
+                  <button type="button" className="primary" onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}>
+                    Choose repositories
+                  </button>
+                </div>
+              ) : null}
+              {page === 'mine' && !booting && data && data.repos.length > 0 && prs.length === 0 && !refreshing ? (
+                <div className="empty">
+                  <h2>No open pull requests</h2>
+                  <p>This view is pull requests you authored. Refresh again after the next one is open.</p>
+                </div>
+              ) : null}
+              {page === 'review' && !booting && data && data.repos.length > 0 && prs.length === 0 && !refreshing ? (
+                <div className="empty">
+                  <h2>No pull requests to review</h2>
+                  <p>This view is open pull requests that request your review, including your teams, and open pull requests you have already reviewed.</p>
+                </div>
+              ) : null}
+              {listPage && prs.length > 0 && !visible ? (
+                <div className="empty">
+                  <h2>Nothing matches</h2>
+                  {filtersOn ? (
+                    <>
+                      <p>No pull request here matches {activeFilterLabels(viewPrefs.filters, list, initiatives).join(', ')}.</p>
+                      <button type="button" className="primary" onClick={() => patchFilters(DEFAULT_FILTERS)}>
+                        Clear filters
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              {listPage && prs.length > 0 && visible ? (
+                <PrTable
+                  mode={list}
+                  outline={outline}
+                  sort={prefs.sort}
+                  initiatives={initiatives}
+                  prByKey={prByKey}
+                  showRepo={showRepo}
+                  expanded={new Set(prefs.expanded)}
+                  collapsed={new Set(prefs.collapsed)}
+                  queueByKey={rowMarks(queue?.entries ?? [])}
+                  onSort={chooseSort}
+                  onToggle={(id) => {
+                    fold(!prefs.expanded.includes(id))
+                    setPrefs((current) => ({
+                      ...current,
+                      expanded: current.expanded.includes(id) ? current.expanded.filter((item) => item !== id) : [...current.expanded, id],
+                    }))
+                  }}
+                  onToggleSection={(id) => {
+                    fold(prefs.collapsed.includes(id))
+                    setPrefs((current) => ({
+                      ...current,
+                      collapsed: current.collapsed.includes(id) ? current.collapsed.filter((item) => item !== id) : [...current.collapsed, id],
+                    }))
+                  }}
+                  onAssign={(initiativeId, keys, action) => mutate(() => api.assign(initiativeId, keys, action))}
+                  onCreateAssigned={async (name, keys) => {
+                    const before = new Set(initiatives.map((initiative) => initiative.id))
+                    await mutate(async () => {
+                      const snap = await api.createInitiative(name)
+                      const created = snap.initiatives.find((initiative) => !before.has(initiative.id))
+                      if (!created) return snap
+                      return api.assign(created.id, keys, 'add')
+                    })
+                  }}
+                  flat={flat}
+                  onToggleFlat={(id) =>
+                    setPrefs((current) => {
+                      const target = isListName(current.page) ? current.page : 'mine'
+                      const view = current.views[target]
+                      const flat = view.flat.includes(id) ? view.flat.filter((item) => item !== id) : [...view.flat, id]
+                      return { ...current, views: { ...current.views, [target]: { ...view, flat } } }
+                    })
+                  }
+                  linearConfigured={Boolean(data?.linearConfigured)}
+                  viewer={viewer}
+                  onFeedback={applyFeedback}
+                  leaving={leaving}
+                  onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
+                  onLinkIssue={(key, identifier) => mutate(() => api.linkLinearIssue(key, identifier))}
+                  onMerge={(key) => queueMerge(key, 'pr')}
+                  onMergeUnapproved={prefs.mergeUnapproved ? (key) => queueMerge(key, 'unapproved') : undefined}
+                  onRetry={async (entryId) => {
+                    setQueue(await api.retryMerge(entryId))
+                  }}
+                  onStackMerge={(key) => queueMerge(key, 'downstack')}
+                  onMarkReady={async (key) => {
+                    snapshot.replace(await api.markReady(key))
+                  }}
+                  holds={holds}
+                  onRerun={async function rerun(keys, mode): Promise<string> {
+                    const keySet = new Set(keys)
+                    const targeted = prs.filter((pr) => keySet.has(pr.key))
+                    const optimistic = collectHolds(targeted, mode, null)
+                    setHolds((current) => mergeHolds(current, optimistic))
+                    try {
+                      const result = await api.rerun(keys, mode)
+                      const restarted = new Set(result.runs.map((run) => `${run.repo}#${run.runId}`))
+                      const confirmed = collectHolds(targeted, mode, restarted)
+                      setHolds((current) => mergeHolds(withoutHolds(current, optimistic), confirmed))
+                      const text = result.errors.length
+                        ? `Reran ${result.reran}. ${result.errors[0]}`
+                        : `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}.`
+                      toastRerun(result, () => void rerun(keys, 'failed').catch(() => undefined))
+                      void refresh({ force: true })
+                      return text
+                    } catch (caught) {
+                      setHolds((current) => withoutHolds(current, optimistic))
+                      throw caught
+                    }
+                  }}
+                  onRebase={async (key) => {
+                    try {
+                      snapshot.replace(await api.rebase(key))
+                    } finally {
+                      void refresh({ force: true })
+                    }
+                  }}
+                  onRefreshPr={async (key) => {
+                    snapshot.replace(await api.refreshPull(key))
+                  }}
+                  agentRouting={data?.agents}
+                  t3Origin={prefs.t3Origin}
+                  onStartAgent={async (key, request, provider) => {
+                    // The provider can take a while to make the session, so one stands in for it at once:
+                    // the row, the Agents page and the count all have it from the press.
+                    const session = startingSession(request, provider ?? providerFor(data?.agents, pullKeyRepo(key)))
+                    setStarting((current) => [...current, { key, session }])
+                    try {
+                      const result = await api.startAgent(key, request, provider)
+                      snapshot.replace(result.snapshot)
+                      return { url: result.url }
+                    } finally {
+                      // Taken away in the same turn as the list with the real one is put in, so the count never dips.
+                      setStarting((current) => current.filter((item) => item.session !== session))
+                    }
+                  }}
+                />
+              ) : null}
             </div>
-          ) : null}
-          {listPage && prs.length > 0 && visible ? (
-            <PrTable
-              mode={list}
-              outline={outline}
-              sort={prefs.sort}
-              initiatives={initiatives}
-              prByKey={prByKey}
-              showRepo={showRepo}
-              expanded={new Set(prefs.expanded)}
-              collapsed={new Set(prefs.collapsed)}
-              queueByKey={rowMarks(queue?.entries ?? [])}
-              onSort={chooseSort}
-              onToggle={(id) => {
-                fold(!prefs.expanded.includes(id))
-                setPrefs((current) => ({
-                  ...current,
-                  expanded: current.expanded.includes(id)
-                    ? current.expanded.filter((item) => item !== id)
-                    : [...current.expanded, id],
-                }))
-              }}
-              onToggleSection={(id) => {
-                fold(prefs.collapsed.includes(id))
-                setPrefs((current) => ({
-                  ...current,
-                  collapsed: current.collapsed.includes(id)
-                    ? current.collapsed.filter((item) => item !== id)
-                    : [...current.collapsed, id],
-                }))
-              }}
-              onAssign={(initiativeId, keys, action) => mutate(() => api.assign(initiativeId, keys, action))}
-              onCreateAssigned={async (name, keys) => {
-                const before = new Set(initiatives.map((initiative) => initiative.id))
-                await mutate(async () => {
-                  const snap = await api.createInitiative(name)
-                  const created = snap.initiatives.find((initiative) => !before.has(initiative.id))
-                  if (!created) return snap
-                  return api.assign(created.id, keys, 'add')
-                })
-              }}
-              flat={flat}
-              onToggleFlat={(id) =>
-                setPrefs((current) => {
-                  const target = isListName(current.page) ? current.page : 'mine'
-                  const view = current.views[target]
-                  const flat = view.flat.includes(id) ? view.flat.filter((item) => item !== id) : [...view.flat, id]
-                  return { ...current, views: { ...current.views, [target]: { ...view, flat } } }
-                })
-              }
-              linearConfigured={Boolean(data?.linearConfigured)}
-              viewer={viewer}
-              onFeedback={applyFeedback}
-              leaving={leaving}
-              onUpdateIssue={(identifier, patch) => mutate(() => api.updateLinearIssue(identifier, patch))}
-              onLinkIssue={(key, identifier) => mutate(() => api.linkLinearIssue(key, identifier))}
-              onMerge={(key) => queueMerge(key, 'pr')}
-              onMergeUnapproved={
-                prefs.mergeUnapproved
-                  ? (key) => queueMerge(key, 'unapproved')
-                  : undefined
-              }
-              onRetry={async (entryId) => {
-                setQueue(await api.retryMerge(entryId))
-              }}
-              onStackMerge={(key) => queueMerge(key, 'downstack')}
-              onMarkReady={async (key) => {
-                snapshot.replace(await api.markReady(key))
-              }}
-              holds={holds}
-              onRerun={async function rerun(keys, mode): Promise<string> {
-                const keySet = new Set(keys)
-                const targeted = prs.filter((pr) => keySet.has(pr.key))
-                const optimistic = collectHolds(targeted, mode, null)
-                setHolds((current) => mergeHolds(current, optimistic))
-                try {
-                  const result = await api.rerun(keys, mode)
-                  const restarted = new Set(result.runs.map((run) => `${run.repo}#${run.runId}`))
-                  const confirmed = collectHolds(targeted, mode, restarted)
-                  setHolds((current) => mergeHolds(withoutHolds(current, optimistic), confirmed))
-                  const text = result.errors.length
-                    ? `Reran ${result.reran}. ${result.errors[0]}`
-                    : `Reran ${result.reran} workflow${result.reran === 1 ? '' : 's'}.`
-                  toastRerun(result, () => void rerun(keys, 'failed').catch(() => undefined))
-                  void refresh({ force: true })
-                  return text
-                } catch (caught) {
-                  setHolds((current) => withoutHolds(current, optimistic))
-                  throw caught
-                }
-              }}
-              onRebase={async (key) => {
-                try {
-                  snapshot.replace(await api.rebase(key))
-                } finally {
-                  void refresh({ force: true })
-                }
-              }}
-              onRefreshPr={async (key) => {
-                snapshot.replace(await api.refreshPull(key))
-              }}
-              agentRouting={data?.agents}
-              t3Origin={prefs.t3Origin}
-              onStartAgent={async (key, request, provider) => {
-                // The provider can take a while to make the session, so one stands in for it at once:
-                // the row, the Agents page and the count all have it from the press.
-                const session = startingSession(request, provider ?? providerFor(data?.agents, pullKeyRepo(key)))
-                setStarting((current) => [...current, { key, session }])
-                try {
-                  const result = await api.startAgent(key, request, provider)
-                  snapshot.replace(result.snapshot)
-                  return { url: result.url }
-                } finally {
-                  // Taken away in the same turn as the list with the real one is put in, so the count never dips.
-                  setStarting((current) => current.filter((item) => item.session !== session))
-                }
-              }}
-            />
-          ) : null}
-        </div>
-      </div>
-    </RepoMarksProvider>
-    </MenuProvider>
+          </div>
+        </RepoMarksProvider>
+      </MenuProvider>
     </PrLinksProvider>
   )
 }

@@ -13,17 +13,7 @@ export function foremost(keys: string[], marks: Map<string, RowMark>): RowMark |
   return found[0] ?? null
 }
 
-export function MergeControls({
-  pr,
-  ordered,
-  mark,
-  progress = false,
-}: {
-  pr: PullRequest
-  ordered: PullRequest[]
-  mark: RowMark | null
-  progress?: boolean
-}) {
+export function MergeControls({ pr, ordered, mark, progress = false }: { pr: PullRequest; ordered: PullRequest[]; mark: RowMark | null; progress?: boolean }) {
   if (mark) return <QueueStatus mark={mark} progress={progress} />
   if (pr.isDraft) return <MarkReady pr={pr} />
   const count = canMergeSlice(ordered, pr.key)

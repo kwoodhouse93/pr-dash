@@ -91,7 +91,8 @@ export async function flyParcel({ layer, from, label, to, at, ready, onTakeoff }
     position: 'absolute',
     inset: '0',
     opacity: '0',
-    background: 'linear-gradient(var(--amber), var(--amber)) center / 2px 100% no-repeat, linear-gradient(var(--amber), var(--amber)) center / 100% 2px no-repeat',
+    background:
+      'linear-gradient(var(--amber), var(--amber)) center / 2px 100% no-repeat, linear-gradient(var(--amber), var(--amber)) center / 100% 2px no-repeat',
   })
   parcel.append(text, tie)
   layer.append(parcel)
@@ -106,8 +107,17 @@ export async function flyParcel({ layer, from, label, to, at, ready, onTakeoff }
     }).finished
     parcel.style.background = 'var(--amber-dim)'
     parcel.style.borderColor = 'var(--amber)'
-    tie.animate([{ opacity: 0, transform: 'scale(0.3)' }, { opacity: 1, transform: 'none' }], { duration: 140, fill: 'forwards' })
-    await parcel.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.78) rotate(-8deg)' }, { transform: 'scale(1.12)' }], { duration: BREATH_MS, easing: 'ease-in-out' }).finished
+    tie.animate(
+      [
+        { opacity: 0, transform: 'scale(0.3)' },
+        { opacity: 1, transform: 'none' },
+      ],
+      { duration: 140, fill: 'forwards' },
+    )
+    await parcel.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.78) rotate(-8deg)' }, { transform: 'scale(1.12)' }], {
+      duration: BREATH_MS,
+      easing: 'ease-in-out',
+    }).finished
 
     // Two pages take off by the clock, not by when each one's folding happened to end.
     if (at !== undefined) await until(at + FOLD_MS + BREATH_MS + 40)
@@ -129,14 +139,28 @@ export async function flyParcel({ layer, from, label, to, at, ready, onTakeoff }
     const over = { x: tx * 0.6 + up.x * sweep * 1.25, y: ty * 0.6 + up.y * sweep * 1.25 }
     const along = (t: number) => {
       const rest = 1 - t
-      return { x: 3 * rest * rest * t * back.x + 3 * rest * t * t * over.x + t * t * t * tx, y: 3 * rest * rest * t * back.y + 3 * rest * t * t * over.y + t * t * t * ty }
+      return {
+        x: 3 * rest * rest * t * back.x + 3 * rest * t * t * over.x + t * t * t * tx,
+        y: 3 * rest * rest * t * back.y + 3 * rest * t * t * over.y + t * t * t * ty,
+      }
     }
     const path = Array.from({ length: STEPS + 1 }, (_, step) => step / STEPS)
     const timing = { duration: FLY_MS, easing: 'cubic-bezier(0.45, 0, 0.3, 1)', fill: 'forwards' as const }
     const turn = tx < 0 ? -300 : 300
     for (let index = 1; index <= 3; index++) {
       const dot = document.createElement('i')
-      Object.assign(dot.style, { position: 'fixed', zIndex: '2147482999', left: `${cx - 3}px`, top: `${cy - 3}px`, width: '6px', height: '6px', borderRadius: '50%', background: 'var(--amber)', opacity: '0', pointerEvents: 'none' })
+      Object.assign(dot.style, {
+        position: 'fixed',
+        zIndex: '2147482999',
+        left: `${cx - 3}px`,
+        top: `${cy - 3}px`,
+        width: '6px',
+        height: '6px',
+        borderRadius: '50%',
+        background: 'var(--amber)',
+        opacity: '0',
+        pointerEvents: 'none',
+      })
       layer.append(dot)
       const frames = path.map((t) => {
         const point = along(t)

@@ -60,15 +60,7 @@ export function RefreshControl({
           ) : null}
         </div>
       ) : null}
-      <button
-        type="button"
-        className="tool-btn refresh-tool"
-        disabled={refreshing}
-        aria-busy={refreshing}
-        aria-label={label}
-        title={label}
-        onClick={onRefresh}
-      >
+      <button type="button" className="tool-btn refresh-tool" disabled={refreshing} aria-busy={refreshing} aria-label={label} title={label} onClick={onRefresh}>
         <Icon name="sync" className={refreshing ? 'refresh-spin' : undefined} />
         {refreshing ? null : <span className={`pip ${freshness(syncedAt, now)}`} />}
       </button>
@@ -79,7 +71,15 @@ export function RefreshControl({
 export function AgentsButton({ statuses, pressed, onClick }: { statuses: AgentSessionStatus[]; pressed: boolean; onClick: () => void }) {
   const { running, waiting, label } = agentsSummary(statuses)
   return (
-    <button type="button" className="tool-btn agents-tool" data-state={running > 0 ? 'active' : undefined} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
+    <button
+      type="button"
+      className="tool-btn agents-tool"
+      data-state={running > 0 ? 'active' : undefined}
+      aria-pressed={pressed}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
       <Icon name="agents" />
       {running > 0 ? <Roll className="tool-count" value={running} /> : null}
       {waiting > 0 ? <span className="pip waiting" /> : null}

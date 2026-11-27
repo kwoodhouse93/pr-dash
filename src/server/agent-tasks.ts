@@ -25,9 +25,7 @@ export function agentTask(pr: PullRequest, request: AgentRequest, upstack: PullR
           '',
           'Failing checks on the latest commit:',
           ...failingChecks(pr).map((check) => {
-            const detail = [check.workflowName ? `workflow ${check.workflowName}` : null, check.required ? 'required' : 'optional']
-              .filter(Boolean)
-              .join(', ')
+            const detail = [check.workflowName ? `workflow ${check.workflowName}` : null, check.required ? 'required' : 'optional'].filter(Boolean).join(', ')
             const run = check.workflowRunId ? `, run ${check.workflowRunId}` : ''
             return `- ${check.name} (${detail}${run})${check.url ? `: ${check.url}` : ''}`
           }),

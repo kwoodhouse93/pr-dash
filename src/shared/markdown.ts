@@ -372,7 +372,7 @@ function canEmphasize(source: string, index: number): boolean {
   const next = source[index + 1]
   if (!next || next === ' ' || next === '*') return false
   if (index === 0) return true
-  return /[\s(\[{"']/.test(source[index - 1] ?? '')
+  return /[\s([{"']/.test(source[index - 1] ?? '')
 }
 
 function parseLink(source: string, index: number): { link: Inline; next: number } | null {

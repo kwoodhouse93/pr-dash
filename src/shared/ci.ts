@@ -1,13 +1,6 @@
 import type { Check, CiLevel, PullRequest } from './types.ts'
 
-const FAIL = new Set([
-  'FAILURE',
-  'TIMED_OUT',
-  'CANCELLED',
-  'ACTION_REQUIRED',
-  'STARTUP_FAILURE',
-  'ERROR',
-])
+const FAIL = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR'])
 
 const SUCCESS = new Set(['SUCCESS', 'NEUTRAL'])
 

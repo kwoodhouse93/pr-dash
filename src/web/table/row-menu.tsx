@@ -22,12 +22,7 @@ function stackTargets(stackKeys: string[], parents: Parents, prByKey: Map<string
 }
 
 /** The chosen pull request and each one below it, closest to the trunk first. */
-function downstackTargets(
-  parents: Parents,
-  primaryKey: string,
-  prByKey: Map<string, PullRequest>,
-  shown: PullRequest[],
-): PullRequest[] {
+function downstackTargets(parents: Parents, primaryKey: string, prByKey: Map<string, PullRequest>, shown: PullRequest[]): PullRequest[] {
   const chain = downstackKeys(parents, primaryKey)
     .reverse()
     .flatMap((key) => {
@@ -231,7 +226,15 @@ function RowMenuBody(props: RowMenuProps) {
         {linearConfigured && promptTargets.length ? (
           <MenuItem icon="link" label="Link Linear issue…" hotkey="l" opens onClick={() => setView('issue')} />
         ) : null}
-        <MenuItem icon="tag" label="Initiative…" name="Set initiative" right={tagged.join(', ') || undefined} hotkey="i" opens onClick={() => setView('initiative')} />
+        <MenuItem
+          icon="tag"
+          label="Initiative…"
+          name="Set initiative"
+          right={tagged.join(', ') || undefined}
+          hotkey="i"
+          opens
+          onClick={() => setView('initiative')}
+        />
         {unapproved && mergeUnapproved ? (
           <>
             <div className="menu-rule" />
@@ -348,7 +351,13 @@ function AgentPromptForm({
         />
         {error ? <p className="launch-error">{error}</p> : null}
       </PopBody>
-      <PopFoot hint={<><kbd>⌘↵</kbd> to start</>}>
+      <PopFoot
+        hint={
+          <>
+            <kbd>⌘↵</kbd> to start
+          </>
+        }
+      >
         <button type="submit" className="primary" disabled={!ready || busy}>
           {busy ? `Starting ${name}…` : 'Start agent'}
         </button>

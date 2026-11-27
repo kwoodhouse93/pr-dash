@@ -72,12 +72,18 @@ describe('squashMergePullRequest', () => {
   })
 
   it('reports a head that moved without merging', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => githubResponse({ message: 'Head branch was modified. Review and try the merge again.' }, 409)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => githubResponse({ message: 'Head branch was modified. Review and try the merge again.' }, 409)),
+    )
     expect(await squashMergePullRequest('token', 'acme/app', 7, 'abc')).toBe('moved')
   })
 
   it('fails with the reason GitHub gives', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => githubResponse({ message: 'Repository rule violations found' }, 405)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => githubResponse({ message: 'Repository rule violations found' }, 405)),
+    )
     await expect(squashMergePullRequest('token', 'acme/app', 7, 'abc')).rejects.toThrow('Repository rule violations found')
   })
 })

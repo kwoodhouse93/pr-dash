@@ -90,11 +90,14 @@ export function SettingsPage({
 
   useEffect(() => {
     let cancel = false
-    void api.repos().then((next) => {
-      if (!cancel) setCatalog(next)
-    }).catch((caught) => {
-      if (!cancel) setError(caught instanceof Error ? caught.message : 'Could not list repositories')
-    })
+    void api
+      .repos()
+      .then((next) => {
+        if (!cancel) setCatalog(next)
+      })
+      .catch((caught) => {
+        if (!cancel) setError(caught instanceof Error ? caught.message : 'Could not list repositories')
+      })
     return () => {
       cancel = true
     }
@@ -123,9 +126,7 @@ export function SettingsPage({
   const query = draft.trim().toLowerCase()
   const matches = useMemo(() => {
     const chosen = new Set(repos)
-    return (catalog?.repos ?? [])
-      .filter((row) => !chosen.has(row.name) && row.name.toLowerCase().includes(query))
-      .sort((a, b) => a.name.localeCompare(b.name))
+    return (catalog?.repos ?? []).filter((row) => !chosen.has(row.name) && row.name.toLowerCase().includes(query)).sort((a, b) => a.name.localeCompare(b.name))
   }, [catalog, repos, query])
   const ruleTimes = new Map((status?.rules ?? []).map((rule) => [rule.repo, rule.fetchedAt]))
   const warning = pending ? removalWarning(pending.name, pending.stored, pending.busy) : null
@@ -225,9 +226,7 @@ export function SettingsPage({
                     </button>
                   </li>
                 ))}
-                {matches.length > MATCH_LIMIT ? (
-                  <li className="repo-note">{matches.length - MATCH_LIMIT} more. Keep typing to narrow the list.</li>
-                ) : null}
+                {matches.length > MATCH_LIMIT ? <li className="repo-note">{matches.length - MATCH_LIMIT} more. Keep typing to narrow the list.</li> : null}
                 {matches.length === 0 ? (
                   <li className="repo-note">
                     {query.includes('/') ? 'Not in the list GitHub returned. Press Enter to add it anyway.' : 'No repositories match.'}
@@ -238,9 +237,7 @@ export function SettingsPage({
           </form>
           {error && !pending ? <p className="panel-row repo-error">{error}</p> : null}
           {catalog?.warning ? <p className="panel-row panel-note">{catalog.warning}</p> : null}
-          {catalog?.truncated ? (
-            <p className="panel-row panel-note">GitHub returned the first 1000 repositories. Add any other as owner/name.</p>
-          ) : null}
+          {catalog?.truncated ? <p className="panel-row panel-note">GitHub returned the first 1000 repositories. Add any other as owner/name.</p> : null}
           <ul aria-label="Repositories syncing">
             {selected.map((row) => {
               const fetchedAt = ruleTimes.get(row.name)
@@ -394,14 +391,11 @@ export function SettingsPage({
                 <span className="how-close">Hide</span>
               </summary>
               <p>
-                Refreshes carry on while this tab is in the background. Finished checks stay put when that pull request and its check
-                rollup have not changed. Running checks are read again, and each refresh also rereads the checks that were fetched least
-                recently. Thread replies load after that, and again only when that pull request changes.
+                Refreshes carry on while this tab is in the background. Finished checks stay put when that pull request and its check rollup have not changed.
+                Running checks are read again, and each refresh also rereads the checks that were fetched least recently. Thread replies load after that, and
+                again only when that pull request changes.
               </p>
-              <p>
-                Refreshes pause while the lowest window has fewer than {BUDGET_FLOOR} points left. Refresh on a row reloads just that pull
-                request.
-              </p>
+              <p>Refreshes pause while the lowest window has fewer than {BUDGET_FLOOR} points left. Refresh on a row reloads just that pull request.</p>
             </details>
           </div>
           <div className="stat">
@@ -451,7 +445,12 @@ export function SettingsPage({
                           {status && status.total > 0 ? ` · ${status.completed} of ${status.total}` : ''}
                         </span>
                       </span>
-                      <button type="button" className="text-btn" aria-label={`Cancel ${syncKindLabel(activity.kind)}`} onClick={() => onCancelSync(activity.id)}>
+                      <button
+                        type="button"
+                        className="text-btn"
+                        aria-label={`Cancel ${syncKindLabel(activity.kind)}`}
+                        onClick={() => onCancelSync(activity.id)}
+                      >
                         Cancel
                       </button>
                     </div>

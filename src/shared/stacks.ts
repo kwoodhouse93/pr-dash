@@ -193,9 +193,7 @@ function trees(repo: string, group: PullRequest[]): Stack[] {
     const visit = (pr: PullRequest, parent: PullRequest | null) => {
       seen.add(pr.id)
       parents[pr.key] = parent?.key ?? null
-      const above = (children.get(pr.id) ?? [])
-        .slice()
-        .sort((a, b) => size.get(b.id)! - size.get(a.id)! || a.number - b.number)
+      const above = (children.get(pr.id) ?? []).slice().sort((a, b) => size.get(b.id)! - size.get(a.id)! || a.number - b.number)
       for (const child of above) visit(child, pr)
       prs.push(pr)
     }
@@ -261,7 +259,10 @@ function worstMerge(prs: PullRequest[]): { mark: MergeMark; detail: string } {
 export function summarize(prs: PullRequest[], partial: boolean, lead: PullRequest | null = null): StackSummary {
   const top = lead ?? prs[0]!
   const merge = worstMerge(prs)
-  const updatedAt = prs.map((pr) => pr.updatedAt).sort().at(-1)!
+  const updatedAt = prs
+    .map((pr) => pr.updatedAt)
+    .sort()
+    .at(-1)!
   const createdAt = prs.map((pr) => pr.createdAt).sort()[0]!
   return {
     title: top.title,
@@ -274,7 +275,11 @@ export function summarize(prs: PullRequest[], partial: boolean, lead: PullReques
     deletions: sum(prs, (pr) => pr.deletions),
     changedFiles: sum(prs, (pr) => pr.changedFiles),
     createdAt,
-    readyAt: prs.filter((pr) => !pr.isDraft).map((pr) => pr.readyAt ?? pr.createdAt).sort()[0] ?? null,
+    readyAt:
+      prs
+        .filter((pr) => !pr.isDraft)
+        .map((pr) => pr.readyAt ?? pr.createdAt)
+        .sort()[0] ?? null,
     updatedAt,
     ci: worstCi(prs.map((pr) => pr.ci)),
     anyApproval: prs.every((pr) => pr.anyApproval),

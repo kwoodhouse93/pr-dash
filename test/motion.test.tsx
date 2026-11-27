@@ -86,25 +86,49 @@ describe('useSlidingRows', () => {
 describe('Fold', () => {
   it('stays on the page while it closes, then goes', async () => {
     vi.useFakeTimers()
-    await draw(<Fold open><p>Inside</p></Fold>)
+    await draw(
+      <Fold open>
+        <p>Inside</p>
+      </Fold>,
+    )
     expect(folds).toHaveLength(0)
-    await draw(<Fold open={false}><p>Inside</p></Fold>)
+    await draw(
+      <Fold open={false}>
+        <p>Inside</p>
+      </Fold>,
+    )
     expect(host.textContent).toBe('Inside')
     expect(folds.at(-1)?.[1]).toMatchObject({ height: '0px' })
     await act(async () => vi.advanceTimersByTime(250))
     expect(host.textContent).toBe('')
-    await draw(<Fold open><p>Inside</p></Fold>)
+    await draw(
+      <Fold open>
+        <p>Inside</p>
+      </Fold>,
+    )
     expect(folds.at(-1)?.[0]).toMatchObject({ height: '0px' })
     expect(folds.at(-1)?.[1]).toMatchObject({ height: '120px' })
   })
 
   it('keeps what is inside when asked to, hidden', async () => {
     vi.useFakeTimers()
-    await draw(<Fold open={false} keep><p>Inside</p></Fold>)
+    await draw(
+      <Fold open={false} keep>
+        <p>Inside</p>
+      </Fold>,
+    )
     expect(host.querySelector('.fold-box')?.hasAttribute('hidden')).toBe(true)
-    await draw(<Fold open keep><p>Inside</p></Fold>)
+    await draw(
+      <Fold open keep>
+        <p>Inside</p>
+      </Fold>,
+    )
     expect(host.querySelector('.fold-box')?.hasAttribute('hidden')).toBe(false)
-    await draw(<Fold open={false} keep><p>Inside</p></Fold>)
+    await draw(
+      <Fold open={false} keep>
+        <p>Inside</p>
+      </Fold>,
+    )
     expect(host.querySelector('.fold-box')?.hasAttribute('hidden')).toBe(false)
     await act(async () => vi.advanceTimersByTime(250))
     expect(host.querySelector('.fold-box')?.hasAttribute('hidden')).toBe(true)

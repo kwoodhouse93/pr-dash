@@ -55,7 +55,10 @@ function Chart({ buckets, range, now }: { buckets: Bucket[]; range: ActivityRang
         ))}
         <div className="act-cols">
           {buckets.map((bucket, index) => {
-            const when = bucket.span === 'week' ? `Week of ${day(bucket.start)}` : new Date(bucket.start).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+            const when =
+              bucket.span === 'week'
+                ? `Week of ${day(bucket.start)}`
+                : new Date(bucket.start).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
             const live = bucket.start === current && bucket.start <= now
             return (
               <div
@@ -78,7 +81,9 @@ function Chart({ buckets, range, now }: { buckets: Bucket[]; range: ActivityRang
                   </span>
                 </span>
                 {labels.has(bucket.start) ? (
-                  <span className="act-date">{range === '6w' ? day(bucket.start) : new Date(bucket.start).toLocaleDateString('en-GB', { month: 'short' })}</span>
+                  <span className="act-date">
+                    {range === '6w' ? day(bucket.start) : new Date(bucket.start).toLocaleDateString('en-GB', { month: 'short' })}
+                  </span>
                 ) : null}
               </div>
             )

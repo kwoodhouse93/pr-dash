@@ -45,12 +45,7 @@ type EnqueueUser<T> = {
   summary: (value: T) => string
 }
 
-export function createSyncQueue(options?: {
-  historyLimit?: number
-  now?: () => string
-  onStart?: (job: SyncJob) => void
-  onIdle?: () => void
-}) {
+export function createSyncQueue(options?: { historyLimit?: number; now?: () => string; onStart?: (job: SyncJob) => void; onIdle?: () => void }) {
   const historyLimit = options?.historyLimit ?? 20
   const now = options?.now ?? (() => new Date().toISOString())
   let seq = 0

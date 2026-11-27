@@ -79,7 +79,9 @@ function outlineFor(pr: PullRequest): Outline {
       count: 1,
       issueId: null,
       stacks: [],
-      singles: [{ id: 'only', stackKeys: [pr.key], parents: { [pr.key]: null }, collapsible: false, summary: summarize([pr], false), rows: [{ type: 'pr', pr }] }],
+      singles: [
+        { id: 'only', stackKeys: [pr.key], parents: { [pr.key]: null }, collapsible: false, summary: summarize([pr], false), rows: [{ type: 'pr', pr }] },
+      ],
     },
   }
 }
@@ -215,11 +217,7 @@ describe('agents', () => {
     await click(chip)
     const rows = [...document.querySelectorAll('.popover .agent-row')]
     expect(rows.map((row) => row.querySelector('.agent-title')?.textContent)).toEqual(['Prompt · Running', 'CI failure · Finished', 'Merge conflict · Failed'])
-    expect(rows.map((row) => row.querySelector('.agent-gist')?.textContent)).toEqual([
-      'Rename the helper',
-      'Fixed lint',
-      'Cursor reported a failed run.',
-    ])
+    expect(rows.map((row) => row.querySelector('.agent-gist')?.textContent)).toEqual(['Rename the helper', 'Fixed lint', 'Cursor reported a failed run.'])
     expect(document.querySelector('.popover .agent-reply')).toBeNull()
     expect(document.querySelector('.agent-drawer')).toBeNull()
   })
@@ -297,10 +295,10 @@ describe('agents', () => {
       vi.fn(async (input: RequestInfo) => {
         const url = String(input)
         if (url.includes('/api/linear/issues')) {
-          return new Response(
-            JSON.stringify({ issues: [{ identifier: 'ENG-12', title: 'Login', url: 'https://linear.app/acme/issue/ENG-12' }] }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          )
+          return new Response(JSON.stringify({ issues: [{ identifier: 'ENG-12', title: 'Login', url: 'https://linear.app/acme/issue/ENG-12' }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
         }
         return new Response('{}', { status: 404 })
       }),

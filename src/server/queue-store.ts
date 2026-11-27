@@ -70,9 +70,7 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
     `SELECT id, entry_id, position, pr_key, number, title, url, head_ref, head_oid, base_ref, base_oid, role, status, detail
      FROM merge_steps ORDER BY position ASC`,
   )
-  const readLogs = db.prepare(
-    `SELECT id, entry_id, at, level, message FROM merge_logs ORDER BY id ASC`,
-  )
+  const readLogs = db.prepare(`SELECT id, entry_id, at, level, message FROM merge_logs ORDER BY id ASC`)
 
   function allSteps(): Map<string, MergeStep[]> {
     const map = new Map<string, MergeStep[]>()
@@ -125,10 +123,12 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
   }
 
   function load(id: string): MergeEntry | null {
-    const row = db.prepare(
-      `SELECT id, position, kind, repo, trunk, title, status, error, created_at, updated_at, started_at, finished_at
+    const row = db
+      .prepare(
+        `SELECT id, position, kind, repo, trunk, title, status, error, created_at, updated_at, started_at, finished_at
        FROM merge_entries WHERE id = ?`,
-    ).get(id) as EntryRow | undefined
+      )
+      .get(id) as EntryRow | undefined
     if (!row) return null
     return entryFrom(row, allSteps(), false)
   }
@@ -187,10 +187,12 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
     },
 
     blocksKey(key: string): boolean {
-      const row = db.prepare(
-        `SELECT 1 FROM merge_steps s JOIN merge_entries e ON e.id = s.entry_id
+      const row = db
+        .prepare(
+          `SELECT 1 FROM merge_steps s JOIN merge_entries e ON e.id = s.entry_id
          WHERE s.pr_key = ? AND e.archived = 0 AND e.status IN ('queued', 'active', 'failed')`,
-      ).get(key)
+        )
+        .get(key)
       return row != null
     },
 
@@ -222,18 +224,14 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
     },
 
     isCancelRequested(id: string): boolean {
-      const row = db.prepare('SELECT cancel_requested FROM merge_entries WHERE id = ?').get(id) as
-        | { cancel_requested: number }
-        | undefined
+      const row = db.prepare('SELECT cancel_requested FROM merge_entries WHERE id = ?').get(id) as { cancel_requested: number } | undefined
       return row?.cancel_requested === 1
     },
 
     enqueue(input: NewEntry): MergeEntry {
       const now = new Date().toISOString()
       const id = crypto.randomUUID()
-      const position = (
-        db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS next FROM merge_entries').get() as { next: number }
-      ).next
+      const position = (db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS next FROM merge_entries').get() as { next: number }).next
       const insertStep = db.prepare(
         `INSERT INTO merge_steps (
            id, entry_id, position, pr_key, number, title, url, head_ref, head_oid, base_ref, base_oid, role, status, detail, updated_at
@@ -276,19 +274,16 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
     },
 
     log(entryId: string, level: 'info' | 'error', message: string) {
-      db.prepare('INSERT INTO merge_logs (entry_id, at, level, message) VALUES (?, ?, ?, ?)').run(
-        entryId,
-        new Date().toISOString(),
-        level,
-        message,
-      )
+      db.prepare('INSERT INTO merge_logs (entry_id, at, level, message) VALUES (?, ?, ?, ?)').run(entryId, new Date().toISOString(), level, message)
     },
 
     markActive(id: string) {
       const now = new Date().toISOString()
-      db.prepare(
-        `UPDATE merge_entries SET status = 'active', started_at = COALESCE(started_at, ?), updated_at = ?, error = NULL WHERE id = ?`,
-      ).run(now, now, id)
+      db.prepare(`UPDATE merge_entries SET status = 'active', started_at = COALESCE(started_at, ?), updated_at = ?, error = NULL WHERE id = ?`).run(
+        now,
+        now,
+        id,
+      )
     },
 
     setStep(id: string, status: StepStatus, detail: string | null) {
@@ -297,30 +292,17 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
         if (row) clearHoldRelease(row.pr_key)
         if (row) hooks.onMerged?.(row.pr_key)
       }
-      db.prepare('UPDATE merge_steps SET status = ?, detail = ?, updated_at = ? WHERE id = ?').run(
-        status,
-        detail,
-        new Date().toISOString(),
-        id,
-      )
+      db.prepare('UPDATE merge_steps SET status = ?, detail = ?, updated_at = ? WHERE id = ?').run(status, detail, new Date().toISOString(), id)
     },
 
     /** The branch now sits on the trunk at this head. */
     setRebased(id: string, oid: string) {
-      db.prepare('UPDATE merge_steps SET head_oid = ?, base_oid = NULL, updated_at = ? WHERE id = ?').run(
-        oid.toLowerCase(),
-        new Date().toISOString(),
-        id,
-      )
+      db.prepare('UPDATE merge_steps SET head_oid = ?, base_oid = NULL, updated_at = ? WHERE id = ?').run(oid.toLowerCase(), new Date().toISOString(), id)
     },
 
     markDone(id: string) {
       const now = new Date().toISOString()
-      db.prepare(`UPDATE merge_entries SET status = 'done', finished_at = ?, updated_at = ?, error = NULL WHERE id = ?`).run(
-        now,
-        now,
-        id,
-      )
+      db.prepare(`UPDATE merge_entries SET status = 'done', finished_at = ?, updated_at = ?, error = NULL WHERE id = ?`).run(now, now, id)
     },
 
     /** Holds the entry aside with its reason. Entries behind it keep running. */
@@ -329,9 +311,12 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
       if (stepId) {
         db.prepare(`UPDATE merge_steps SET status = 'failed', detail = ?, updated_at = ? WHERE id = ?`).run(message, now, stepId)
       }
-      db.prepare(
-        `UPDATE merge_entries SET status = 'failed', error = ?, finished_at = ?, updated_at = ?, cancel_requested = 0 WHERE id = ?`,
-      ).run(message, now, now, id)
+      db.prepare(`UPDATE merge_entries SET status = 'failed', error = ?, finished_at = ?, updated_at = ?, cancel_requested = 0 WHERE id = ?`).run(
+        message,
+        now,
+        now,
+        id,
+      )
       store.log(id, 'error', message)
     },
 
@@ -357,9 +342,10 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
              WHERE id = ? AND entry_id = ? AND status = 'queued'`,
           ).run(step.headOid.toLowerCase(), step.onTrunk ? 1 : 0, step.restacked ? 'restacked' : 'queued', now, step.stepId, id)
         }
-        db.prepare(
-          `UPDATE merge_entries SET status = 'queued', error = NULL, finished_at = NULL, cancel_requested = 0, updated_at = ? WHERE id = ?`,
-        ).run(now, id)
+        db.prepare(`UPDATE merge_entries SET status = 'queued', error = NULL, finished_at = NULL, cancel_requested = 0, updated_at = ? WHERE id = ?`).run(
+          now,
+          id,
+        )
         db.exec('COMMIT')
       } catch (error) {
         db.exec('ROLLBACK')
@@ -389,9 +375,7 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
         `UPDATE merge_steps SET status = 'cancelled', updated_at = ?
          WHERE entry_id = ? AND status NOT IN ('merged', 'restacked')`,
       ).run(now, id)
-      db.prepare(
-        `UPDATE merge_entries SET status = 'cancelled', cancel_requested = 0, finished_at = ?, updated_at = ? WHERE id = ?`,
-      ).run(now, now, id)
+      db.prepare(`UPDATE merge_entries SET status = 'cancelled', cancel_requested = 0, finished_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id)
       store.log(id, 'info', 'Cancelled. No further merges will run for this entry.')
       touch(id)
     },
@@ -400,13 +384,15 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
       const entry = load(id)
       if (!entry) throw new Refused('That merge is no longer in the queue.', 404)
       if (entry.status !== 'queued') throw new Refused('Only a queued merge can be reordered.', 409)
-      const neighbor = db.prepare(
-        direction === 'up'
-          ? `SELECT id, position FROM merge_entries
+      const neighbor = db
+        .prepare(
+          direction === 'up'
+            ? `SELECT id, position FROM merge_entries
              WHERE archived = 0 AND status = 'queued' AND repo = ? AND position < ? ORDER BY position DESC LIMIT 1`
-          : `SELECT id, position FROM merge_entries
+            : `SELECT id, position FROM merge_entries
              WHERE archived = 0 AND status = 'queued' AND repo = ? AND position > ? ORDER BY position ASC LIMIT 1`,
-      ).get(entry.repo, entry.position) as { id: string; position: number } | undefined
+        )
+        .get(entry.repo, entry.position) as { id: string; position: number } | undefined
       if (!neighbor) return
       db.exec('BEGIN')
       try {
@@ -421,20 +407,18 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
 
     /** Repos with an entry in flight or waiting. Each one runs its own line. */
     runnableRepos(): string[] {
-      const rows = db.prepare(
-        `SELECT DISTINCT repo FROM merge_entries WHERE status IN ('queued', 'active') AND archived = 0`,
-      ).all() as { repo: string }[]
+      const rows = db.prepare(`SELECT DISTINCT repo FROM merge_entries WHERE status IN ('queued', 'active') AND archived = 0`).all() as { repo: string }[]
       return rows.map((row) => row.repo)
     },
 
     nextRunnable(repo: string): MergeEntry | null {
-      const active = db.prepare(
-        `SELECT id FROM merge_entries WHERE status = 'active' AND archived = 0 AND repo = ? ORDER BY position ASC LIMIT 1`,
-      ).get(repo) as { id: string } | undefined
+      const active = db.prepare(`SELECT id FROM merge_entries WHERE status = 'active' AND archived = 0 AND repo = ? ORDER BY position ASC LIMIT 1`).get(repo) as
+        | { id: string }
+        | undefined
       if (active) return load(active.id)
-      const queued = db.prepare(
-        `SELECT id FROM merge_entries WHERE ${OPEN} AND status = 'queued' AND repo = ? ORDER BY position ASC LIMIT 1`,
-      ).get(repo) as { id: string } | undefined
+      const queued = db.prepare(`SELECT id FROM merge_entries WHERE ${OPEN} AND status = 'queued' AND repo = ? ORDER BY position ASC LIMIT 1`).get(repo) as
+        | { id: string }
+        | undefined
       return queued ? load(queued.id) : null
     },
 
@@ -487,9 +471,7 @@ export function attachQueue(db: DatabaseSync, hooks: { onMerged?: (prKey: string
       }[]
       if (rows.length === 0) return pullRequests
       const seen = new Set(pullRequests.map((pr) => pr.key))
-      const extra = rows
-        .filter((row) => !seen.has(row.pr_key))
-        .map((row) => JSON.parse(row.pull_request) as PullRequest)
+      const extra = rows.filter((row) => !seen.has(row.pr_key)).map((row) => JSON.parse(row.pull_request) as PullRequest)
       return [...pullRequests, ...extra]
     },
   }

@@ -15,10 +15,7 @@ export function createApp(db: DashboardDb, options: { loopbackOnly: boolean }): 
   const app = new Hono()
 
   app.use('/api/*', async (c, next) => {
-    const reason = refusal(
-      { host: c.req.header('host'), origin: c.req.header('origin'), secFetchSite: c.req.header('sec-fetch-site') },
-      options.loopbackOnly,
-    )
+    const reason = refusal({ host: c.req.header('host'), origin: c.req.header('origin'), secFetchSite: c.req.header('sec-fetch-site') }, options.loopbackOnly)
     if (reason) return c.json({ error: reason }, 403)
     await next()
   })

@@ -30,7 +30,16 @@ export function reviewLogger(db: DatabaseSync): (pr: Reviewed) => void {
   const write = db.prepare('INSERT OR IGNORE INTO review_log (pr_key, at, pull_request) VALUES (?, ?, ?)')
   return (pr) => {
     if (!pr.viewerReviewedAt) return
-    const event: ActivityEvent = { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, at: pr.viewerReviewedAt, readyAt: pr.readyAt ?? null }
+    const event: ActivityEvent = {
+      key: pr.key,
+      repo: pr.repo,
+      repoName: pr.repoName,
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      at: pr.viewerReviewedAt,
+      readyAt: pr.readyAt ?? null,
+    }
     write.run(pr.key, pr.viewerReviewedAt, JSON.stringify(event))
   }
 }

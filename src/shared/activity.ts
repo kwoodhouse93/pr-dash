@@ -119,7 +119,10 @@ function waited(event: ActivityEvent): number | null {
 }
 
 function waits(events: ActivityEvent[], from: number): number[] {
-  return events.filter((event) => Date.parse(event.at) >= from).map(waited).filter((span): span is number => span != null)
+  return events
+    .filter((event) => Date.parse(event.at) >= from)
+    .map(waited)
+    .filter((span): span is number => span != null)
 }
 
 /** "4m", "5h 10m", "2d 3h": the two largest units, which is as exact as a turnaround is worth. */
@@ -168,11 +171,23 @@ function records(activity: Activity): RecordRow[] {
     }, null)
   const review = quickest(firsts(activity.reviewed))
   if (review) {
-    rows.push({ id: 'fastest-review', label: 'Fastest review', value: formatSpan(review.span), detail: `${review.event.repoName} #${review.event.number}, ready to reviewed`, url: review.event.url })
+    rows.push({
+      id: 'fastest-review',
+      label: 'Fastest review',
+      value: formatSpan(review.span),
+      detail: `${review.event.repoName} #${review.event.number}, ready to reviewed`,
+      url: review.event.url,
+    })
   }
   const merge = quickest(activity.merged)
   if (merge) {
-    rows.push({ id: 'fastest-merge', label: 'Fastest merge', value: formatSpan(merge.span), detail: `${merge.event.repoName} #${merge.event.number}, ready to merged`, url: merge.event.url })
+    rows.push({
+      id: 'fastest-merge',
+      label: 'Fastest merge',
+      value: formatSpan(merge.span),
+      detail: `${merge.event.repoName} #${merge.event.number}, ready to merged`,
+      url: merge.event.url,
+    })
   }
   const hours = new Map<number, number>()
   for (const event of [...activity.merged, ...activity.reviewed]) {
@@ -203,7 +218,13 @@ export function summarizeActivity(activity: Activity, now: number, range: Activi
   for (const kind of kinds) {
     for (const event of activity[kind]) {
       if (!(Date.parse(event.at) >= from)) continue
-      const row = repos.get(event.repo) ?? { repo: event.repo, repoName: event.repoName, merged: 0, reviewed: 0, keys: { merged: new Set(), reviewed: new Set() } }
+      const row = repos.get(event.repo) ?? {
+        repo: event.repo,
+        repoName: event.repoName,
+        merged: 0,
+        reviewed: 0,
+        keys: { merged: new Set(), reviewed: new Set() },
+      }
       row.keys[kind].add(event.key)
       row[kind] = row.keys[kind].size
       repos.set(event.repo, row)

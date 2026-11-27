@@ -63,10 +63,7 @@ async function startCursorAgent({ pr, request, task }: AgentStart): Promise<Agen
 async function readCursorSession(apiKey: string, session: AgentSession): Promise<AgentSession> {
   const agent = await cursorGet<CursorAgentResponse>(apiKey, `${CURSOR_API}/${encodeURIComponent(session.agentId)}`)
   const runId = agent.latestRunId || session.runId
-  const run = await cursorGet<CursorRunResponse>(
-    apiKey,
-    `${CURSOR_API}/${encodeURIComponent(session.agentId)}/runs/${encodeURIComponent(runId)}`,
-  )
+  const run = await cursorGet<CursorRunResponse>(apiKey, `${CURSOR_API}/${encodeURIComponent(session.agentId)}/runs/${encodeURIComponent(runId)}`)
   return {
     ...session,
     runId: run.id || runId,
@@ -136,6 +133,6 @@ function parseResponse(text: string): CursorErrorBody {
 }
 
 function cursorError(status: number, body: CursorErrorBody): string {
-  const detail = typeof body.error === 'string' ? body.error : body.error?.message ?? body.message
+  const detail = typeof body.error === 'string' ? body.error : (body.error?.message ?? body.message)
   return detail ? `Cursor ${status}: ${detail.slice(0, 300)}` : `Cursor request failed (${status}).`
 }

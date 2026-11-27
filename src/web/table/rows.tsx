@@ -13,7 +13,19 @@ import { Agents } from './agents-cell.tsx'
 import { Conflict, lowestBehindKey, UpToDate } from './branch.tsx'
 import { Age, Authors, CopyNumber, OpenLinks, Size, When } from './cells.tsx'
 import { CiControl } from './ci.tsx'
-import { COLUMNS, mergeLineOf, motionClass, MotionContext, pressedControl, shownLevel, type StackLock, StackLockContext, useHolds, useStackLock, useTable } from './context.tsx'
+import {
+  COLUMNS,
+  mergeLineOf,
+  motionClass,
+  MotionContext,
+  pressedControl,
+  shownLevel,
+  type StackLock,
+  StackLockContext,
+  useHolds,
+  useStackLock,
+  useTable,
+} from './context.tsx'
 import { foremost, MergeControls, QueueStatus } from './merge.tsx'
 import { ReviewControl } from './review.tsx'
 import { RowMenu } from './row-menu.tsx'
@@ -71,43 +83,48 @@ export function BlockRows({ bucket, block, tone }: { bucket: Bucket; block: Stac
   const rows =
     !block.collapsible || open ? (
       block.rows.map((row, index) => {
-      const spine = stackTone ? spineAt(index, block.rows.length) : null
-      const rail = forked ? (layout.rails[index] ?? null) : null
-      return row.type === 'ellipsis' ? (
-        <tr key={row.id} className={`ellipsis${rail ? ' forked' : ''}${spineClass(spine, stackTone)}${unfoldClass(unfoldAt(index))}`} style={unfoldStyle(unfoldAt(index))} data-flip={`${bucket.id}:${row.id}`}>
-          <Grip spine={spine} rail={rail} hollow />
-          <td />
-          <td colSpan={COLUMNS - 2}>
-            … {row.count} pull request{row.count === 1 ? '' : 's'} {row.place} · {row.reason}
-          </td>
-        </tr>
-      ) : (
-        <DataRow
-          key={row.pr.id}
-          pr={row.pr}
-          flip={`${bucket.id}:${row.pr.key}`}
-          unfold={unfoldAt(index)}
-          block={block}
-          child={block.collapsible}
-          spine={spine}
-          rail={rail}
-          tone={stackTone}
-          toggle={block.collapsible && row.pr.id === visible[0]?.id ? openId : null}
-          hideIssue={bucket.issueId ?? undefined}
-        />
-      )
-    })
-  ) : (
-    <SummaryRow
-      key={block.id}
-      block={block}
-      visible={visible}
-      flip={`${bucket.id}:${block.summary.topKey}`}
-      openId={openId}
-      spine="only"
-      tone={stackTone}
-      hideIssue={bucket.issueId ?? undefined}
-    />
+        const spine = stackTone ? spineAt(index, block.rows.length) : null
+        const rail = forked ? (layout.rails[index] ?? null) : null
+        return row.type === 'ellipsis' ? (
+          <tr
+            key={row.id}
+            className={`ellipsis${rail ? ' forked' : ''}${spineClass(spine, stackTone)}${unfoldClass(unfoldAt(index))}`}
+            style={unfoldStyle(unfoldAt(index))}
+            data-flip={`${bucket.id}:${row.id}`}
+          >
+            <Grip spine={spine} rail={rail} hollow />
+            <td />
+            <td colSpan={COLUMNS - 2}>
+              … {row.count} pull request{row.count === 1 ? '' : 's'} {row.place} · {row.reason}
+            </td>
+          </tr>
+        ) : (
+          <DataRow
+            key={row.pr.id}
+            pr={row.pr}
+            flip={`${bucket.id}:${row.pr.key}`}
+            unfold={unfoldAt(index)}
+            block={block}
+            child={block.collapsible}
+            spine={spine}
+            rail={rail}
+            tone={stackTone}
+            toggle={block.collapsible && row.pr.id === visible[0]?.id ? openId : null}
+            hideIssue={bucket.issueId ?? undefined}
+          />
+        )
+      })
+    ) : (
+      <SummaryRow
+        key={block.id}
+        block={block}
+        visible={visible}
+        flip={`${bucket.id}:${block.summary.topKey}`}
+        openId={openId}
+        spine="only"
+        tone={stackTone}
+        hideIssue={bucket.issueId ?? undefined}
+      />
     )
   return <StackLockContext.Provider value={stackLock}>{rows}</StackLockContext.Provider>
 }
@@ -175,10 +192,7 @@ function DataRow({
             {pr.title}
           </a>
         </div>
-        <Subline
-          menuScope={pr.id}
-          issues={hideIssue ? [] : pr.linearIssues}
-        />
+        <Subline menuScope={pr.id} issues={hideIssue ? [] : pr.linearIssues} />
       </td>
       {mode === 'review' ? (
         <td className="author">
@@ -211,11 +225,7 @@ function DataRow({
       {mode === 'mine' ? (
         <td className="merge">
           {motion.leaving.has(pr.key) ? <span className="pill queue merged">Merged</span> : null}
-          <MergeControls
-            pr={pr}
-            ordered={mergeLineOf(block, pr.key, prByKey)}
-            mark={mark}
-          />
+          <MergeControls pr={pr} ordered={mergeLineOf(block, pr.key, prByKey)} mark={mark} />
         </td>
       ) : null}
       <OpenLinks url={pr.url} repo={pr.repo} number={pr.number} />
@@ -272,7 +282,10 @@ function SummaryRow({
   const motion = useContext(MotionContext)
   return (
     <tr
-      className={`stack ${ci === 'red' ? 'fail' : ''}${allDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}${motionClass(visible.map((pr) => pr.key), motion)}`}
+      className={`stack ${ci === 'red' ? 'fail' : ''}${allDraft ? ' draft' : ''}${mark ? ' held' : ''}${locked ? ' pending' : ''}${spineClass(spine, tone)}${motionClass(
+        visible.map((pr) => pr.key),
+        motion,
+      )}`}
       data-row={openId}
       data-flip={flip}
       onClick={(event) => {
@@ -301,10 +314,7 @@ function SummaryRow({
           {branches > 1 ? <span className="pill">{branches} branches</span> : null}
           {summary.partial ? <span className="pill">partial</span> : null}
         </div>
-        <Subline
-          menuScope={block.id}
-          issues={issues}
-        />
+        <Subline menuScope={block.id} issues={issues} />
       </td>
       {mode === 'review' ? (
         <td className="author">
@@ -325,12 +335,7 @@ function SummaryRow({
       {summary.conflict ? (
         <Conflict id={`conflict:${block.id}`} prs={visible} />
       ) : (
-        <UpToDate
-          id={`uptodate:${block.id}`}
-          targetKey={lowestBehindKey(block.stackKeys, visible)}
-          stackKeys={block.stackKeys}
-          parents={block.parents}
-        />
+        <UpToDate id={`uptodate:${block.id}`} targetKey={lowestBehindKey(block.stackKeys, visible)} stackKeys={block.stackKeys} parents={block.parents} />
       )}
       <td>
         <ReviewControl id={`review:${block.id}`} prs={visible} summary={summary} />
@@ -340,28 +345,12 @@ function SummaryRow({
       </td>
       <Agents id={`agents:${block.id}`} prs={visible} />
       {mode === 'mine' ? (
-      <td className="merge">
-        {top && !summary.partial ? (
-          <MergeControls
-            pr={top}
-            ordered={ordered}
-            mark={mark}
-            progress
-          />
-        ) : mark ? (
-          <QueueStatus mark={mark} progress />
-        ) : null}
-      </td>
+        <td className="merge">
+          {top && !summary.partial ? <MergeControls pr={top} ordered={ordered} mark={mark} progress /> : mark ? <QueueStatus mark={mark} progress /> : null}
+        </td>
       ) : null}
       <OpenLinks url={summary.url} repo={summary.repo} number={summary.number} />
-      <RowMenu
-        id={`menu:${block.id}`}
-        primaryKey={summary.topKey}
-        prs={visible}
-        stackKeys={block.stackKeys}
-        parents={block.parents}
-        defaultWholeStack
-      />
+      <RowMenu id={`menu:${block.id}`} primaryKey={summary.topKey} prs={visible} stackKeys={block.stackKeys} parents={block.parents} defaultWholeStack />
     </tr>
   )
 }
@@ -436,7 +425,10 @@ function SegmentRun({ nodes }: { nodes: SegmentNode[] }) {
   const queued = step === 'merged' || step === 'restacked' ? ' q-done' : step === 'merging' || step === 'rebasing' || step === 'waiting' ? ' q-live' : ''
   return (
     <>
-      <i className={`seg ${node.state}${queued}${leaving.has(node.pr.key) ? ' leaving' : ''}`} title={`#${node.pr.number} · ${step ? stepLabel(step) : SEGMENT_LABEL[mode][node.state]}`} />
+      <i
+        className={`seg ${node.state}${queued}${leaving.has(node.pr.key) ? ' leaving' : ''}`}
+        title={`#${node.pr.number} · ${step ? stepLabel(step) : SEGMENT_LABEL[mode][node.state]}`}
+      />
       <SegmentRun nodes={node.above} />
     </>
   )

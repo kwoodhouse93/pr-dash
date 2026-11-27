@@ -66,9 +66,7 @@ const ready = true
   })
 
   it('leaves unsafe links as text', () => {
-    expect(parseMarkdown('[click](javascript:alert(1))')).toEqual([
-      { type: 'paragraph', children: [{ type: 'text', text: '[click](javascript:alert(1))' }] },
-    ])
+    expect(parseMarkdown('[click](javascript:alert(1))')).toEqual([{ type: 'paragraph', children: [{ type: 'text', text: '[click](javascript:alert(1))' }] }])
   })
 
   it('keeps a details block closed unless it is marked open', () => {

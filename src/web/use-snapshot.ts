@@ -90,9 +90,12 @@ export function useSnapshot(page: DashboardPage) {
     setStatus('Starting refresh')
     setProgress(null)
     const poll = window.setInterval(() => {
-      void api.snapshot(listedFocus()).then((snap) => {
-        showIfChanged(snap, id)
-      }).catch(() => undefined)
+      void api
+        .snapshot(listedFocus())
+        .then((snap) => {
+          showIfChanged(snap, id)
+        })
+        .catch(() => undefined)
     }, 800)
     try {
       const snap = await api.refresh(focus, options.full === true, options.force === true || options.full === true)
@@ -173,19 +176,25 @@ export function useSnapshot(page: DashboardPage) {
     const pull = () => {
       if (cancel || document.visibilityState !== 'visible') return
       const id = applyId.current
-      void api.snapshot(listedFocus()).then((snap) => {
-        if (!cancel) showIfChanged(snap, id)
-      }).catch(() => undefined)
+      void api
+        .snapshot(listedFocus())
+        .then((snap) => {
+          if (!cancel) showIfChanged(snap, id)
+        })
+        .catch(() => undefined)
     }
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
       const id = applyId.current
       const page = pageRef.current
-      void api.snapshot(listedFocus()).then((snap) => {
-        if (cancel || id !== applyId.current) return
-        showIfChanged(snap, id)
-        if (isListName(page)) void refresh()
-      }).catch(() => undefined)
+      void api
+        .snapshot(listedFocus())
+        .then((snap) => {
+          if (cancel || id !== applyId.current) return
+          showIfChanged(snap, id)
+          if (isListName(page)) void refresh()
+        })
+        .catch(() => undefined)
     }
     ;(async () => {
       let snap: Snapshot | null = null
@@ -226,26 +235,32 @@ export function useSnapshot(page: DashboardPage) {
     if (!syncWatch) return
     let cancel = false
     const tick = () => {
-      void api.status().then((next) => {
-        if (cancel) return
-        const busy = next.activity != null || next.queue.length > 0
-        const finished = syncBusy.current && !busy
-        syncBusy.current = busy
-        setSync(next)
-        if (refreshing || busy) {
-          if (next.message !== 'Idle') setStatus(next.message)
-          if (next.total > 0) setProgress({ completed: next.completed, total: next.total })
-        }
-        if (busy || finished) {
-          void api.snapshot(listedFocus()).then((snap) => {
-            if (!cancel) showIfChanged(snap, applyId.current)
-          }).catch(() => undefined)
-        }
-        if (finished && !refreshing) {
-          setStatus('Idle')
-          setProgress(null)
-        }
-      }).catch(() => undefined)
+      void api
+        .status()
+        .then((next) => {
+          if (cancel) return
+          const busy = next.activity != null || next.queue.length > 0
+          const finished = syncBusy.current && !busy
+          syncBusy.current = busy
+          setSync(next)
+          if (refreshing || busy) {
+            if (next.message !== 'Idle') setStatus(next.message)
+            if (next.total > 0) setProgress({ completed: next.completed, total: next.total })
+          }
+          if (busy || finished) {
+            void api
+              .snapshot(listedFocus())
+              .then((snap) => {
+                if (!cancel) showIfChanged(snap, applyId.current)
+              })
+              .catch(() => undefined)
+          }
+          if (finished && !refreshing) {
+            setStatus('Idle')
+            setProgress(null)
+          }
+        })
+        .catch(() => undefined)
     }
     tick()
     const timer = window.setInterval(tick, refreshing || sync?.activity != null ? 400 : 2000)

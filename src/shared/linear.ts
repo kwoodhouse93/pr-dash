@@ -31,8 +31,7 @@ export function mergeLinkedIssues(pr: PullRequest, identifiers: string[]): PullR
   return { ...pr, linearIssues: [...current, ...extra.map(blankIssue)] }
 }
 
-const SUMMARY_ANCHOR =
-  /<summary>\s*<a href="(https:\/\/linear\.app\/[^"]+\/issue\/([A-Z][A-Z0-9]+-\d+)[^"]*)">([^<]+)<\/a>/gi
+const SUMMARY_ANCHOR = /<summary>\s*<a href="(https:\/\/linear\.app\/[^"]+\/issue\/([A-Z][A-Z0-9]+-\d+)[^"]*)">([^<]+)<\/a>/gi
 const TITLE_RE = /\(([A-Z][A-Z0-9]+-\d+)\)/g
 const BRANCH_RE = /(?:^|\/)([a-z]{2,}-\d+)(?!\d)/gi
 
@@ -62,11 +61,7 @@ function titleFromLinkText(identifier: string, text: string): string | null {
   return trimmed || null
 }
 
-export function parseLinear(input: {
-  title: string
-  headRef: string
-  comments: { body: string }[]
-}): LinearIssue[] {
+export function parseLinear(input: { title: string; headRef: string; comments: { body: string }[] }): LinearIssue[] {
   const issues = new Map<string, LinearIssue>()
   for (const comment of input.comments) {
     const body = comment.body ?? ''

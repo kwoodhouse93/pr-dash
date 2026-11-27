@@ -61,7 +61,10 @@ describe('agent settings and launch', () => {
   it('shows each provider with its health, and what T3 Code still needs for a repository', async () => {
     vi.mocked(api.agentSettings).mockResolvedValue(settings())
     await render(<AgentSettingsPanel repos={['acme/app', 'acme/web']} onSnapshot={() => {}} />)
-    const health = [...document.querySelectorAll('.agent-provider')].map((row) => [row.getAttribute('data-state'), row.querySelector('.agent-health')?.textContent])
+    const health = [...document.querySelectorAll('.agent-provider')].map((row) => [
+      row.getAttribute('data-state'),
+      row.querySelector('.agent-health')?.textContent,
+    ])
     expect(health).toEqual([
       ['unconfigured', 'CursorNot set up'],
       ['ready', 'T3 Codet3 v0.1.10Ready'],
@@ -81,7 +84,8 @@ describe('agent settings and launch', () => {
     expect(rows[2]?.querySelector('.agent-problem')).toBeNull()
   })
 
-  const button = (within: ParentNode | null | undefined, label: string) => [...(within?.querySelectorAll('button') ?? [])].find((found) => found.textContent === label) as HTMLElement
+  const button = (within: ParentNode | null | undefined, label: string) =>
+    [...(within?.querySelectorAll('button') ?? [])].find((found) => found.textContent === label) as HTMLElement
   const type = (input: HTMLInputElement, value: string) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -108,7 +112,9 @@ describe('agent settings and launch', () => {
   })
 
   it('resets a folder set here to the folder of the T3 Code project', async () => {
-    const overridden = settings({ repos: [{ repo: 'acme/api', provider: 't3', project: { title: 'api', folder: '~/code/api' }, checkout: '~/elsewhere', checkoutProblem: null }] })
+    const overridden = settings({
+      repos: [{ repo: 'acme/api', provider: 't3', project: { title: 'api', folder: '~/code/api' }, checkout: '~/elsewhere', checkoutProblem: null }],
+    })
     vi.mocked(api.agentSettings).mockResolvedValue(overridden)
     vi.mocked(api.setRepoAgent).mockResolvedValue({ settings: settings(), snapshot: {} as Snapshot })
     await render(<AgentSettingsPanel repos={['acme/api']} onSnapshot={() => {}} />)

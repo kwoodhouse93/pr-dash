@@ -106,8 +106,7 @@ export function FilterBar({
   const options = useMemo(() => {
     const names = new Map(initiatives.map((initiative) => [initiative.id, initiative.name]))
     const attention = attentionOf(page)
-    const count = (patch: Partial<Filters>) =>
-      prs.filter((pr) => prMatches(pr, { ...filters, ...patch }, names, attention, viewer)).length
+    const count = (patch: Partial<Filters>) => prs.filter((pr) => prMatches(pr, { ...filters, ...patch }, names, attention, viewer)).length
     return {
       repo: [
         { value: null, label: 'Any', count: count({ repo: null }) },
@@ -157,7 +156,9 @@ export function FilterBar({
         )}
       </label>
       <div className="filter-group" role="group" aria-label="Filters">
-        <span className="filter-label" aria-hidden="true">Filter</span>
+        <span className="filter-label" aria-hidden="true">
+          Filter
+        </span>
         <FilterChip id="repo" label="Repo" value={filters.repo} options={options.repo} onPick={(repo) => onPatch({ repo })} />
         <FilterChip id="ci" label="CI" value={filters.ci} options={options.ci} onPick={(ci) => onPatch({ ci })} />
         <FilterChip id="review" label="Review" value={filters.review} options={options.review} onPick={(review) => onPatch({ review })} />
@@ -179,21 +180,11 @@ export function FilterBar({
           footer={{ label: 'Manage initiatives in Settings', onClick: onManageInitiatives }}
         />
         <span className="filter-rule" aria-hidden="true" />
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={filters.awaitingOnly}
-          onClick={() => onPatch({ awaitingOnly: !filters.awaitingOnly })}
-        >
+        <button type="button" className="chip" aria-pressed={filters.awaitingOnly} onClick={() => onPatch({ awaitingOnly: !filters.awaitingOnly })}>
           {awaitingLabel(page)}
           <span className="chip-count">{options.awaiting}</span>
         </button>
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={filters.hideDrafts}
-          onClick={() => onPatch({ hideDrafts: !filters.hideDrafts })}
-        >
+        <button type="button" className="chip" aria-pressed={filters.hideDrafts} onClick={() => onPatch({ hideDrafts: !filters.hideDrafts })}>
           Hide drafts
         </button>
         {filtersOn ? (
@@ -316,26 +307,26 @@ function FilterOptions<T extends string | null>({
     <>
       <PopHead title={label} />
       <PopBody list>
-    <div ref={list} role="menu" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value ?? ''}
-          type="button"
-          role="menuitemradio"
-          aria-checked={option.value === value}
-          className="menu-item filter-option"
-          data-empty={option.count === 0 || undefined}
-          onClick={() => {
-            close()
-            onPick(option.value)
-          }}
-        >
-          <span>{option.label}</span>
-          <span className="option-count">{option.count}</span>
-        </button>
-      ))}
-      {foot}
-    </div>
+        <div ref={list} role="menu" aria-label={label}>
+          {options.map((option) => (
+            <button
+              key={option.value ?? ''}
+              type="button"
+              role="menuitemradio"
+              aria-checked={option.value === value}
+              className="menu-item filter-option"
+              data-empty={option.count === 0 || undefined}
+              onClick={() => {
+                close()
+                onPick(option.value)
+              }}
+            >
+              <span>{option.label}</span>
+              <span className="option-count">{option.count}</span>
+            </button>
+          ))}
+          {foot}
+        </div>
       </PopBody>
     </>
   )

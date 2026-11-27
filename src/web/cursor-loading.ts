@@ -109,7 +109,14 @@ export function cursorLoadingHtml(work: string, colors: LoadingColors): string {
 
 /** Writes the page into a window just opened, in the colours of the theme in use. */
 export function paintCursorLoading(page: Window, work: string) {
-  const colors: LoadingColors = { scheme: currentTheme().scheme, bg: themeColor('bg'), text: themeColor('text'), muted: themeColor('muted'), faint: themeColor('faint'), amber: themeColor('amber') }
+  const colors: LoadingColors = {
+    scheme: currentTheme().scheme,
+    bg: themeColor('bg'),
+    text: themeColor('text'),
+    muted: themeColor('muted'),
+    faint: themeColor('faint'),
+    amber: themeColor('amber'),
+  }
   page.document.open()
   page.document.write(cursorLoadingHtml(work, colors))
   page.document.close()

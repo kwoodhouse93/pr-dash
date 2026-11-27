@@ -24,12 +24,22 @@ function inputs(id: string): Record<string, string> {
 function hex(l: number, c: number, h: number): string {
   const a = c * Math.cos((h * Math.PI) / 180)
   const b = c * Math.sin((h * Math.PI) / 180)
-  const [x, y, z] = [l + 0.3963377774 * a + 0.2158037573 * b, l - 0.1055613458 * a - 0.0638541728 * b, l - 0.0894841775 * a - 1.291485548 * b].map((v) => v ** 3) as [number, number, number]
-  const linear = [4.0767416621 * x - 3.3077115913 * y + 0.2309699292 * z, -1.2684380046 * x + 2.6097574011 * y - 0.3413193965 * z, -0.0041960863 * x - 0.7034186147 * y + 1.707614701 * z]
+  const [x, y, z] = [l + 0.3963377774 * a + 0.2158037573 * b, l - 0.1055613458 * a - 0.0638541728 * b, l - 0.0894841775 * a - 1.291485548 * b].map(
+    (v) => v ** 3,
+  ) as [number, number, number]
+  const linear = [
+    4.0767416621 * x - 3.3077115913 * y + 0.2309699292 * z,
+    -1.2684380046 * x + 2.6097574011 * y - 0.3413193965 * z,
+    -0.0041960863 * x - 0.7034186147 * y + 1.707614701 * z,
+  ]
   return `#${linear
     .map((v) => Math.min(1, Math.max(0, v)))
     .map((v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055))
-    .map((v) => Math.round(v * 255).toString(16).padStart(2, '0'))
+    .map((v) =>
+      Math.round(v * 255)
+        .toString(16)
+        .padStart(2, '0'),
+    )
     .join('')}`
 }
 

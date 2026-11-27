@@ -10,12 +10,7 @@ export type SegmentState = 'broken' | 'you' | 'draft' | 'ready' | 'waiting'
  * `orderedTopToBottom` is the whole stack, so readiness can look at what sits below.
  * On My PRs, ready means the Merge button would show. On Review, it means you approved.
  */
-export function segmentState(
-  pr: PullRequest,
-  orderedTopToBottom: PullRequest[],
-  mode: ListName,
-  viewer: string | null,
-): SegmentState {
+export function segmentState(pr: PullRequest, orderedTopToBottom: PullRequest[], mode: ListName, viewer: string | null): SegmentState {
   if (pr.conflict || pr.ci === 'red') return 'broken'
   if (mode === 'review') {
     if (pr.reviewPending || needsAttention(pr, 'reviewer')) return 'you'

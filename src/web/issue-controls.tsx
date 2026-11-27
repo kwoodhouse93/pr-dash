@@ -127,10 +127,7 @@ export function LinkIssueForm({
 
   const typed = query.trim().toUpperCase()
   const typedId = isLinearIdentifier(typed) ? typed : null
-  const shown =
-    typedId && !matches.some((issue) => issue.identifier === typedId)
-      ? [{ identifier: typedId, title: null, url: null }, ...matches]
-      : matches
+  const shown = typedId && !matches.some((issue) => issue.identifier === typedId) ? [{ identifier: typedId, title: null, url: null }, ...matches] : matches
 
   return (
     <form
@@ -142,60 +139,48 @@ export function LinkIssueForm({
     >
       <PopHead title="Link Linear issue" sub={`Attaches #${pr.number} on the issue`} onBack={onBack} />
       <PopBody list className="picker">
-      {prs.length > 1 ? (
-        <label className="agent-target">
-          Pull request
-          <select className="select" value={key} disabled={busy} onChange={(event) => setKey(event.target.value)}>
-            {prs.map((item) => (
-              <option key={item.key} value={item.key}>
-                #{item.number} {item.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      <input
-        className="search"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="ENG-123 or a title"
-        aria-label="Find a Linear issue"
-        autoFocus
-        disabled={busy}
-      />
-      {error ? <p className="launch-error">{error}</p> : null}
-      {searching ? <p>Searching…</p> : null}
-      {shown.map((issue) => {
-        const already = linked.has(issue.identifier)
-        return (
-          <button
-            key={issue.identifier}
-            type="button"
-            className="option"
-            disabled={busy || already}
-            onClick={() => void choose(issue.identifier)}
-          >
-            <span>
-              {issue.identifier}
-              {issue.title ? ` · ${issue.title}` : ''}
-              {already ? ' · Already linked' : ''}
-            </span>
-          </button>
-        )
-      })}
-      {!searching && query.trim().length >= 2 && shown.length === 0 && !error ? <p>No matching issues.</p> : null}
+        {prs.length > 1 ? (
+          <label className="agent-target">
+            Pull request
+            <select className="select" value={key} disabled={busy} onChange={(event) => setKey(event.target.value)}>
+              {prs.map((item) => (
+                <option key={item.key} value={item.key}>
+                  #{item.number} {item.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <input
+          className="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="ENG-123 or a title"
+          aria-label="Find a Linear issue"
+          autoFocus
+          disabled={busy}
+        />
+        {error ? <p className="launch-error">{error}</p> : null}
+        {searching ? <p>Searching…</p> : null}
+        {shown.map((issue) => {
+          const already = linked.has(issue.identifier)
+          return (
+            <button key={issue.identifier} type="button" className="option" disabled={busy || already} onClick={() => void choose(issue.identifier)}>
+              <span>
+                {issue.identifier}
+                {issue.title ? ` · ${issue.title}` : ''}
+                {already ? ' · Already linked' : ''}
+              </span>
+            </button>
+          )
+        })}
+        {!searching && query.trim().length >= 2 && shown.length === 0 && !error ? <p>No matching issues.</p> : null}
       </PopBody>
     </form>
   )
 }
 
-function StatusMenu({
-  issue,
-  onUpdate,
-}: {
-  issue: LinearIssue
-  onUpdate: (identifier: string, patch: { statusId?: string }) => Promise<void>
-}) {
+function StatusMenu({ issue, onUpdate }: { issue: LinearIssue; onUpdate: (identifier: string, patch: { statusId?: string }) => Promise<void> }) {
   const close = useMenuClose()
   const [statuses, setStatuses] = useState<LinearStatus[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -237,34 +222,28 @@ function StatusMenu({
     <>
       <PopHead title={`Status · ${issue.identifier}`} />
       <PopBody list className="picker" role="listbox" label="Issue status">
-      {error ? <p className="launch-error">{error}</p> : null}
-      {statuses === null && !error ? <p>Loading statuses…</p> : null}
-      {statuses?.map((status) => (
-        <button
-          key={status.id}
-          type="button"
-          className="option"
-          role="option"
-          aria-selected={status.id === issue.status?.id}
-          disabled={busy}
-          onClick={() => void choose(status.id)}
-        >
-          <StatusIcon type={status.type} color={status.color} label={status.name} />
-          <span>{status.name}</span>
-        </button>
-      ))}
+        {error ? <p className="launch-error">{error}</p> : null}
+        {statuses === null && !error ? <p>Loading statuses…</p> : null}
+        {statuses?.map((status) => (
+          <button
+            key={status.id}
+            type="button"
+            className="option"
+            role="option"
+            aria-selected={status.id === issue.status?.id}
+            disabled={busy}
+            onClick={() => void choose(status.id)}
+          >
+            <StatusIcon type={status.type} color={status.color} label={status.name} />
+            <span>{status.name}</span>
+          </button>
+        ))}
       </PopBody>
     </>
   )
 }
 
-function AssigneeMenu({
-  issue,
-  onUpdate,
-}: {
-  issue: LinearIssue
-  onUpdate: (identifier: string, patch: { assigneeId: string | null }) => Promise<void>
-}) {
+function AssigneeMenu({ issue, onUpdate }: { issue: LinearIssue; onUpdate: (identifier: string, patch: { assigneeId: string | null }) => Promise<void> }) {
   const close = useMenuClose()
   const [users, setUsers] = useState<LinearAssignee[] | null>(null)
   const [query, setQuery] = useState('')
@@ -311,55 +290,41 @@ function AssigneeMenu({
     <>
       <PopHead title={`Assignee · ${issue.identifier}`} />
       <PopBody list className="picker" role="listbox" label="Assignee">
-      <input
-        className="search"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search people"
-        aria-label="Search people"
-        autoFocus
-      />
-      {error ? <p className="launch-error">{error}</p> : null}
-      {users === null && !error ? <p>Loading people…</p> : null}
-      <button
-        type="button"
-        className="option"
-        role="option"
-        aria-selected={!issue.assignee}
-        disabled={busy}
-        onClick={() => void choose(null)}
-      >
-        <AssigneeFace user={null} />
-        <span>Unassigned</span>
-      </button>
-      {currentMissing && issue.assignee ? (
-        <button
-          type="button"
-          className="option"
-          role="option"
-          aria-selected
-          disabled={busy}
-          onClick={() => void choose(issue.assignee!.id)}
-        >
-          <AssigneeFace user={issue.assignee} />
-          <span>{issue.assignee.name}</span>
+        <input
+          className="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search people"
+          aria-label="Search people"
+          autoFocus
+        />
+        {error ? <p className="launch-error">{error}</p> : null}
+        {users === null && !error ? <p>Loading people…</p> : null}
+        <button type="button" className="option" role="option" aria-selected={!issue.assignee} disabled={busy} onClick={() => void choose(null)}>
+          <AssigneeFace user={null} />
+          <span>Unassigned</span>
         </button>
-      ) : null}
-      {visible.map((user) => (
-        <button
-          key={user.id}
-          type="button"
-          className="option"
-          role="option"
-          aria-selected={user.id === issue.assignee?.id}
-          disabled={busy}
-          onClick={() => void choose(user.id)}
-        >
-          <AssigneeFace user={user} />
-          <span>{user.name}</span>
-        </button>
-      ))}
-      {users && visible.length === 0 ? <p>No matching people.</p> : null}
+        {currentMissing && issue.assignee ? (
+          <button type="button" className="option" role="option" aria-selected disabled={busy} onClick={() => void choose(issue.assignee!.id)}>
+            <AssigneeFace user={issue.assignee} />
+            <span>{issue.assignee.name}</span>
+          </button>
+        ) : null}
+        {visible.map((user) => (
+          <button
+            key={user.id}
+            type="button"
+            className="option"
+            role="option"
+            aria-selected={user.id === issue.assignee?.id}
+            disabled={busy}
+            onClick={() => void choose(user.id)}
+          >
+            <AssigneeFace user={user} />
+            <span>{user.name}</span>
+          </button>
+        ))}
+        {users && visible.length === 0 ? <p>No matching people.</p> : null}
       </PopBody>
     </>
   )

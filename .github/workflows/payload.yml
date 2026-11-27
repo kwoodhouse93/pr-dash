@@ -2,7 +2,7 @@ name: Desktop payload
 
 # Publishes the server and web build the desktop app downloads. The newest
 # push wins: the asset on the rolling "payload" release is replaced each time.
-# Nothing is published unless the types check and the tests pass.
+# Nothing is published unless the code is formatted and lints clean, the types check and the tests pass.
 on:
   push:
     branches: [main]
@@ -24,6 +24,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm ci

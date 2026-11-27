@@ -16,7 +16,9 @@ export function SectionBand({ id, title, action, children }: { id: string; title
       <tr className="band" data-flip={id}>
         <td colSpan={COLUMNS}>
           <SectionHead open={open} label={title} onToggle={() => onToggle(id)} action={action}>
-            <SectionTitle open={open} onToggle={() => onToggle(id)}>{title}</SectionTitle>
+            <SectionTitle open={open} onToggle={() => onToggle(id)}>
+              {title}
+            </SectionTitle>
           </SectionHead>
         </td>
       </tr>
@@ -33,21 +35,16 @@ export function ProjectRows({ project }: { project: ProjectGroup }) {
     <>
       <tr className="project depth-1" data-flip={project.id}>
         <td colSpan={COLUMNS}>
-          <SectionHead
-            open={open}
-            label={project.title}
-            onToggle={() => shared.onToggleSection(project.id)}
-            action={<GroupToggle id={project.id} />}
-          >
-            <SectionTitle open={open} onToggle={() => shared.onToggleSection(project.id)}>{project.title}</SectionTitle>
+          <SectionHead open={open} label={project.title} onToggle={() => shared.onToggleSection(project.id)} action={<GroupToggle id={project.id} />}>
+            <SectionTitle open={open} onToggle={() => shared.onToggleSection(project.id)}>
+              {project.title}
+            </SectionTitle>
             <span className="section-meta">{count === 1 ? '1 pull request' : `${count} pull requests`}</span>
             <SectionRollup buckets={project.issues} />
           </SectionHead>
         </td>
       </tr>
-      {open
-        ? project.issues.map((bucket) => <BucketRows key={bucket.id} bucket={bucket} depth={2} />)
-        : null}
+      {open ? project.issues.map((bucket) => <BucketRows key={bucket.id} bucket={bucket} depth={2} />) : null}
     </>
   )
 }
@@ -68,7 +65,9 @@ export function BucketRows({ bucket, depth, untitled = false }: { bucket: Bucket
                   {bucket.title}
                 </a>
               ) : (
-                <SectionTitle open={open} onToggle={() => shared.onToggleSection(bucket.id)}>{bucket.title}</SectionTitle>
+                <SectionTitle open={open} onToggle={() => shared.onToggleSection(bucket.id)}>
+                  {bucket.title}
+                </SectionTitle>
               )}
               {bucket.meta ? <span className="section-meta">{bucket.meta}</span> : null}
               <SectionRollup buckets={[bucket]} />
@@ -133,13 +132,7 @@ function SectionHead({
     <div className="section-head">
       <div className="section-line">{children}</div>
       {action}
-      <button
-        type="button"
-        className="section-toggle"
-        aria-expanded={open}
-        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
-        onClick={onToggle}
-      >
+      <button type="button" className="section-toggle" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`} onClick={onToggle}>
         <Icon name="fold" />
       </button>
     </div>
@@ -171,9 +164,7 @@ function SectionRollup({ buckets }: { buckets: Bucket[] }) {
   const viewer = useViewer()
   const states = buckets.flatMap((bucket) =>
     [...bucket.stacks, ...bucket.singles].flatMap((block) =>
-      block.rows.flatMap((row) =>
-        row.type === 'pr' ? [segmentState(row.pr, mergeLineOf(block, row.pr.key, prByKey), mode, viewer)] : [],
-      ),
+      block.rows.flatMap((row) => (row.type === 'pr' ? [segmentState(row.pr, mergeLineOf(block, row.pr.key, prByKey), mode, viewer)] : [])),
     ),
   )
   const counts = rollup(states)
@@ -182,7 +173,11 @@ function SectionRollup({ buckets }: { buckets: Bucket[] }) {
     <span className="section-roll">
       {counts.broken > 0 ? <span className="broken">{counts.broken} broken</span> : null}
       {counts.you > 0 ? <span className="you">{counts.you === 1 ? '1 needs you' : `${counts.you} need you`}</span> : null}
-      {counts.ready > 0 ? <span className="ready">{counts.ready} {mode === 'review' ? 'approved by you' : 'ready'}</span> : null}
+      {counts.ready > 0 ? (
+        <span className="ready">
+          {counts.ready} {mode === 'review' ? 'approved by you' : 'ready'}
+        </span>
+      ) : null}
     </span>
   )
 }

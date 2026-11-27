@@ -281,7 +281,12 @@ describe('copy pull request ids', () => {
     expect(menuItem('Copy review chase for #1236')).toBeUndefined()
     await click(menuItem('Copy review chase for stack'))
     const stackText = writeText.mock.calls.at(-1)?.[0] ?? ''
-    expect(stackText.split('\n').slice(2).map((row) => row.slice(0, 8))).toEqual(['1) #1234', '2) #1236'])
+    expect(
+      stackText
+        .split('\n')
+        .slice(2)
+        .map((row) => row.slice(0, 8)),
+    ).toEqual(['1) #1234', '2) #1236'])
     expect(toastSuccess).toHaveBeenCalledWith('Copied review chase')
     expect(document.querySelector('.popover')).toBeNull()
 

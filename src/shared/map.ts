@@ -111,10 +111,7 @@ export function checksFromRaw(nodes: RawCheck[], requiredNames: string[], source
   const selected = selectChecks(applyRequired([...mapped, ...startup], requiredNames))
   const seen = new Set(mapped.map((check) => check.name))
   const blocked = (source.mergeStateStatus ?? '').toUpperCase() === 'BLOCKED'
-  const missing =
-    blocked || startup.length > 0
-      ? requiredNames.filter((name) => !seen.has(name)).map(unreportedCheck)
-      : []
+  const missing = blocked || startup.length > 0 ? requiredNames.filter((name) => !seen.has(name)).map(unreportedCheck) : []
   return selectChecks([...selected, ...missing])
 }
 
@@ -139,12 +136,8 @@ export function shadowedRuns(nodes: RawCheck[], requiredNames: string[]): Shadow
   for (const [workflow, checks] of workflows) {
     if (checks.some((check) => checkPhase(check) === 'pending')) continue
     const newest = Math.max(...checks.map((check) => check.workflowRunId ?? 0))
-    const cancelled = checks.some(
-      (check) => check.workflowRunId === newest && (check.conclusion ?? '').toUpperCase() === 'CANCELLED',
-    )
-    const passedEarlier = checks.some(
-      (check) => check.workflowRunId !== newest && required.has(check.name) && checkPhase(check) === 'success',
-    )
+    const cancelled = checks.some((check) => check.workflowRunId === newest && (check.conclusion ?? '').toUpperCase() === 'CANCELLED')
+    const passedEarlier = checks.some((check) => check.workflowRunId !== newest && required.has(check.name) && checkPhase(check) === 'success')
     if (cancelled && passedEarlier) shadowed.push({ runId: newest, workflow })
   }
   return shadowed
@@ -412,7 +405,9 @@ function threadsFrom(
 function lastReviewBy(reviews: { state: string; submittedAt: string | null; author: { login: string } | null }[], viewer: string): string | null {
   const login = viewer.toLowerCase()
   if (!login) return null
-  const times = reviews.filter((review) => review.state !== 'PENDING' && review.submittedAt && review.author?.login.toLowerCase() === login).map((review) => review.submittedAt!)
+  const times = reviews
+    .filter((review) => review.state !== 'PENDING' && review.submittedAt && review.author?.login.toLowerCase() === login)
+    .map((review) => review.submittedAt!)
   return times.sort().at(-1) ?? null
 }
 

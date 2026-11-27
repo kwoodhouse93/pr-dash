@@ -122,8 +122,7 @@ export function cancelEntry(db: DashboardDb, id: string) {
   const when = db.queue.requestCancel(id)
   if (when === 'later') {
     if (repo) interruptGit(mirrorFor(repo))
-  }
-  else {
+  } else {
     const entry = db.queue.get(id)
     if (entry) settle(db, entry)
     kickMergeWorker()
@@ -433,7 +432,12 @@ async function waitUntilReady(entry: MergeEntry, step: MergeStep): Promise<{ hea
       if (!(await pause(entry.id))) return 'stop'
       continue
     }
-    const decision = interpretWait(live, entry.trunk, names, entry.kind === 'unapproved' ? { requiredApprovals: savedPull(step)?.requiredApprovals ?? 1 } : null)
+    const decision = interpretWait(
+      live,
+      entry.trunk,
+      names,
+      entry.kind === 'unapproved' ? { requiredApprovals: savedPull(step)?.requiredApprovals ?? 1 } : null,
+    )
     if (decision.action === 'ready') return { headOid: live.headOid }
     if (decision.action === 'merged') {
       store.setStep(step.id, 'merged', null)
@@ -566,7 +570,9 @@ async function pause(entryId: string): Promise<boolean> {
 }
 
 function savedPull(step: MergeStep): PullRequest | undefined {
-  return db().snapshot().pullRequests.find((pr) => pr.key === step.prKey)
+  return db()
+    .snapshot()
+    .pullRequests.find((pr) => pr.key === step.prKey)
 }
 
 function namesFor(step: MergeStep): string[] {

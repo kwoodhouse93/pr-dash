@@ -65,11 +65,7 @@ export function prMatches(
   if (filters.ci !== 'all' && pr.ci !== filters.ci) return false
   if (filters.awaitingOnly && !needsAttention(pr, attention)) return false
   if (filters.initiativeId === 'none' && pr.initiativeIds.length > 0) return false
-  if (
-    filters.initiativeId &&
-    filters.initiativeId !== 'none' &&
-    !pr.initiativeIds.includes(filters.initiativeId)
-  ) {
+  if (filters.initiativeId && filters.initiativeId !== 'none' && !pr.initiativeIds.includes(filters.initiativeId)) {
     return false
   }
   if (filters.review === 'unmet' && pr.mergeMark !== 'unmet') return false
@@ -103,11 +99,7 @@ export function prMatches(
  * A run of hidden pull requests on one branch becomes one line. A hidden branch that is neither
  * above nor below anything shown is left out altogether.
  */
-function ellipsisRows(
-  stack: Stack,
-  include: (pr: PullRequest) => boolean,
-  reasonFor: (pr: PullRequest) => string,
-): ViewRow[] {
+function ellipsisRows(stack: Stack, include: (pr: PullRequest) => boolean, reasonFor: (pr: PullRequest) => string): ViewRow[] {
   const shown = new Set(stack.prs.filter(include).map((pr) => pr.key))
   const related = new Set<string>()
   for (const pr of stack.prs) {
@@ -146,18 +138,11 @@ function ellipsisRows(
   }
   if (started) flush('below')
   return rows.map((row, index) =>
-    row.type === 'ellipsis' && row.place !== 'above' && !rows.slice(index + 1).some((later) => later.type === 'pr')
-      ? { ...row, place: 'below' }
-      : row,
+    row.type === 'ellipsis' && row.place !== 'above' && !rows.slice(index + 1).some((later) => later.type === 'pr') ? { ...row, place: 'below' } : row,
   )
 }
 
-function toBlock(
-  stack: Stack,
-  inGroup: (pr: PullRequest) => boolean,
-  matches: (pr: PullRequest) => boolean,
-  outsideReason: string,
-): StackBlock | null {
+function toBlock(stack: Stack, inGroup: (pr: PullRequest) => boolean, matches: (pr: PullRequest) => boolean, outsideReason: string): StackBlock | null {
   const include = (pr: PullRequest) => inGroup(pr) && matches(pr)
   if (!stack.prs.some(include)) return null
   const rows = ellipsisRows(stack, include, (pr) => (inGroup(pr) ? 'filtered out' : outsideReason))
@@ -228,25 +213,14 @@ function blocksStamp(blocks: StackBlock[], sort: Sort): number | string {
 }
 
 function sortBuckets(buckets: Bucket[], sort: Sort): Bucket[] {
-  return buckets.slice().sort((a, b) =>
-    compareValues(blocksStamp([...a.stacks, ...a.singles], sort), blocksStamp([...b.stacks, ...b.singles], sort), sort),
-  )
+  return buckets.slice().sort((a, b) => compareValues(blocksStamp([...a.stacks, ...a.singles], sort), blocksStamp([...b.stacks, ...b.singles], sort), sort))
 }
 
 function visibleCount(blocks: StackBlock[]): number {
-  return blocks.reduce(
-    (total, block) => total + block.rows.filter((row) => row.type === 'pr').length,
-    0,
-  )
+  return blocks.reduce((total, block) => total + block.rows.filter((row) => row.type === 'pr').length, 0)
 }
 
-function toBucket(
-  id: string,
-  title: string | null,
-  href: string | null,
-  issueId: string | null,
-  blocks: StackBlock[],
-): Bucket | null {
+function toBucket(id: string, title: string | null, href: string | null, issueId: string | null, blocks: StackBlock[]): Bucket | null {
   if (blocks.length === 0) return null
   const stacks: StackBlock[] = []
   const singles: StackBlock[] = []
@@ -269,12 +243,7 @@ function issueTitle(identifier: string, title: string | null): string {
 }
 
 export function outlineEmpty(outline: Outline): boolean {
-  return (
-    outline.projects.length === 0 &&
-    outline.initiatives.length === 0 &&
-    outline.looseIssues.length === 0 &&
-    outline.unassigned === null
-  )
+  return outline.projects.length === 0 && outline.initiatives.length === 0 && outline.looseIssues.length === 0 && outline.unassigned === null
 }
 
 /** The id of the section for issues with no project, as a section that can be listed flat. A project's is its own id. */
@@ -345,11 +314,7 @@ export function buildOutline(
               issue.title,
               issue.href,
               issue.identifier,
-              blocksFor(
-                (pr) =>
-                  pr.linearIssues.some((item) => item.projectName === project && item.identifier === issue.identifier),
-                'other issues',
-              ),
+              blocksFor((pr) => pr.linearIssues.some((item) => item.projectName === project && item.identifier === issue.identifier), 'other issues'),
             )
             return bucket ? [bucket] : []
           })
@@ -359,10 +324,7 @@ export function buildOutline(
               null,
               null,
               null,
-              blocksFor(
-                (pr) => pr.linearIssues.some((item) => item.projectName === project),
-                'grouped elsewhere',
-              ),
+              blocksFor((pr) => pr.linearIssues.some((item) => item.projectName === project), 'grouped elsewhere'),
             ),
           ),
       sort,
@@ -416,10 +378,7 @@ export function buildOutline(
             issue.title,
             issue.href,
             issue.identifier,
-            blocksFor(
-              (pr) => inLoose(pr) && pr.linearIssues.some((item) => item.identifier === issue.identifier),
-              'other issues',
-            ),
+            blocksFor((pr) => inLoose(pr) && pr.linearIssues.some((item) => item.identifier === issue.identifier), 'other issues'),
           )
           return bucket ? [bucket] : []
         }),

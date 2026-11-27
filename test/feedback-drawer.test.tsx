@@ -133,7 +133,9 @@ describe('feedback drawer', () => {
             hits += 1
           }}
         >
-          <MenuProvider><Feedback mode="review" targets={[target]} /></MenuProvider>
+          <MenuProvider>
+            <Feedback mode="review" targets={[target]} />
+          </MenuProvider>
         </div>,
       )
     })
@@ -193,7 +195,9 @@ describe('feedback drawer', () => {
     await act(async () => {
       root?.render(
         <FeedbackProvider viewer="grace" onCounts={() => {}}>
-          <MenuProvider><Feedback mode="review" targets={[target]} /></MenuProvider>
+          <MenuProvider>
+            <Feedback mode="review" targets={[target]} />
+          </MenuProvider>
         </FeedbackProvider>,
       )
     })
@@ -237,7 +241,9 @@ describe('feedback drawer', () => {
     await act(async () => {
       root?.render(
         <PrLinksProvider host="graphite">
-          <MenuProvider><Feedback mode="review" targets={[target]} /></MenuProvider>
+          <MenuProvider>
+            <Feedback mode="review" targets={[target]} />
+          </MenuProvider>
         </PrLinksProvider>,
       )
     })
@@ -258,7 +264,9 @@ describe('feedback drawer', () => {
     await act(async () => {
       root?.render(
         <FeedbackProvider viewer="grace" onCounts={() => {}}>
-          <MenuProvider><Feedback mode="mine" targets={[target]} /></MenuProvider>
+          <MenuProvider>
+            <Feedback mode="mine" targets={[target]} />
+          </MenuProvider>
         </FeedbackProvider>,
       )
     })

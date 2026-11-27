@@ -13,7 +13,16 @@ import type { DashboardDb } from './db.ts'
 import { pullGone } from './errors.ts'
 import { GraphqlPaused, assertGraphql, graphqlStatus, loadGithubToken } from './github-client.ts'
 import { fetchPullOutcomes, fetchPullState, type PullOutcome } from './github-pull.ts'
-import { fetchAuthoredPullRequests, fetchOnePull, fetchRepoRules, fetchReviewPullRequests, fetchThreadDetails, forgetViewerContext, viewerFor, type RepoRules } from './github.ts'
+import {
+  fetchAuthoredPullRequests,
+  fetchOnePull,
+  fetchRepoRules,
+  fetchReviewPullRequests,
+  fetchThreadDetails,
+  forgetViewerContext,
+  viewerFor,
+  type RepoRules,
+} from './github.ts'
 import { enrichLinearProjects } from './linear.ts'
 import { withRequestSignal } from './request-signal.ts'
 import type { FeedbackLoad, SyncKind, SyncStatus } from '../shared/sync.ts'
@@ -91,12 +100,7 @@ function note(message: string) {
   syncStatus.completed = next
 }
 
-
-export function refreshSnapshot(
-  db: DashboardDb,
-  next: ListName = 'mine',
-  options?: { full?: boolean; interactive?: boolean },
-): Promise<Snapshot> {
+export function refreshSnapshot(db: DashboardDb, next: ListName = 'mine', options?: { full?: boolean; interactive?: boolean }): Promise<Snapshot> {
   const full = options?.full === true
   const spec = {
     kind: (full ? 'full' : 'list') as SyncKind,
@@ -354,11 +358,18 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
   const watched = db.watchedRepos()
   const stored = db.snapshot().pullRequests
   const previous = new Map(stored.map((pr) => [pr.key, pr]))
-  const fetched = await fetchAuthoredPullRequests(token, (message) => {
-    note(message)
-  }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
-    note(message)
-  }), { previous: knownPulls(db), forceChecks: forceRules, local: db.localResolutions() })
+  const fetched = await fetchAuthoredPullRequests(
+    token,
+    (message) => {
+      note(message)
+    },
+    watched,
+    (repos) =>
+      rulesFor(db, token, repos, forceRules, (message) => {
+        note(message)
+      }),
+    { previous: knownPulls(db), forceChecks: forceRules, local: db.localResolutions() },
+  )
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   await confirmLandedMerges(db, token, fetched.pullRequests)
   const next = db.queue.overlay(fetched.pullRequests.map((pr) => carryThreadFeedback(previous.get(pr.key), pr)))
@@ -380,11 +391,18 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
 async function refreshReview(db: DashboardDb, token: string, forceRules: boolean): Promise<string | null> {
   const watched = db.watchedRepos()
   const previous = new Map(db.snapshot().reviewPullRequests.map((pr) => [pr.key, pr]))
-  const fetched = await fetchReviewPullRequests(token, (message) => {
-    note(message)
-  }, watched, (repos) => rulesFor(db, token, repos, forceRules, (message) => {
-    note(message)
-  }), { previous: knownPulls(db), forceChecks: forceRules, local: db.localResolutions() })
+  const fetched = await fetchReviewPullRequests(
+    token,
+    (message) => {
+      note(message)
+    },
+    watched,
+    (repos) =>
+      rulesFor(db, token, repos, forceRules, (message) => {
+        note(message)
+      }),
+    { previous: knownPulls(db), forceChecks: forceRules, local: db.localResolutions() },
+  )
   const warning = await withLinear(db, fetched.pullRequests, fetched.warning)
   const outcomes = await outcomesOfGone(token, db.snapshot().reviewPullRequests, fetched.pullRequests, watched)
   const current = db.snapshot()
@@ -472,11 +490,7 @@ function staleFeedback(list: PullRequest[]): PullRequest[] {
   return list.filter((pr) => pr.threadCount > 0 && pr.feedbackAt !== pr.updatedAt)
 }
 
-async function readFeedback(
-  db: DashboardDb,
-  next: ListName,
-  signal: AbortSignal,
-): Promise<FeedbackLoad> {
+async function readFeedback(db: DashboardDb, next: ListName, signal: AbortSignal): Promise<FeedbackLoad> {
   const snap = db.snapshot()
   const watched = new Set(snap.repos)
   const list = (next === 'review' ? snap.reviewPullRequests : snap.pullRequests).filter((pr) => watched.has(pr.repo))
@@ -489,7 +503,10 @@ async function readFeedback(
   try {
     assertGraphql(GRAPHQL_PAUSE_BELOW)
     const token = loadGithubToken()
-    const details = await fetchThreadDetails(token, batch.map((pr) => pr.id))
+    const details = await fetchThreadDetails(
+      token,
+      batch.map((pr) => pr.id),
+    )
     const viewer = snap.viewer ?? ''
     const local = db.localResolutions()
     const updates = new Map<string, PullRequest>()
@@ -529,7 +546,7 @@ async function readOne(db: DashboardDb, key: string, signal: AbortSignal): Promi
     const token = loadGithubToken()
     const viewerState = await viewerFor(token)
     const loaded = await fetchOnePull(token, current.id)
-    if (!loaded || !loaded.open) {
+    if (!loaded?.open) {
       dropPull(db, key)
       await resolveDepartures(db, token)
       return db.snapshot()

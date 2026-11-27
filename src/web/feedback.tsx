@@ -140,9 +140,11 @@ export function Feedback({ mode, targets }: { mode: ListName; targets: FeedbackT
     parts.push({ count, text: `${count} thread${threads === 1 ? '' : 's'}`, hot: false, focus: 'all' })
   }
   const pending = targets.some((target) => target.detailsPending)
-  const title = `${mode === 'review'
-    ? 'Unread is an open thread you joined that has a newer reply. Comments are review messages and conversation notes you have not answered, highlighted when one is a review message or a conversation you joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
-    : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'} Unresolved threads block merge.${pending ? ' Reply details are still loading.' : ''}`
+  const title = `${
+    mode === 'review'
+      ? 'Unread is an open thread you joined that has a newer reply. Comments are review messages and conversation notes you have not answered, highlighted when one is a review message or a conversation you joined. Resolved unread is a thread you joined that was resolved, or replied to, after you last spoke.'
+      : 'Awaiting you is an open thread whose latest human comment is not yours. A comment is a conversation comment or review message you have not answered.'
+  } Unresolved threads block merge.${pending ? ' Reply details are still loading.' : ''}`
   return (
     <span className="feedback" title={title}>
       {parts.map((part) => (
@@ -200,17 +202,7 @@ function shownThreads(sections: Loaded[], filter: FeedbackFocus, viewer: string 
   return Object.fromEntries(sections.map((section) => [section.target.key, threadIdsFor(section.detail, filter, viewer)]))
 }
 
-function FeedbackDrawer({
-  mode,
-  focus,
-  targets,
-  onClose,
-}: {
-  mode: ListName
-  focus: FeedbackFocus
-  targets: FeedbackTarget[]
-  onClose: () => void
-}) {
+function FeedbackDrawer({ mode, focus, targets, onClose }: { mode: ListName; focus: FeedbackFocus; targets: FeedbackTarget[]; onClose: () => void }) {
   const { viewer, onCounts } = useContext(FeedbackContext)
   const [sections, setSections] = useState<Loaded[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -267,11 +259,7 @@ function FeedbackDrawer({
 
   function apply(targetKey: string, payload: FeedbackPayload) {
     onCounts(targetKey, payload.counts)
-    setSections((current) =>
-      current?.map((section) =>
-        section.target.key === targetKey ? loadedFrom(section.target, payload) : section,
-      ) ?? current,
-    )
+    setSections((current) => current?.map((section) => (section.target.key === targetKey ? loadedFrom(section.target, payload) : section)) ?? current)
   }
 
   function choose(next: FeedbackFocus) {
@@ -305,7 +293,9 @@ function FeedbackDrawer({
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
         <header className="drawer-head">
           <div>
-            <p className="eyebrow" id="feedback-title">Feedback</p>
+            <p className="eyebrow" id="feedback-title">
+              Feedback
+            </p>
             {single ? (
               <a className="drawer-pr external" href={prHref(single.url, host)} target="_blank" rel="noreferrer">
                 #{single.number} {single.title}
@@ -328,9 +318,7 @@ function FeedbackDrawer({
         <div className="drawer-body">
           {error ? <p className="launch-error">{error}</p> : null}
           {sections === null && !error ? <p className="faint">Loading feedback…</p> : null}
-          {visible && visible.length === 0 ? (
-            <p className="faint">{filter === 'all' ? 'No feedback yet.' : `Nothing under ${FOCUS_TITLE[filter]}.`}</p>
-          ) : null}
+          {visible && visible.length === 0 ? <p className="faint">{filter === 'all' ? 'No feedback yet.' : `Nothing under ${FOCUS_TITLE[filter]}.`}</p> : null}
           {visible?.map(({ section, threadIds, notes }) => (
             <section key={section.target.key} className="feedback-section">
               {targets.length > 1 ? (
@@ -470,12 +458,7 @@ function ThreadCard({
           setOpen((value) => !value)
         }}
       >
-        <button
-          type="button"
-          className="thread-toggle"
-          aria-expanded={open}
-          aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
-        >
+        <button type="button" className="thread-toggle" aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}>
           <Icon name="fold" />
         </button>
         <a className="file-link external" href={href} target="_blank" rel="noreferrer" title={`Open this diff on ${hostName}`}>
@@ -490,42 +473,48 @@ function ThreadCard({
         )}
       </div>
       <Fold open={open} keep>
-      {thread.diffHunk ? <DiffHunk hunk={thread.diffHunk} /> : null}
-      {thread.commentsTruncated ? <p className="faint">Earlier replies are hidden.</p> : null}
-      <div className="thread-comments">
-        {thread.comments.map((comment) => (
-          <CommentView key={comment.id} login={comment.author?.login ?? 'Someone'} avatarUrl={comment.author?.avatarUrl ?? null} createdAt={comment.createdAt} body={comment.body} />
-        ))}
-      </div>
-      <ReplyForm
-        hint="Markdown is supported."
-        pending={pending === 'reply'}
-        disabled={pending !== null}
-        error={error}
-        onSubmit={async (body) => {
-          if (lock.current) return false
-          lock.current = true
-          setPending('reply')
-          setError(null)
-          try {
-            await onReply(thread.id, body)
-          } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Could not post the reply')
-            throw caught
-          } finally {
-            lock.current = false
-            setPending(null)
+        {thread.diffHunk ? <DiffHunk hunk={thread.diffHunk} /> : null}
+        {thread.commentsTruncated ? <p className="faint">Earlier replies are hidden.</p> : null}
+        <div className="thread-comments">
+          {thread.comments.map((comment) => (
+            <CommentView
+              key={comment.id}
+              login={comment.author?.login ?? 'Someone'}
+              avatarUrl={comment.author?.avatarUrl ?? null}
+              createdAt={comment.createdAt}
+              body={comment.body}
+            />
+          ))}
+        </div>
+        <ReplyForm
+          hint="Markdown is supported."
+          pending={pending === 'reply'}
+          disabled={pending !== null}
+          error={error}
+          onSubmit={async (body) => {
+            if (lock.current) return false
+            lock.current = true
+            setPending('reply')
+            setError(null)
+            try {
+              await onReply(thread.id, body)
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : 'Could not post the reply')
+              throw caught
+            } finally {
+              lock.current = false
+              setPending(null)
+            }
+          }}
+          extra={
+            <>
+              <button type="button" className="ghost" onClick={() => void resolve()} disabled={pending !== null}>
+                {pending === 'resolve' ? (thread.isResolved ? 'Unresolving' : 'Resolving') : thread.isResolved ? 'Unresolve' : 'Resolve'}
+              </button>
+              <FixWithCursor prKey={prKey} thread={thread} />
+            </>
           }
-        }}
-        extra={
-          <>
-            <button type="button" className="ghost" onClick={() => void resolve()} disabled={pending !== null}>
-              {pending === 'resolve' ? (thread.isResolved ? 'Unresolving' : 'Resolving') : thread.isResolved ? 'Unresolve' : 'Resolve'}
-            </button>
-            <FixWithCursor prKey={prKey} thread={thread} />
-          </>
-        }
-      />
+        />
       </Fold>
     </article>
   )
@@ -643,7 +632,13 @@ function FixPrompt({
         />
         {error ? <p className="launch-error">{error}</p> : null}
       </PopBody>
-      <PopFoot hint={<><kbd>⌘↵</kbd> to start</>}>
+      <PopFoot
+        hint={
+          <>
+            <kbd>⌘↵</kbd> to start
+          </>
+        }
+      >
         <button type="submit" className="primary" disabled={!ready || busy}>
           {busy ? `Starting ${name}…` : `Fix with ${name}`}
         </button>
@@ -736,7 +731,11 @@ function NoteCard({
     <article className="thread-card">
       <div className="thread-file">
         <span className="note-kind">{note.kind === 'review' ? 'Review' : 'Comment'}</span>
-        {here ? <span className="pill" title={HERE_HINT}>Resolved</span> : null}
+        {here ? (
+          <span className="pill" title={HERE_HINT}>
+            Resolved
+          </span>
+        ) : null}
         {note.url ? (
           <a className="external" href={href} target="_blank" rel="noreferrer">
             View on {hostName}
@@ -800,6 +799,7 @@ function ReplyForm({
   pending: boolean
   disabled: boolean
   error: string | null
+  // biome-ignore lint/suspicious/noConfusingVoidType: a handler that returns nothing has sent the reply, and false says it did not
   onSubmit: (body: string) => Promise<void | false>
   extra?: ReactNode
 }) {
@@ -853,7 +853,11 @@ function CommentView({ login, avatarUrl, createdAt, body }: { login: string; ava
       <div className="thread-meta">
         {avatarUrl ? <img className="avatar" src={avatarUrl} alt="" /> : <span className="avatar fallback">{login.slice(0, 1).toUpperCase()}</span>}
         <strong>{login}</strong>
-        {createdAt ? <time dateTime={createdAt} title={formatExact(createdAt)}>{formatWhen(createdAt)}</time> : null}
+        {createdAt ? (
+          <time dateTime={createdAt} title={formatExact(createdAt)}>
+            {formatWhen(createdAt)}
+          </time>
+        ) : null}
       </div>
       {body.trim() ? <Markdown className="md" text={displayBody(body)} /> : null}
     </div>
@@ -880,7 +884,8 @@ function hunkKind(line: string): string {
   return 'ctx'
 }
 
-const HTML_TAG = /<\/?(?:sub|sup|div|span|br|p|img|a|b|i|em|strong|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6]|code|pre|blockquote|hr|kbd|mark|small|center)(?:\s[^>\n]*)?>/gi
+const HTML_TAG =
+  /<\/?(?:sub|sup|div|span|br|p|img|a|b|i|em|strong|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6]|code|pre|blockquote|hr|kbd|mark|small|center)(?:\s[^>\n]*)?>/gi
 
 function displayBody(body: string): string {
   return body

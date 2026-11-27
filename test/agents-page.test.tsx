@@ -34,12 +34,23 @@ function session(patch: Partial<AgentSession>): AgentSession {
 }
 
 function pull(number: number, agentSessions: AgentSession[]): PullRequest {
-  return { ...pullRequest(number), key: `acme/app#${number}`, number, title: `Pull ${number}`, url: `https://github.com/acme/app/pull/${number}`, agentSessions }
+  return {
+    ...pullRequest(number),
+    key: `acme/app#${number}`,
+    number,
+    title: `Pull ${number}`,
+    url: `https://github.com/acme/app/pull/${number}`,
+    agentSessions,
+  }
 }
 
 describe('agents summary', () => {
   it('counts the agents at work and the ones waiting for an answer', () => {
-    expect(agentsSummary(['creating', 'running', 'waiting', 'finished', 'failed'])).toEqual({ running: 2, waiting: 1, label: 'Agents: 2 running, 1 waiting for you' })
+    expect(agentsSummary(['creating', 'running', 'waiting', 'finished', 'failed'])).toEqual({
+      running: 2,
+      waiting: 1,
+      label: 'Agents: 2 running, 1 waiting for you',
+    })
     expect(agentsSummary(['finished'])).toEqual({ running: 0, waiting: 0, label: 'Agents' })
   })
 })

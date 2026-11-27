@@ -60,7 +60,9 @@ const RIPPLE = [
 export function iconSvg(state: IconState, frame = 0, dock = false): string {
   const ripple = state.merging ? RIPPLE[frame % ICON_FRAMES]! : [1, 1, 1]
   const colors = COLORS[state.tone]
-  const bars = BARS.map((bar, index) => `<rect x="7" y="${bar.y}" width="${(bar.width * ripple[index]!).toFixed(2)}" height="3.2" rx="1.6" fill="${colors[index]}"/>`).join('')
+  const bars = BARS.map(
+    (bar, index) => `<rect x="7" y="${bar.y}" width="${(bar.width * ripple[index]!).toFixed(2)}" height="3.2" rx="1.6" fill="${colors[index]}"/>`,
+  ).join('')
   const badge =
     state.tone === 'needs' && state.count > 0
       ? `<circle cx="24.5" cy="7.5" r="6.2" fill="${AMBER}" stroke="#10110f" stroke-width="1.4"/><text x="24.5" y="10.2" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="${state.count > 9 ? 6.4 : 7.8}" font-weight="700" fill="#24180d">${state.count > 9 ? '9+' : state.count}</text>`

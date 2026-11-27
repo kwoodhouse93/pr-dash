@@ -61,36 +61,36 @@ export function RepoMarkPicker({ repo, onPick }: { repo: string; onPick: (repo: 
     >
       <PopHead title={`Icon for ${repo}`} />
       <PopBody>
-      <div className="mark-swatches" role="group" aria-label="Colour">
-        {REPO_COLORS.map((color) => (
-          <button
-            key={color}
-            type="button"
-            className="mark-swatch"
-            aria-pressed={color === mark.color}
-            aria-label={`Colour ${color}`}
-            style={{ background: color }}
-            onClick={() => pick({ ...mark, color })}
-          />
-        ))}
-      </div>
-      <div className="mark-icons" role="group" aria-label="Icon">
-        {Object.keys(REPO_ICONS).map((icon) => (
-          <button
-            key={icon}
-            type="button"
-            className="mark-icon"
-            aria-pressed={icon === mark.icon}
-            aria-label={icon}
-            title={icon}
-            style={markStyle(mark)}
-            onClick={() => pick({ ...mark, icon })}
-          >
-            <IconShape icon={icon} />
-          </button>
-        ))}
-      </div>
-      {error ? <p className="launch-error">{error}</p> : null}
+        <div className="mark-swatches" role="group" aria-label="Colour">
+          {REPO_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className="mark-swatch"
+              aria-pressed={color === mark.color}
+              aria-label={`Colour ${color}`}
+              style={{ background: color }}
+              onClick={() => pick({ ...mark, color })}
+            />
+          ))}
+        </div>
+        <div className="mark-icons" role="group" aria-label="Icon">
+          {Object.keys(REPO_ICONS).map((icon) => (
+            <button
+              key={icon}
+              type="button"
+              className="mark-icon"
+              aria-pressed={icon === mark.icon}
+              aria-label={icon}
+              title={icon}
+              style={markStyle(mark)}
+              onClick={() => pick({ ...mark, icon })}
+            >
+              <IconShape icon={icon} />
+            </button>
+          ))}
+        </div>
+        {error ? <p className="launch-error">{error}</p> : null}
       </PopBody>
     </ClickCard>
   )

@@ -109,7 +109,11 @@ describe('thread feedback', () => {
           {
             isResolved: false,
             isOutdated: false,
-            comments: { nodes: [{ author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-21T01:00:00Z', url: 'https://github.com/acme/app/pull/1#discussion_r1' }] },
+            comments: {
+              nodes: [
+                { author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-21T01:00:00Z', url: 'https://github.com/acme/app/pull/1#discussion_r1' },
+              ],
+            },
           },
         ],
       },
@@ -142,9 +146,7 @@ describe('saved rulesets', () => {
       linearConfigured: false,
       warning: null,
     })
-    expect(db.ruleCache()).toEqual([
-      { repo: 'acme/app', checks: ['ci'], requiredApprovals: 1, dismissStale: true, fetchedAt: '2026-10-21T00:00:00Z' },
-    ])
+    expect(db.ruleCache()).toEqual([{ repo: 'acme/app', checks: ['ci'], requiredApprovals: 1, dismissStale: true, fetchedAt: '2026-10-21T00:00:00Z' }])
     expect(again.mineSyncedAt).toBe('2026-10-21T01:00:00Z')
     expect(again.reviewSyncedAt).toBe('2026-10-21T02:00:00Z')
   })

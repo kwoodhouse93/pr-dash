@@ -111,17 +111,16 @@ describe('fix a review thread with Cursor', () => {
     vi.restoreAllMocks()
   })
 
-  async function render(
-    onStart: (key: string, request: AgentRequest) => Promise<{ url: string }>,
-    targets: FeedbackTarget[] = [target],
-  ) {
+  async function render(onStart: (key: string, request: AgentRequest) => Promise<{ url: string }>, targets: FeedbackTarget[] = [target]) {
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
     await act(async () => {
       root?.render(
         <AgentProvider start={onStart}>
-          <MenuProvider><Feedback mode="mine" targets={targets} /></MenuProvider>
+          <MenuProvider>
+            <Feedback mode="mine" targets={targets} />
+          </MenuProvider>
         </AgentProvider>,
       )
     })
@@ -140,9 +139,7 @@ describe('fix a review thread with Cursor', () => {
   }
 
   it('highlights unresolved threads the same way as ones awaiting you', async () => {
-    await render(async () => ({ url: 'https://cursor.com/agents/unused' }), [
-      { ...target, threads: 2, unresolved: 2, awaiting: 1 },
-    ])
+    await render(async () => ({ url: 'https://cursor.com/agents/unused' }), [{ ...target, threads: 2, unresolved: 2, awaiting: 1 }])
     expect([...document.querySelectorAll('.feedback-hit.await')].map((node) => node.getAttribute('aria-label'))).toEqual(['1 awaiting', '2 unresolved'])
     expect(document.querySelector('.feedback')?.getAttribute('title')).toContain('Unresolved threads block merge.')
   })

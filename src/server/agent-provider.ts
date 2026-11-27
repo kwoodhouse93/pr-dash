@@ -78,7 +78,9 @@ export async function refreshSessions(
   save: (prKey: string, session: AgentSession) => void,
   now = Date.now(),
 ): Promise<void> {
-  const due = sessions.filter(({ session }) => sessionActive(session.status) || (session.status !== 'expired' && now - Date.parse(session.updatedAt) < CONTINUED_MS))
+  const due = sessions.filter(
+    ({ session }) => sessionActive(session.status) || (session.status !== 'expired' && now - Date.parse(session.updatedAt) < CONTINUED_MS),
+  )
   await Promise.all(
     due.map(async ({ prKey, session }) => {
       const ended = !sessionActive(session.status)

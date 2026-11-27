@@ -42,7 +42,11 @@ export function Fold({ open, keep = false, children }: { open: boolean; keep?: b
     if (!element || reducedMotion() || typeof element.animate !== 'function') return setClosing(false)
     const shut = { height: '0px', paddingTop: '0px', paddingBottom: '0px', opacity: 0, overflow: 'hidden' }
     const full = { height: `${element.offsetHeight}px`, opacity: 1, overflow: 'hidden' }
-    const run = element.animate(open ? [shut, full] : [full, shut], { duration: FOLD_MS, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: open ? 'none' : 'forwards' })
+    const run = element.animate(open ? [shut, full] : [full, shut], {
+      duration: FOLD_MS,
+      easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+      fill: open ? 'none' : 'forwards',
+    })
     setClosing(!open)
     if (open) return () => run.cancel()
     const timer = window.setTimeout(() => setClosing(false), FOLD_MS)
@@ -73,8 +77,14 @@ export function Roll({ value, className }: { value: number | string; className?:
   const rolling = shown.from !== shown.to
   return (
     <span className={`roll${rolling ? ' rolling' : ''}${className ? ` ${className}` : ''}`} aria-label={String(value)}>
-      <span key={String(shown.from)} aria-hidden="true">{shown.from}</span>
-      {rolling ? <span key={String(shown.to)} aria-hidden="true">{shown.to}</span> : null}
+      <span key={String(shown.from)} aria-hidden="true">
+        {shown.from}
+      </span>
+      {rolling ? (
+        <span key={String(shown.to)} aria-hidden="true">
+          {shown.to}
+        </span>
+      ) : null}
     </span>
   )
 }

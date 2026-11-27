@@ -78,7 +78,9 @@ export async function agentSettings(db: DashboardDb): Promise<AgentSettings> {
     Promise.all(
       AGENT_PROVIDERS.map(async ({ id }) => ({
         id,
-        health: await agentProviders[id].health().catch((error) => ({ state: 'unreachable' as const, detail: error instanceof Error ? error.message : String(error) })),
+        health: await agentProviders[id]
+          .health()
+          .catch((error) => ({ state: 'unreachable' as const, detail: error instanceof Error ? error.message : String(error) })),
       })),
     ),
     Promise.all(

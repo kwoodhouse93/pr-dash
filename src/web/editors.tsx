@@ -43,48 +43,36 @@ export function TagEditor({
     <>
       <PopHead title="Initiative" sub="Local to this dashboard" onBack={onBack} />
       <PopBody>
-      <p>A pull request can sit in more than one.</p>
-      {stackKeys.length > 1 ? (
-        <label className="stack-opt">
-          <input type="checkbox" checked={whole} onChange={(event) => setWhole(event.target.checked)} />
-          Tag all {stackKeys.length} pull requests in this stack
-        </label>
-      ) : null}
-      {initiatives.length === 0 ? <p>No initiatives yet.</p> : null}
-      {initiatives.map((initiative) => (
-        <InitiativeCheck
-          key={initiative.id}
-          initiative={initiative}
-          keys={keys}
-          prByKey={prByKey}
-          onToggle={toggle}
-        />
-      ))}
-      <form
-        className="new-initiative"
-        onSubmit={async (event) => {
-          event.preventDefault()
-          setError(null)
-          try {
-            await onCreate(name, keys)
-            close()
-          } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Could not create the initiative')
-          }
-        }}
-      >
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="New initiative"
-          aria-label="New initiative name"
-          data-draft
-        />
-        <button type="submit" className="ghost">
-          Add
-        </button>
-      </form>
-      {error ? <p className="launch-error">{error}</p> : null}
+        <p>A pull request can sit in more than one.</p>
+        {stackKeys.length > 1 ? (
+          <label className="stack-opt">
+            <input type="checkbox" checked={whole} onChange={(event) => setWhole(event.target.checked)} />
+            Tag all {stackKeys.length} pull requests in this stack
+          </label>
+        ) : null}
+        {initiatives.length === 0 ? <p>No initiatives yet.</p> : null}
+        {initiatives.map((initiative) => (
+          <InitiativeCheck key={initiative.id} initiative={initiative} keys={keys} prByKey={prByKey} onToggle={toggle} />
+        ))}
+        <form
+          className="new-initiative"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            setError(null)
+            try {
+              await onCreate(name, keys)
+              close()
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : 'Could not create the initiative')
+            }
+          }}
+        >
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New initiative" aria-label="New initiative name" data-draft />
+          <button type="submit" className="ghost">
+            Add
+          </button>
+        </form>
+        {error ? <p className="launch-error">{error}</p> : null}
       </PopBody>
     </>
   )
@@ -193,12 +181,7 @@ export function ManageInitiatives({
           }
         }}
       >
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="New initiative"
-          aria-label="New initiative name"
-        />
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New initiative" aria-label="New initiative name" />
         <button type="submit" className="ghost">
           Add
         </button>

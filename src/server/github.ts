@@ -7,9 +7,7 @@ import type { CheckCursor, CheckRollup, PullRequest } from '../shared/types.ts'
 import { eachBatch, graphql, GraphqlPaused, rest } from './github-client.ts'
 
 function pullFields(threadComments: boolean): string {
-  const comments = threadComments
-    ? 'comments(last: 30) { nodes { author { __typename login } createdAt url } }'
-    : ''
+  const comments = threadComments ? 'comments(last: 30) { nodes { author { __typename login } createdAt url } }' : ''
   return `
   id number title url isDraft createdAt updatedAt additions deletions changedFiles
   baseRefName headRefName reviewDecision mergeStateStatus mergeable
@@ -133,12 +131,7 @@ function keptRepos(nodes: GitHubPull[], repos: string[]): GitHubPull[] {
   return nodes.filter((node) => allowed.has(node.repository.nameWithOwner))
 }
 
-async function fetchSearchNodes(
-  token: string,
-  queries: string[],
-  onProgress: (message: string) => void,
-  label: string,
-): Promise<GitHubPull[]> {
+async function fetchSearchNodes(token: string, queries: string[], onProgress: (message: string) => void, label: string): Promise<GitHubPull[]> {
   const seen = new Set<string>()
   const nodes: GitHubPull[] = []
   for (const query of queries) {
@@ -214,10 +207,13 @@ async function fetchReviewNodes(
   return { viewer: login, teams, nodes: keptRepos(others, repos), warning }
 }
 
-type CheckData = Record<string, {
-  id?: string
-  commits?: { nodes: Array<{ commit: CommitChecks | null } | null> }
-} | null>
+type CheckData = Record<
+  string,
+  {
+    id?: string
+    commits?: { nodes: Array<{ commit: CommitChecks | null } | null> }
+  } | null
+>
 
 type CheckBundle = {
   committedAt: string | null
@@ -226,12 +222,7 @@ type CheckBundle = {
   cursor: CheckCursor | null
 }
 
-async function fetchChecks(
-  token: string,
-  ids: string[],
-  onProgress: (message: string) => void,
-  unchanged = 0,
-) {
+async function fetchChecks(token: string, ids: string[], onProgress: (message: string) => void, unchanged = 0) {
   const bundles = new Map<string, CheckBundle>()
   if (ids.length === 0) return bundles
   let done = 0
@@ -293,10 +284,13 @@ async function fetchChecks(
   return bundles
 }
 
-type CursorData = Record<string, {
-  id?: string
-  commits?: { nodes: Array<{ commit: CommitChecks | null } | null> }
-} | null>
+type CursorData = Record<
+  string,
+  {
+    id?: string
+    commits?: { nodes: Array<{ commit: CommitChecks | null } | null> }
+  } | null
+>
 
 /** Head oid and combined rollup, without the individual checks. One miss does not fail the rest. */
 async function fetchCheckCursors(token: string, ids: string[]): Promise<Map<string, CheckRollup | null>> {
@@ -555,10 +549,7 @@ export async function listAccessibleRepos(token: string): Promise<{ names: strin
   const names: string[] = []
   let truncated = false
   for (let page = 1; page <= 10; page += 1) {
-    const response = await rest(
-      token,
-      `/user/repos?per_page=100&page=${page}&sort=full_name&affiliation=owner,collaborator,organization_member`,
-    )
+    const response = await rest(token, `/user/repos?per_page=100&page=${page}&sort=full_name&affiliation=owner,collaborator,organization_member`)
     if (!response.ok) {
       const text = await response.text()
       throw new Error(`GitHub ${response.status}: ${text.slice(0, 180)}`)
@@ -621,10 +612,12 @@ const ONE_QUERY = `
 type OneCommit = CommitChecks | null
 
 type OneData = {
-  node: (GitHubPull & {
-    state?: 'OPEN' | 'CLOSED' | 'MERGED'
-    commits?: { nodes: Array<{ commit: OneCommit } | null> }
-  }) | null
+  node:
+    | (GitHubPull & {
+        state?: 'OPEN' | 'CLOSED' | 'MERGED'
+        commits?: { nodes: Array<{ commit: OneCommit } | null> }
+      })
+    | null
 }
 
 export async function fetchOnePull(

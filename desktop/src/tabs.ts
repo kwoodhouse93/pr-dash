@@ -203,12 +203,15 @@ export class Tabs {
     // A session takes one listener here, so it also keeps Linear in the window.
     // Linear's page hands a link to its desktop app, through a server that app
     // runs on this machine, unless the address says not to.
-    session.webRequest.onBeforeRequest({ urls: [`${apiOrigin}/*`, 'https://linear.app/*', 'http://127.0.0.1/linear/*', 'http://localhost/linear/*'] }, (details, done) => {
-      if (details.url.startsWith(`${apiOrigin}/`)) return done({ cancel: details.webContentsId !== dashboard.view.webContents.id })
-      if (!details.url.startsWith('https://linear.app/')) return done({ cancel: true })
-      const stay = details.resourceType === 'mainFrame' && details.method === 'GET' ? linearStayUrl(details.url) : null
-      done(stay ? { redirectURL: stay } : {})
-    })
+    session.webRequest.onBeforeRequest(
+      { urls: [`${apiOrigin}/*`, 'https://linear.app/*', 'http://127.0.0.1/linear/*', 'http://localhost/linear/*'] },
+      (details, done) => {
+        if (details.url.startsWith(`${apiOrigin}/`)) return done({ cancel: details.webContentsId !== dashboard.view.webContents.id })
+        if (!details.url.startsWith('https://linear.app/')) return done({ cancel: true })
+        const stay = details.resourceType === 'mainFrame' && details.method === 'GET' ? linearStayUrl(details.url) : null
+        done(stay ? { redirectURL: stay } : {})
+      },
+    )
     // The dashboard reads the snapshot again whenever something changes, and
     // writes when the user acts. Either is the moment to read it here too.
     session.webRequest.onCompleted({ urls: [`${apiOrigin}/api/*`] }, (details) => {
@@ -340,14 +343,25 @@ export class Tabs {
       return
     }
     if (typeof at !== 'number' || !Number.isFinite(at)) return
-    void this.dashboard.view.webContents
-      .executeJavaScript(raiseInPage('pr-dash:flight', { to, at }))
-      .catch(() => undefined)
+    void this.dashboard.view.webContents.executeJavaScript(raiseInPage('pr-dash:flight', { to, at })).catch(() => undefined)
   }
 
   private model(): SidebarModel {
     return buildSidebar({
-      tabs: this.tabs.map((tab): TabInfo => ({ id: tab.id, pinned: tab.pinned, url: tab.url, placedUrl: tab.placedUrl, title: tab.title, favicon: tab.favicon, loading: tab.loading, parent: tab.parent, origin: tab.origin, starting: tab.starting })),
+      tabs: this.tabs.map(
+        (tab): TabInfo => ({
+          id: tab.id,
+          pinned: tab.pinned,
+          url: tab.url,
+          placedUrl: tab.placedUrl,
+          title: tab.title,
+          favicon: tab.favicon,
+          loading: tab.loading,
+          parent: tab.parent,
+          origin: tab.origin,
+          starting: tab.starting,
+        }),
+      ),
       activeId: this.activeId,
       data: this.data,
       grouping: this.sidebar.grouping,
@@ -453,9 +467,7 @@ export class Tabs {
 
   /** Tells the dashboard page, which keeps these settings, about a change made from a tab. */
   private tellDashboard(detail: DesktopEvents['pr-dash:t3']) {
-    void this.dashboard.view.webContents
-      .executeJavaScript(raiseInPage('pr-dash:t3', detail))
-      .catch(() => undefined)
+    void this.dashboard.view.webContents.executeJavaScript(raiseInPage('pr-dash:t3', detail)).catch(() => undefined)
   }
 
   /**
@@ -715,7 +727,21 @@ export class Tabs {
     view.setVisible(false)
     const from = options.parent == null ? null : this.tabs.find((tab) => tab.id === options.parent)
     const origin = prRef(url)?.key ?? (from ? (prRef(from.url)?.key ?? from.origin) : null)
-    const tab: Tab = { id: this.nextId++, view, pinned: options.pinned ?? false, title: options.pinned ? 'Pull requests' : url, favicon: null, loading: !options.adopt, url, placedUrl: url, settled: false, parent: options.parent ?? null, origin, starting: options.starting ?? null, landedAt: null }
+    const tab: Tab = {
+      id: this.nextId++,
+      view,
+      pinned: options.pinned ?? false,
+      title: options.pinned ? 'Pull requests' : url,
+      favicon: null,
+      loading: !options.adopt,
+      url,
+      placedUrl: url,
+      settled: false,
+      parent: options.parent ?? null,
+      origin,
+      starting: options.starting ?? null,
+      landedAt: null,
+    }
     const at = options.after ? this.tabs.indexOf(options.after) + 1 : this.tabs.length
     this.tabs.splice(at, 0, tab)
     this.win.contentView.addChildView(view)

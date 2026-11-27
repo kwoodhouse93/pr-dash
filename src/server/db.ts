@@ -7,7 +7,18 @@ import { pullKeyRepo, repoKeyLike } from '../shared/repos.ts'
 import { ciLevel, selectChecks } from '../shared/ci.ts'
 import { mergeLinkedIssues } from '../shared/linear.ts'
 import type { Activity, ActivityEvent } from '../shared/activity.ts'
-import type { AgentProviderId, AgentRouting, AgentSession, DepartedPull, Initiative, LinearIssue, PullRequest, RepoMark, Snapshot, ListName } from '../shared/types.ts'
+import type {
+  AgentProviderId,
+  AgentRouting,
+  AgentSession,
+  DepartedPull,
+  Initiative,
+  LinearIssue,
+  PullRequest,
+  RepoMark,
+  Snapshot,
+  ListName,
+} from '../shared/types.ts'
 import { pullGone, Refused } from './errors.ts'
 import { attachQueue, type QueueStore } from './queue-store.ts'
 import { migrate, reviewLogger } from './schema.ts'
@@ -107,7 +118,10 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     // The merge queue knows a merge landed before a refresh notices the pull request has gone.
     onMerged(prKey) {
       const row = readSnapshotRow.get() as SnapshotRow | undefined
-      for (const [list, raw] of [['mine', row?.pull_requests], ['review', row?.review_pull_requests]] as const) {
+      for (const [list, raw] of [
+        ['mine', row?.pull_requests],
+        ['review', row?.review_pull_requests],
+      ] as const) {
         const pr = parseList(raw).find((item) => item.key === prKey)
         if (!pr) continue
         writeDeparture.run(prKey, list, 'merged', new Date().toISOString(), JSON.stringify(slimDeparted(pr)))
@@ -162,22 +176,24 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   }
 
   function agentSessions(): { prKey: string; session: AgentSession }[] {
-    return (readAgentSessions.all() as {
-      agent_id: string
-      pr_key: string
-      provider: AgentProviderId
-      kind: AgentSession['kind']
-      prompt: string | null
-      run_id: string
-      status: AgentSession['status']
-      result: string | null
-      branch: string | null
-      environment_id: string | null
-      url: string | null
-      unreachable_since: string | null
-      created_at: string
-      updated_at: string
-    }[]).map((row) => ({
+    return (
+      readAgentSessions.all() as {
+        agent_id: string
+        pr_key: string
+        provider: AgentProviderId
+        kind: AgentSession['kind']
+        prompt: string | null
+        run_id: string
+        status: AgentSession['status']
+        result: string | null
+        branch: string | null
+        environment_id: string | null
+        url: string | null
+        unreachable_since: string | null
+        created_at: string
+        updated_at: string
+      }[]
+    ).map((row) => ({
       prKey: row.pr_key,
       session: {
         provider: row.provider,
@@ -205,7 +221,10 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       checkout: string | null
     }[]
     return new Map(
-      rows.map((row) => [row.repo, { provider: isAgentProvider(row.provider) ? row.provider : null, environmentId: row.environment_id, checkout: row.checkout }]),
+      rows.map((row) => [
+        row.repo,
+        { provider: isAgentProvider(row.provider) ? row.provider : null, environmentId: row.environment_id, checkout: row.checkout },
+      ]),
     )
   }
 
@@ -236,12 +255,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     return map
   }
 
-  function decorate(
-    list: PullRequest[],
-    tags: Map<string, string[]>,
-    sessions: Map<string, AgentSession[]>,
-    links: Map<string, string[]>,
-  ): PullRequest[] {
+  function decorate(list: PullRequest[], tags: Map<string, string[]>, sessions: Map<string, AgentSession[]>, links: Map<string, string[]>): PullRequest[] {
     return list.map((pr) => {
       const merged = mergeLinkedIssues(pr, links.get(pr.key) ?? [])
       const checks = Array.isArray(pr.checks) ? selectChecks(pr.checks) : pr.checks
@@ -256,7 +270,18 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
   }
 
   function slimDeparted(pr: PullRequest): StoredDeparture {
-    return { key: pr.key, repo: pr.repo, repoName: pr.repoName, number: pr.number, title: pr.title, url: pr.url, author: pr.author, linearIssues: pr.linearIssues, viewerReviewedAt: pr.viewerReviewedAt ?? null, readyAt: pr.readyAt ?? null }
+    return {
+      key: pr.key,
+      repo: pr.repo,
+      repoName: pr.repoName,
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      author: pr.author,
+      linearIssues: pr.linearIssues,
+      viewerReviewedAt: pr.viewerReviewedAt ?? null,
+      readyAt: pr.readyAt ?? null,
+    }
   }
 
   /**
@@ -268,7 +293,10 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     const watched = new Set(watchedRepos())
     const now = new Date().toISOString()
     const add = db.prepare(`INSERT OR IGNORE INTO departed_pulls (pr_key, list, outcome, at, pull_request) VALUES (?, ?, 'pending', ?, ?)`)
-    for (const [list, prs] of [['mine', before.mine], ['review', before.review]] as const) {
+    for (const [list, prs] of [
+      ['mine', before.mine],
+      ['review', before.review],
+    ] as const) {
       for (const pr of prs) {
         if (!still.has(pr.key) && watched.has(pr.repo)) add.run(pr.key, list, now, JSON.stringify(slimDeparted(pr)))
       }
@@ -365,10 +393,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       const keep = (list: PullRequest[]) => list.map((pr) => mergeLinkedIssues(pr, links.get(pr.key) ?? []))
       const existing = readSnapshotRow.get() as SnapshotRow | undefined
       const review = input.reviewPullRequests ?? parseList(existing?.review_pull_requests)
-      noteDepartures(
-        { mine: parseList(existing?.pull_requests), review: parseList(existing?.review_pull_requests) },
-        { mine: input.pullRequests, review },
-      )
+      noteDepartures({ mine: parseList(existing?.pull_requests), review: parseList(existing?.review_pull_requests) }, { mine: input.pullRequests, review })
       const watched = new Set(watchedRepos())
       for (const pr of review) {
         if (watched.has(pr.repo)) logReview(pr)
@@ -429,10 +454,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     watchedRepos,
     watchRepo(repo) {
-      db.prepare('INSERT INTO watched_repos (repo, created_at) VALUES (?, ?) ON CONFLICT(repo) DO NOTHING').run(
-        repo,
-        new Date().toISOString(),
-      )
+      db.prepare('INSERT INTO watched_repos (repo, created_at) VALUES (?, ?) ON CONFLICT(repo) DO NOTHING').run(repo, new Date().toISOString())
     },
     storedRepos,
     setRepoMark(repo, mark) {
@@ -462,10 +484,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
         if (row) {
           const mine = stripStored(parseList(row.pull_requests).filter((pr) => pr.repo !== repo))
           const review = stripStored(parseList(row.review_pull_requests).filter((pr) => pr.repo !== repo))
-          db.prepare('UPDATE snapshot SET pull_requests = ?, review_pull_requests = ? WHERE id = 1').run(
-            JSON.stringify(mine),
-            JSON.stringify(review),
-          )
+          db.prepare('UPDATE snapshot SET pull_requests = ?, review_pull_requests = ? WHERE id = 1').run(JSON.stringify(mine), JSON.stringify(review))
         }
         db.exec('COMMIT')
       } catch (error) {
@@ -503,9 +522,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
       const found = db.prepare('SELECT id FROM initiatives WHERE id = ?').get(initiativeId)
       if (!found) throw new Refused('Initiative not found.', 404)
       const now = new Date().toISOString()
-      const insert = db.prepare(
-        'INSERT INTO initiative_pull_requests (initiative_id, pr_key, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
-      )
+      const insert = db.prepare('INSERT INTO initiative_pull_requests (initiative_id, pr_key, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING')
       const remove = db.prepare('DELETE FROM initiative_pull_requests WHERE initiative_id = ? AND pr_key = ?')
       db.exec('BEGIN')
       try {
@@ -530,10 +547,14 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     resolveDeparture(key, outcome, at) {
       if (outcome === 'open') db.prepare(`DELETE FROM departed_pulls WHERE pr_key = ? AND outcome = 'pending'`).run(key)
-      else db.prepare(`UPDATE departed_pulls SET outcome = ?, at = ? WHERE pr_key = ? AND outcome = 'pending'`).run(outcome, at ?? new Date().toISOString(), key)
+      else
+        db.prepare(`UPDATE departed_pulls SET outcome = ?, at = ? WHERE pr_key = ? AND outcome = 'pending'`).run(outcome, at ?? new Date().toISOString(), key)
     },
     activity() {
-      const merges = db.prepare(`SELECT at, pull_request FROM departed_pulls WHERE list = 'mine' AND outcome = 'merged' ORDER BY at ASC`).all() as { at: string; pull_request: string }[]
+      const merges = db.prepare(`SELECT at, pull_request FROM departed_pulls WHERE list = 'mine' AND outcome = 'merged' ORDER BY at ASC`).all() as {
+        at: string
+        pull_request: string
+      }[]
       const reviews = db.prepare('SELECT pull_request FROM review_log ORDER BY at ASC').all() as { pull_request: string }[]
       return {
         merged: merges.map((row) => {
@@ -564,9 +585,9 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
     },
     agentRouting,
     setDefaultProvider(provider) {
-      db.prepare('INSERT INTO agent_settings (id, default_provider) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET default_provider = excluded.default_provider').run(
-        provider,
-      )
+      db.prepare(
+        'INSERT INTO agent_settings (id, default_provider) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET default_provider = excluded.default_provider',
+      ).run(provider)
     },
     repoAgents,
     setRepoAgent(repo, agent) {
@@ -643,8 +664,7 @@ export function openDatabase(file = process.env.DATABASE_PATH ?? path.join(proce
           found = true
           const issues = pr.linearIssues ?? []
           const index = issues.findIndex((item) => item.identifier.toUpperCase() === stored.identifier)
-          const linearIssues =
-            index === -1 ? [...issues, stored] : issues.map((item, position) => (position === index ? { ...item, ...stored } : item))
+          const linearIssues = index === -1 ? [...issues, stored] : issues.map((item, position) => (position === index ? { ...item, ...stored } : item))
           return { ...pr, linearIssues }
         })
       const pullRequests = add(parseList(row.pull_requests))

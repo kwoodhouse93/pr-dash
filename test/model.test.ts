@@ -41,10 +41,7 @@ function check(over: Partial<Check> & Pick<Check, 'name' | 'conclusion'>): Check
 
 describe('ci', () => {
   it('is red when a required check failed', () => {
-    const level = ciLevel([
-      check({ name: 'Check', conclusion: 'FAILURE', required: true }),
-      check({ name: 'Lint', conclusion: 'SUCCESS', required: false }),
-    ])
+    const level = ciLevel([check({ name: 'Check', conclusion: 'FAILURE', required: true }), check({ name: 'Lint', conclusion: 'SUCCESS', required: false })])
     expect(level).toBe('red')
   })
 
@@ -69,9 +66,7 @@ describe('ci', () => {
   })
 
   it('is pending while a required check runs and nothing has failed', () => {
-    const level = ciLevel([
-      check({ name: 'Check', conclusion: null, status: 'IN_PROGRESS', required: true, completedAt: null }),
-    ])
+    const level = ciLevel([check({ name: 'Check', conclusion: null, status: 'IN_PROGRESS', required: true, completedAt: null })])
     expect(level).toBe('pending')
   })
 
@@ -84,10 +79,7 @@ describe('ci', () => {
   })
 
   it('is green when every check passed and ignores skips', () => {
-    const level = ciLevel([
-      check({ name: 'Check', conclusion: 'SUCCESS', required: true }),
-      check({ name: 'claude-write', conclusion: 'SKIPPED' }),
-    ])
+    const level = ciLevel([check({ name: 'Check', conclusion: 'SUCCESS', required: true }), check({ name: 'claude-write', conclusion: 'SKIPPED' })])
     expect(level).toBe('green')
   })
 
@@ -139,9 +131,11 @@ describe('ci', () => {
       }),
       check({ name: 'CodeRabbit', conclusion: 'SUCCESS', completedAt: '2026-10-27T11:57:47Z' }),
     ]
-    expect(selectChecks(checks).map((item) => item.name).sort()).toEqual(
-      ['CodeRabbit', 'build', 'test (./app/domain/...)'].sort(),
-    )
+    expect(
+      selectChecks(checks)
+        .map((item) => item.name)
+        .sort(),
+    ).toEqual(['CodeRabbit', 'build', 'test (./app/domain/...)'].sort())
     expect(ciLevel(checks)).toBe('green')
   })
 
@@ -264,7 +258,11 @@ describe('ci', () => {
       check({ name: 'Preview', conclusion: 'FAILURE', workflowRunId: 8 }),
     ]
     expect(holdsFor(checks, 'failed', null, 'acme/app').map((hold) => hold.name)).toEqual(['Preview'])
-    expect(holdsFor(checks, 'all', null, 'acme/app').map((hold) => hold.name).sort()).toEqual(['Check', 'Preview'])
+    expect(
+      holdsFor(checks, 'all', null, 'acme/app')
+        .map((hold) => hold.name)
+        .sort(),
+    ).toEqual(['Check', 'Preview'])
     const confirmed = holdsFor(checks, 'failed', new Set(['acme/app#7']), 'acme/app')
     expect(confirmed).toEqual([])
     const restarted = holdsFor(checks, 'all', new Set(['acme/app#7']), 'acme/app')
@@ -274,15 +272,16 @@ describe('ci', () => {
 
   it('drops optimistic holds that GitHub did not restart', () => {
     const optimistic = new Map([
-      ['acme/app#1', [
-        { name: 'Check', stamp: 'a' },
-        { name: 'Preview', stamp: 'b' },
-      ]],
+      [
+        'acme/app#1',
+        [
+          { name: 'Check', stamp: 'a' },
+          { name: 'Preview', stamp: 'b' },
+        ],
+      ],
     ])
     const confirmed = new Map([['acme/app#1', [{ name: 'Check', stamp: 'a' }]]])
-    expect([...(mergeHolds(withoutHolds(new Map(), optimistic), confirmed).get('acme/app#1') ?? [])]).toEqual([
-      { name: 'Check', stamp: 'a' },
-    ])
+    expect([...(mergeHolds(withoutHolds(new Map(), optimistic), confirmed).get('acme/app#1') ?? [])]).toEqual([{ name: 'Check', stamp: 'a' }])
     expect(withoutHolds(optimistic, optimistic).size).toBe(0)
   })
 
@@ -348,21 +347,17 @@ describe('ci', () => {
   })
 
   it('keeps a green rollup green when a ruleset name is absent and GitHub is not blocked', () => {
-    const checks = checksFromRaw(
-      [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-      ['build', 'lint'],
-      { mergeStateStatus: 'CLEAN' },
-    )
+    const checks = checksFromRaw([{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }], ['build', 'lint'], {
+      mergeStateStatus: 'CLEAN',
+    })
     expect(checks.map((item) => item.name)).toEqual(['build'])
     expect(ciLevel(checks)).toBe('green')
   })
 
   it('lists required checks that never reported while GitHub still blocks the pull request', () => {
-    const checks = checksFromRaw(
-      [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-      ['build', 'lint'],
-      { mergeStateStatus: 'BLOCKED' },
-    )
+    const checks = checksFromRaw([{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }], ['build', 'lint'], {
+      mergeStateStatus: 'BLOCKED',
+    })
     expect(checkPhase(checks.find((item) => item.name === 'lint')!)).toBe('missing')
     expect(ciLevel(checks)).toBe('pending')
     expect(requiredCheckGate(checks, ['build', 'lint'], 'MERGEABLE', 'BLOCKED')).toEqual({ action: 'wait', names: ['lint'] })
@@ -574,11 +569,13 @@ describe('feedback', () => {
     expect(summary.awaitingUrl).toBe('https://github.com/acme/app/pull/1#discussion_r3')
     expect(summary.unreadUrl).toBe('https://github.com/acme/app/pull/1#discussion_r3')
     expect(summary.resolvedUnreadUrl).toBe('https://github.com/acme/app/pull/1#discussion_r4')
-    expect(threadPermalink([
-      { url: 'https://github.com/acme/app/pull/1#discussion_r1' },
-      { url: null },
-      { url: 'https://github.com/acme/app/pull/1#discussion_r9' },
-    ])).toBe('https://github.com/acme/app/pull/1#discussion_r9')
+    expect(
+      threadPermalink([
+        { url: 'https://github.com/acme/app/pull/1#discussion_r1' },
+        { url: null },
+        { url: 'https://github.com/acme/app/pull/1#discussion_r9' },
+      ]),
+    ).toBe('https://github.com/acme/app/pull/1#discussion_r9')
   })
 
   it('counts an unanswered review message unless a later thread reply covers it', () => {
@@ -602,10 +599,13 @@ describe('feedback', () => {
     expect(summarizeNotes([thread], [review], 'grace')).toEqual({ author: 0, reviewer: 0 })
     expect(summarizeNotes([], [{ ...review, body: '   ' }], 'grace')).toEqual({ author: 0, reviewer: 0 })
     expect(summarizeNotes([], [chatter], 'grace')).toEqual({ author: 1, reviewer: 0 })
-    expect(summarizeNotes([], [
-      { ...chatter, author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T11:00:00Z', body: 'Looking' },
-      chatter,
-    ], 'grace')).toEqual({ author: 1, reviewer: 1 })
+    expect(
+      summarizeNotes(
+        [],
+        [{ ...chatter, author: { __typename: 'User', login: 'grace' }, createdAt: '2026-10-20T11:00:00Z', body: 'Looking' }, chatter],
+        'grace',
+      ),
+    ).toEqual({ author: 1, reviewer: 1 })
   })
 
   it('classifies a thread into the same buckets the counts use', () => {
@@ -640,21 +640,17 @@ describe('feedback', () => {
   })
 
   it('quotes a conversation comment, mentions the author, and links to that comment', () => {
-    expect(quoteReply({
-      authorLogin: 'ada',
-      body: 'Please rename this.\n\nThanks',
-      url: 'https://github.com/acme/app/pull/1#issuecomment-9',
-    }, '  Done in the latest commit.  ')).toBe(
-      [
-        '@ada',
-        'https://github.com/acme/app/pull/1#issuecomment-9',
-        '',
-        '> Please rename this.',
-        '> ',
-        '> Thanks',
-        '',
-        'Done in the latest commit.',
-      ].join('\n'),
+    expect(
+      quoteReply(
+        {
+          authorLogin: 'ada',
+          body: 'Please rename this.\n\nThanks',
+          url: 'https://github.com/acme/app/pull/1#issuecomment-9',
+        },
+        '  Done in the latest commit.  ',
+      ),
+    ).toBe(
+      ['@ada', 'https://github.com/acme/app/pull/1#issuecomment-9', '', '> Please rename this.', '> ', '> Thanks', '', 'Done in the latest commit.'].join('\n'),
     )
     expect(quoteReply({ authorLogin: null, body: 'Hello', url: null }, 'OK')).toBe('> Hello\n\nOK')
     expect(() => quoteReply({ authorLogin: 'ada', body: 'Hi', url: null }, '  ')).toThrow(/Write a reply/)
@@ -685,16 +681,20 @@ describe('linear', () => {
         },
       ],
     })
-    expect(parseLinear({
-      title: 'feat(app): track write actions',
-      headRef: 'cursor/write-events-7338',
-      comments: [],
-    })).toEqual([])
-    expect(parseLinear({
-      title: 'refactor accounts',
-      headRef: 'OPS-1146/refactor/accounts-by-owner',
-      comments: [],
-    }).map((issue) => issue.identifier)).toEqual(['OPS-1146'])
+    expect(
+      parseLinear({
+        title: 'feat(app): track write actions',
+        headRef: 'cursor/write-events-7338',
+        comments: [],
+      }),
+    ).toEqual([])
+    expect(
+      parseLinear({
+        title: 'refactor accounts',
+        headRef: 'OPS-1146/refactor/accounts-by-owner',
+        comments: [],
+      }).map((issue) => issue.identifier),
+    ).toEqual(['OPS-1146'])
     expect(issues).toEqual([
       {
         identifier: 'ENG-101',
@@ -790,8 +790,24 @@ describe('stacks and grouping', () => {
     const bottom = pr({ id: 'b', number: 2, baseRef: 'branch-a', headRef: 'branch-b', anyApproval: true, humanApproval: false })
     expect(summarize([top, bottom], false)).toMatchObject({ anyApproval: true, humanApproval: false })
     expect(summarize([top, { ...bottom, anyApproval: false }], false)).toMatchObject({ anyApproval: false, humanApproval: false })
-    expect(summarize([{ ...top, mergeMark: 'none' }, { ...bottom, mergeMark: 'met' }], false).mergeMark).toBe('unmet')
-    expect(summarize([{ ...top, mergeMark: 'met' }, { ...bottom, mergeMark: 'met' }], false).mergeMark).toBe('met')
+    expect(
+      summarize(
+        [
+          { ...top, mergeMark: 'none' },
+          { ...bottom, mergeMark: 'met' },
+        ],
+        false,
+      ).mergeMark,
+    ).toBe('unmet')
+    expect(
+      summarize(
+        [
+          { ...top, mergeMark: 'met' },
+          { ...bottom, mergeMark: 'met' },
+        ],
+        false,
+      ).mergeMark,
+    ).toBe('met')
   })
 
   it('restacks the chosen pull request and everything above it', () => {
@@ -853,17 +869,9 @@ describe('stacks and grouping', () => {
     const view = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT)
     const eng1 = view.looseIssues.find((section) => section.issueId === 'ENG-1')
     expect(eng1?.stacks).toHaveLength(1)
-    expect(eng1?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : `${row.place}:${row.count}`))).toEqual([
-      3,
-      'between:1',
-      1,
-    ])
+    expect(eng1?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : `${row.place}:${row.count}`))).toEqual([3, 'between:1', 1])
     const eng2 = view.looseIssues.find((section) => section.issueId === 'ENG-2')
-    expect(eng2?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : `${row.place}:${row.count}`))).toEqual([
-      'above:1',
-      2,
-      'below:1',
-    ])
+    expect(eng2?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : `${row.place}:${row.count}`))).toEqual(['above:1', 2, 'below:1'])
   })
 
   it('drops the issue layer of a project that is not grouped by issue, and of no other section', () => {
@@ -902,18 +910,10 @@ describe('stacks and grouping', () => {
     expect(view.projects.map((project) => project.title)).toEqual(['Updates'])
     expect(view.projects[0]?.issues).toHaveLength(1)
     expect(view.projects[0]?.issues[0]?.title).toBeNull()
-    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
-      3,
-      'between',
-      1,
-    ])
+    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([3, 'between', 1])
     expect(view.initiatives).toEqual([])
     expect(view.looseIssues.map((bucket) => bucket.issueId)).toEqual(['ENG-2'])
-    expect(view.looseIssues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
-      'above',
-      2,
-      'below',
-    ])
+    expect(view.looseIssues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual(['above', 2, 'below'])
     expect(view.unassigned).toBeNull()
   })
 
@@ -938,10 +938,7 @@ describe('stacks and grouping', () => {
     expect(grouped.projects[0]?.issues.map((issue) => issue.issueId).sort()).toEqual(['ENG-1', 'ENG-2'])
     const view = buildOutline(prs, [], DEFAULT_FILTERS, DEFAULT_SORT, 'author', new Set(['project:Updates']))
     expect(view.projects[0]?.issues).toHaveLength(1)
-    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
-      2,
-      1,
-    ])
+    expect(view.projects[0]?.issues[0]?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([2, 1])
     expect(view.looseIssues).toEqual([])
     expect(view.unassigned).toBeNull()
   })
@@ -977,25 +974,11 @@ describe('stacks and grouping', () => {
   })
 
   it('groups a tagged slice of a stack under an initiative', () => {
-    const prs = stack.map((item) =>
-      item.number === 1 || item.number === 2 ? { ...item, initiativeIds: ['cleanup'] } : item,
-    )
-    const view = buildOutline(
-      prs,
-      [{ id: 'cleanup', name: 'Auth cleanup', createdAt: '', updatedAt: '' }],
-      DEFAULT_FILTERS,
-      DEFAULT_SORT,
-    )
+    const prs = stack.map((item) => (item.number === 1 || item.number === 2 ? { ...item, initiativeIds: ['cleanup'] } : item))
+    const view = buildOutline(prs, [{ id: 'cleanup', name: 'Auth cleanup', createdAt: '', updatedAt: '' }], DEFAULT_FILTERS, DEFAULT_SORT)
     const cleanup = view.initiatives.find((section) => section.id === 'initiative:cleanup')
-    expect(cleanup?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
-      'above',
-      2,
-      1,
-    ])
-    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([
-      3,
-      'below',
-    ])
+    expect(cleanup?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual(['above', 2, 1])
+    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.place))).toEqual([3, 'below'])
   })
 
   it('keeps filtered-out siblings as ellipsis inside the stack', () => {
@@ -1006,11 +989,7 @@ describe('stacks and grouping', () => {
     ]
     const view = buildOutline(prs, [], { ...DEFAULT_FILTERS, ci: 'red' }, DEFAULT_SORT)
     expect(view.unassigned?.stacks).toHaveLength(1)
-    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.reason))).toEqual([
-      'filtered out',
-      2,
-      'filtered out',
-    ])
+    expect(view.unassigned?.stacks[0]?.rows.map((row) => (row.type === 'pr' ? row.pr.number : row.reason))).toEqual(['filtered out', 2, 'filtered out'])
     expect(view.unassigned?.stacks[0]?.summary.partial).toBe(true)
     expect(view.unassigned?.stacks[0]?.summary.title).toBe('middle')
   })
@@ -1085,9 +1064,7 @@ describe('stacks and grouping', () => {
     const issues = view.projects[0]?.issues ?? []
     expect(issues.map((issue) => issue.issueId).sort()).toEqual(['ENG-1', 'ENG-2'])
     for (const issue of issues) {
-      expect(issue.singles.flatMap((block) => block.rows.flatMap((row) => (row.type === 'pr' ? [row.pr.number] : [])))).toEqual([
-        7,
-      ])
+      expect(issue.singles.flatMap((block) => block.rows.flatMap((row) => (row.type === 'pr' ? [row.pr.number] : [])))).toEqual([7])
     }
   })
 
@@ -1107,12 +1084,7 @@ describe('stacks and grouping', () => {
       headRef: 'loose',
       linearIssues: [{ identifier: 'ENG-8', title: 'Loose', url: null, projectId: null, projectName: null }],
     })
-    const view = buildOutline(
-      [tagged, loose],
-      [{ id: 'cleanup', name: 'Auth cleanup', createdAt: '', updatedAt: '' }],
-      DEFAULT_FILTERS,
-      DEFAULT_SORT,
-    )
+    const view = buildOutline([tagged, loose], [{ id: 'cleanup', name: 'Auth cleanup', createdAt: '', updatedAt: '' }], DEFAULT_FILTERS, DEFAULT_SORT)
     expect(view.projects.map((project) => project.title)).toEqual(['Updates'])
     expect(view.projects[0]?.issues[0]?.singles.map((block) => block.summary.number)).toEqual([4])
     expect(view.initiatives).toEqual([])

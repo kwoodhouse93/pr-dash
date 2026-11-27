@@ -49,9 +49,7 @@ export function budgetFromHeaders(headers: { get(name: string): string | null })
 }
 
 export function pauseMessage(resetAt: string | null, remaining: number | null): string {
-  const when = resetAt
-    ? new Date(resetAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-    : 'the window resets'
+  const when = resetAt ? new Date(resetAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'the window resets'
   const left = remaining == null ? '' : ` (${remaining} points left)`
   return `GitHub GraphQL refreshes are paused until ${when}${left}.`
 }

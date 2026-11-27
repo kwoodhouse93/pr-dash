@@ -6,22 +6,11 @@ import { prHref, usePrLinkHost } from './pr-links.tsx'
 import { Fold } from './motion.tsx'
 import { Icon, type IconName } from './icons.tsx'
 
-
 type CancelFn = (id: string) => Promise<void>
 type RetryFn = (id: string) => Promise<void>
 type MoveFn = (id: string, direction: 'up' | 'down') => Promise<void>
 
-export function MergeQueuePage({
-  queue,
-  onCancel,
-  onRetry,
-  onMove,
-}: {
-  queue: QueueSnapshot | null
-  onCancel: CancelFn
-  onRetry: RetryFn
-  onMove: MoveFn
-}) {
+export function MergeQueuePage({ queue, onCancel, onRetry, onMove }: { queue: QueueSnapshot | null; onCancel: CancelFn; onRetry: RetryFn; onMove: MoveFn }) {
   if (!queue) {
     return (
       <div className="queue-page">
@@ -273,12 +262,7 @@ function QueueLogs({ logs, latest = false }: { logs: MergeLog[]; latest?: boolea
     <div className={`queue-logs${latest ? ' latest' : ''}`}>
       <div className="queue-log-foot">
         {latest && !open && last ? <span className="queue-log-last">{logLine(last)}</span> : null}
-        <button
-          type="button"
-          className="queue-log-toggle"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
+        <button type="button" className="queue-log-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
           <Icon name="fold" />
           Logs
           <span className="count">{count}</span>

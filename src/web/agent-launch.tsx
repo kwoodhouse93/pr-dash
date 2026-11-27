@@ -1,5 +1,15 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
-import { agentKindLabel, agentWork, DEFAULT_ROUTING, providerFor, providerLabel, sessionLinks, startingTabUrl, t3ThreadUrl, type AgentRequest } from '../shared/agents.ts'
+import {
+  agentKindLabel,
+  agentWork,
+  DEFAULT_ROUTING,
+  providerFor,
+  providerLabel,
+  sessionLinks,
+  startingTabUrl,
+  t3ThreadUrl,
+  type AgentRequest,
+} from '../shared/agents.ts'
 import { onDesktopEvent } from '../shared/desktop-events.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import type { AgentProviderId, AgentRouting, AgentSession } from '../shared/types.ts'
@@ -75,9 +85,11 @@ function sendOffToWindow(from: Box | null, label: string) {
     stop()
     const { to, at } = (detail ?? {}) as { to?: Box | null; at?: number }
     // The sound is this page's to make. The window's own page only draws.
-    void flyParcel({ layer: document.body, from, label, to: () => to ?? null, at: typeof at === 'number' ? at : undefined, onTakeoff: whoosh }).then((arrived) => {
-      if (arrived) landed()
-    })
+    void flyParcel({ layer: document.body, from, label, to: () => to ?? null, at: typeof at === 'number' ? at : undefined, onTakeoff: whoosh }).then(
+      (arrived) => {
+        if (arrived) landed()
+      },
+    )
   })
   const stop = () => {
     window.clearTimeout(timer)

@@ -4,11 +4,36 @@ import type { PullRequest, Snapshot } from '../src/shared/types.ts'
 import { pullRequest } from './support/pull.ts'
 
 function pr(number: number, over: Partial<PullRequest> = {}): PullRequest {
-  return { ...pullRequest(number), key: `acme/app#${number}`, repo: 'acme/app', number, isDraft: false, ci: 'green', awaitingYouCount: 0, commentAwaitingCount: 0, unreadCount: 0, reviewCommentAwaitingCount: 0, reviewPending: false, squashMergeAllowed: false, ...over }
+  return {
+    ...pullRequest(number),
+    key: `acme/app#${number}`,
+    repo: 'acme/app',
+    number,
+    isDraft: false,
+    ci: 'green',
+    awaitingYouCount: 0,
+    commentAwaitingCount: 0,
+    unreadCount: 0,
+    reviewCommentAwaitingCount: 0,
+    reviewPending: false,
+    squashMergeAllowed: false,
+    ...over,
+  }
 }
 
 function snapshot(mine: PullRequest[], review: PullRequest[] = []): Snapshot {
-  return { viewer: 'me', syncedAt: null, mineSyncedAt: null, reviewSyncedAt: null, repos: ['acme/app'], pullRequests: mine, reviewPullRequests: review, initiatives: [], linearConfigured: false, warning: null }
+  return {
+    viewer: 'me',
+    syncedAt: null,
+    mineSyncedAt: null,
+    reviewSyncedAt: null,
+    repos: ['acme/app'],
+    pullRequests: mine,
+    reviewPullRequests: review,
+    initiatives: [],
+    linearConfigured: false,
+    warning: null,
+  }
 }
 
 describe('the app icon', () => {

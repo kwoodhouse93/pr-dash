@@ -48,7 +48,7 @@ export function clearActionError() {
   actionErrorId = null
 }
 
-type NoticeAction = { label: string; onClick: () => void; primary?: boolean; /** Leave the notice up after the click. */ keep?: boolean }
+type NoticeAction = { label: string; onClick: () => void; primary?: boolean /** Leave the notice up after the click. */; keep?: boolean }
 
 /** How many detail lines a notice lists before counting the rest. */
 const LINES_SHOWN = 3

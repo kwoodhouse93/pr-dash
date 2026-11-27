@@ -4,7 +4,17 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { canMergeSlice, unapprovedMergeBlock, upstackBlock } from '../src/shared/merge.ts'
-import { bootAction, cancelGrace, interpretWait, landedMergeVisible, queueSummary, rebasesDue, CANCEL_GRACE_MS, type LivePull, type MergeStep } from '../src/shared/queue.ts'
+import {
+  bootAction,
+  cancelGrace,
+  interpretWait,
+  landedMergeVisible,
+  queueSummary,
+  rebasesDue,
+  CANCEL_GRACE_MS,
+  type LivePull,
+  type MergeStep,
+} from '../src/shared/queue.ts'
 import { reviewBypassBlock, reviewPolicy } from '../src/shared/rules.ts'
 import type { Check, PullRequest } from '../src/shared/types.ts'
 import { openDatabase } from '../src/server/db.ts'
@@ -35,9 +45,7 @@ function pr(over: Partial<PullRequest> & Pick<PullRequest, 'id' | 'number' | 'ba
     mergeStateStatus: over.baseRef === 'main' ? 'CLEAN' : 'CLEAN',
     reviewDecision: over.baseRef === 'main' ? 'APPROVED' : null,
     mergeMark: over.baseRef === 'main' ? 'met' : 'none',
-    reviewers: [
-      { login: 'ada', human: true, state: 'APPROVED', submittedAt: '2026-10-02T01:00:00Z' },
-    ],
+    reviewers: [{ login: 'ada', human: true, state: 'APPROVED', submittedAt: '2026-10-02T01:00:00Z' }],
     checks: [check({ name: 'Check', conclusion: 'SUCCESS', required: true })],
     ...over,
   }
@@ -70,14 +78,17 @@ describe('stack merge eligibility', () => {
           },
     )
     expect(canMergeSlice(ready, ready[0]!.key)).toBe(3)
-    const blocked = ready.map((item) =>
-      item.number === 3 ? { ...item, mergeStateStatus: 'BLOCKED' as const, checks: [graphite] } : item,
-    )
+    const blocked = ready.map((item) => (item.number === 3 ? { ...item, mergeStateStatus: 'BLOCKED' as const, checks: [graphite] } : item))
     expect(canMergeSlice(blocked, blocked[0]!.key)).toBeNull()
   })
 
   it('hides the action when an upstack pull request is missing an approval or a required check', () => {
-    expect(canMergeSlice(stack.map((item) => (item.number === 3 ? { ...item, reviewers: [] } : item)), stack[0]!.key)).toBeNull()
+    expect(
+      canMergeSlice(
+        stack.map((item) => (item.number === 3 ? { ...item, reviewers: [] } : item)),
+        stack[0]!.key,
+      ),
+    ).toBeNull()
     expect(
       canMergeSlice(
         stack.map((item) => (item.number === 2 ? { ...item, checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })], ci: 'red' } : item)),
@@ -141,8 +152,13 @@ describe('merging without approval', () => {
     expect(unapprovedMergeBlock(waiting({ reviewDecision: null, reviewers: approved }))).toMatch(/not waiting on an approval/)
     expect(unapprovedMergeBlock(waiting({ reviewDecision: null, reviewers: approved, requiredApprovals: 2 }))).toBeNull()
     expect(unapprovedMergeBlock(waiting({ reviewDecision: null, requiredApprovals: 0 }))).toMatch(/not waiting on an approval/)
-    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: null, behindBy: 0 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('ready')
-    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: null, behindBy: 0 }), 'main', ['Check'], { requiredApprovals: 0 })).toMatchObject({ action: 'wait', unexplained: true })
+    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: null, behindBy: 0 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe(
+      'ready',
+    )
+    expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: null, behindBy: 0 }), 'main', ['Check'], { requiredApprovals: 0 })).toMatchObject({
+      action: 'wait',
+      unexplained: true,
+    })
   })
 
   it('is allowed when the branch is also behind its base, which the queue updates', () => {
@@ -150,7 +166,9 @@ describe('merging without approval', () => {
     expect(unapprovedMergeBlock(waiting({ behind: true }))).toBeNull()
     expect(unapprovedMergeBlock(waiting({ mergeStateStatus: 'BEHIND', behind: true, reviewDecision: 'APPROVED' }))).toMatch(/not waiting on an approval/)
     expect(unapprovedMergeBlock(waiting({ mergeStateStatus: 'BEHIND', behind: true, unresolvedCount: 1 }))).toMatch(/unresolved/)
-    expect(interpretWait(live({ mergeStateStatus: 'BEHIND', reviewDecision: 'REVIEW_REQUIRED', behindBy: 2 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('behind')
+    expect(
+      interpretWait(live({ mergeStateStatus: 'BEHIND', reviewDecision: 'REVIEW_REQUIRED', behindBy: 2 }), 'main', ['Check'], { requiredApprovals: 1 }).action,
+    ).toBe('behind')
   })
 
   it('is refused for anything else that is not in place', () => {
@@ -162,7 +180,9 @@ describe('merging without approval', () => {
     expect(unapprovedMergeBlock(waiting({ unresolvedCount: 1 }))).toMatch(/unresolved/)
     expect(unapprovedMergeBlock(waiting({ changesRequested: true }))).toMatch(/changes requested/)
     expect(unapprovedMergeBlock(waiting({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }))).toMatch(/failing/)
-    expect(unapprovedMergeBlock(waiting({ checks: [check({ name: 'Check', conclusion: null, status: 'IN_PROGRESS', required: true })] }))).toMatch(/waiting on required checks/)
+    expect(unapprovedMergeBlock(waiting({ checks: [check({ name: 'Check', conclusion: null, status: 'IN_PROGRESS', required: true })] }))).toMatch(
+      /waiting on required checks/,
+    )
     // GitHub blocks the pull request, so a required check that never reported cannot be waved through.
     expect(unapprovedMergeBlock(waiting({ checks: [check({ name: 'Other', conclusion: 'SUCCESS' })] }))).toMatch(/waiting on required checks/)
   })
@@ -194,7 +214,9 @@ describe('merging without approval', () => {
 
   it('is refused when the bypass would skip a rule the queue does not check', () => {
     expect(reviewBypassBlock([review('always', [{ type: 'required_deployments' }])])).toMatch(/required_deployments/)
-    expect(reviewBypassBlock([review('always'), { enforcement: 'active', current_user_can_bypass: 'always', rules: [{ type: 'code_scanning' }] }])).toMatch(/code_scanning/)
+    expect(reviewBypassBlock([review('always'), { enforcement: 'active', current_user_can_bypass: 'always', rules: [{ type: 'code_scanning' }] }])).toMatch(
+      /code_scanning/,
+    )
     // GitHub still enforces a ruleset the viewer cannot bypass.
     expect(reviewBypassBlock([review('always'), { enforcement: 'active', current_user_can_bypass: 'never', rules: [{ type: 'code_scanning' }] }])).toBeNull()
   })
@@ -223,21 +245,19 @@ describe('rebase plan', () => {
     step({ id: 'b', role: 'merge', headRef: 'b', headOid: oid('b'), baseRef: 'c', baseOid: oid('c') }),
     step({ id: 'a', role: 'restack', headRef: 'a', headOid: oid('a'), baseRef: 'b', baseOid: oid('b') }),
   ]
-  const shape = (plan: ReturnType<typeof rebasesDue>) =>
-    plan.map((item) => [item.branch, item.cutoffOid[0], item.expectedOid[0], item.finishRestack])
-  const after = (list: MergeStep[], changes: Record<string, Partial<MergeStep>>) =>
-    list.map((item) => ({ ...item, ...changes[item.id] }))
+  const shape = (plan: ReturnType<typeof rebasesDue>) => plan.map((item) => [item.branch, item.cutoffOid[0], item.expectedOid[0], item.finishRestack])
+  const stepsAfter = (list: MergeStep[], changes: Record<string, Partial<MergeStep>>) => list.map((item) => ({ ...item, ...changes[item.id] }))
 
   it('rebases nothing before the first merge', () => {
     expect(rebasesDue(steps)).toEqual([])
   })
 
   it('moves only the next pull request after a merge, leaving the branch above it alone', () => {
-    expect(shape(rebasesDue(after(steps, { c: { status: 'merged' } })))).toEqual([['b', 'c', 'b', false]])
+    expect(shape(rebasesDue(stepsAfter(steps, { c: { status: 'merged' } })))).toEqual([['b', 'c', 'b', false]])
   })
 
   it('cuts the branch above from the head it was built on, not the head its parent was rewritten to', () => {
-    const moved = after(steps, {
+    const moved = stepsAfter(steps, {
       c: { status: 'merged' },
       b: { status: 'merged', headOid: oid('9'), baseOid: null },
     })
@@ -245,7 +265,7 @@ describe('rebase plan', () => {
   })
 
   it('does not move a branch that already sits on the trunk', () => {
-    expect(rebasesDue(after(steps, { c: { status: 'merged' }, b: { baseOid: null } }))).toEqual([])
+    expect(rebasesDue(stepsAfter(steps, { c: { status: 'merged' }, b: { baseOid: null } }))).toEqual([])
   })
 })
 
@@ -315,13 +335,23 @@ describe('wait decisions', () => {
   it('lets an entry queued without approval through when the review is all that blocks it', () => {
     const blocked = (over: Partial<LivePull> = {}) => live({ mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', behindBy: 0, ...over })
     expect(interpretWait(blocked(), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('ready')
-    expect(interpretWait(blocked({ changesRequested: true }), 'main', ['Check'], { requiredApprovals: 1 })).toMatchObject({ action: 'fail', reason: '#4 has changes requested.' })
+    expect(interpretWait(blocked({ changesRequested: true }), 'main', ['Check'], { requiredApprovals: 1 })).toMatchObject({
+      action: 'fail',
+      reason: '#4 has changes requested.',
+    })
     expect(interpretWait(blocked({ unresolvedCount: 1 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('fail')
     expect(interpretWait(blocked({ behindBy: 2 }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('behind')
-    expect(interpretWait(blocked({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('fail')
-    expect(interpretWait(blocked({ checks: [check({ name: 'Other', conclusion: 'SUCCESS' })] }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('wait')
+    expect(
+      interpretWait(blocked({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check'], { requiredApprovals: 1 }).action,
+    ).toBe('fail')
+    expect(interpretWait(blocked({ checks: [check({ name: 'Other', conclusion: 'SUCCESS' })] }), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe(
+      'wait',
+    )
     // Approved since it was queued, so whatever still blocks it is not the review.
-    expect(interpretWait(blocked({ reviewDecision: 'APPROVED' }), 'main', ['Check'], { requiredApprovals: 1 })).toMatchObject({ action: 'wait', unexplained: true })
+    expect(interpretWait(blocked({ reviewDecision: 'APPROVED' }), 'main', ['Check'], { requiredApprovals: 1 })).toMatchObject({
+      action: 'wait',
+      unexplained: true,
+    })
     expect(interpretWait(live(), 'main', ['Check'], { requiredApprovals: 1 }).action).toBe('ready')
   })
 
@@ -357,11 +387,7 @@ describe('wait decisions', () => {
   })
 
   it('waits when a required check was cancelled so a replacement run can start', () => {
-    const decision = interpretWait(
-      live({ checks: [check({ name: 'Run', conclusion: 'CANCELLED', required: true })] }),
-      'main',
-      ['Run'],
-    )
+    const decision = interpretWait(live({ checks: [check({ name: 'Run', conclusion: 'CANCELLED', required: true })] }), 'main', ['Run'])
     expect(decision).toMatchObject({ action: 'wait', restarting: ['Run'] })
     expect(interpretWait(live({ checks: [check({ name: 'Run', conclusion: 'FAILURE', required: true })] }), 'main', ['Run']).action).toBe('fail')
     expect(cancelGrace(null, 1_000, true)).toEqual({ since: 1_000, expired: false })
@@ -374,9 +400,7 @@ describe('wait decisions', () => {
     expect(interpretWait(live({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }), 'main', ['Check']).action).toBe('fail')
     expect(interpretWait(live({ reviewDecision: 'REVIEW_REQUIRED' }), 'main', ['Check']).action).toBe('fail')
     expect(interpretWait(live({ mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' }), 'main', ['Check']).action).toBe('fail')
-    expect(
-      interpretWait(live({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check']).action,
-    ).toBe('fail')
+    expect(interpretWait(live({ checks: [check({ name: 'Check', conclusion: 'FAILURE', required: true })] }), 'main', ['Check']).action).toBe('fail')
   })
 })
 
@@ -407,14 +431,38 @@ describe('queue store', () => {
       repo: 'acme/app',
       trunk: 'main',
       title: 'First',
-      steps: [{ prKey: 'acme/app#1', number: 1, title: 'First', url: 'https://example.test', headRef: 'a', headOid: 'a'.repeat(40), baseRef: 'main', baseOid: null, role: 'merge' }],
+      steps: [
+        {
+          prKey: 'acme/app#1',
+          number: 1,
+          title: 'First',
+          url: 'https://example.test',
+          headRef: 'a',
+          headOid: 'a'.repeat(40),
+          baseRef: 'main',
+          baseOid: null,
+          role: 'merge',
+        },
+      ],
     })
     const second = db.queue.enqueue({
       kind: 'pr',
       repo: 'acme/app',
       trunk: 'main',
       title: 'Second',
-      steps: [{ prKey: 'acme/app#2', number: 2, title: 'Second', url: 'https://example.test', headRef: 'b', headOid: 'b'.repeat(40), baseRef: 'main', baseOid: null, role: 'merge' }],
+      steps: [
+        {
+          prKey: 'acme/app#2',
+          number: 2,
+          title: 'Second',
+          url: 'https://example.test',
+          headRef: 'b',
+          headOid: 'b'.repeat(40),
+          baseRef: 'main',
+          baseOid: null,
+          role: 'merge',
+        },
+      ],
     })
     db.queue.fail(first.id, first.steps[0]!.id, 'Check failed.')
     expect(db.queue.nextRunnable('acme/app')?.id).toBe(second.id)
@@ -432,7 +480,12 @@ describe('queue store', () => {
     db.queue.fail(second.id, second.steps[0]!.id, 'Conflict.')
     expect(db.queue.requestCancel(second.id)).toBe('now')
     expect(db.queue.snapshot().entries).toEqual([])
-    expect(db.queue.snapshot().history.map((entry) => entry.status).sort()).toEqual(['cancelled', 'cancelled'])
+    expect(
+      db.queue
+        .snapshot()
+        .history.map((entry) => entry.status)
+        .sort(),
+    ).toEqual(['cancelled', 'cancelled'])
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -642,9 +695,9 @@ describe('git rebase', { timeout: 30_000 }, () => {
       const child = git(['rev-parse', 'HEAD'], work)
       git(['push', 'origin', 'HEAD:child'], work)
 
-      await expect(
-        rebaseOntoTip({ mirror, remote: origin, token: null, base: 'main', branch: 'parent', expectedOid: parent }),
-      ).rejects.toThrow('already based on main')
+      await expect(rebaseOntoTip({ mirror, remote: origin, token: null, base: 'main', branch: 'parent', expectedOid: parent })).rejects.toThrow(
+        'already based on main',
+      )
       expect(git(['rev-parse', 'origin/parent'], work)).toBe(parent)
 
       git(['checkout', 'main'], work)

@@ -32,7 +32,12 @@ $('hide-sidebar').onclick = () => send('toggle-sidebar')
 $('grouping').onclick = () => send('grouping-menu')
 $('agents-clear').onclick = () => send('agents-clear')
 $('pop-clear').onclick = () => send('agents-clear')
-for (const [id, page] of [['home', 'list'], ['agents-link', 'agents'], ['queue-link', 'queue'], ['settings-link', 'settings']]) {
+for (const [id, page] of [
+  ['home', 'list'],
+  ['agents-link', 'agents'],
+  ['queue-link', 'queue'],
+  ['settings-link', 'settings'],
+]) {
   $(id).onmousedown = (event) => {
     if (event.button === 0) send('dashboard', page)
   }
@@ -216,7 +221,17 @@ function treeNode(item) {
 
 function agentRow(agent, earlier) {
   const fresh = agent.mark === 'unread' || agent.mark === 'failed'
-  const node = el('div', classes('row', earlier && 'd1 dim', fresh && !earlier && 'strong', agent.tabId !== null && agent.tabId === state.activeId && 'active', incoming.has(agent.key) && 'incoming', agent.key === landedKey && 'landed'))
+  const node = el(
+    'div',
+    classes(
+      'row',
+      earlier && 'd1 dim',
+      fresh && !earlier && 'strong',
+      agent.tabId !== null && agent.tabId === state.activeId && 'active',
+      incoming.has(agent.key) && 'incoming',
+      agent.key === landedKey && 'landed',
+    ),
+  )
   node.dataset.key = agent.key
   node.title = `${agent.label} · #${agent.number}`
   node.onclick = () => {

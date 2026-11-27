@@ -241,13 +241,7 @@ export function asNote(note: FeedbackNote): Note {
   return { id: note.id, author: note.author, createdAt: note.createdAt, body: note.body, kind: note.kind }
 }
 
-export function feedbackCounts(
-  threads: Thread[],
-  notes: Note[],
-  viewerLogin: string,
-  threadsTruncated: boolean,
-  local: LocalResolutions = {},
-): FeedbackCounts {
+export function feedbackCounts(threads: Thread[], notes: Note[], viewerLogin: string, threadsTruncated: boolean, local: LocalResolutions = {}): FeedbackCounts {
   const summary = summarizeThreads(threads, viewerLogin)
   const comments = summarizeNotes(threads, notes, viewerLogin, local)
   return {

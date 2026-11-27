@@ -107,10 +107,7 @@ describe('cursor sessions', () => {
       warning: null,
     })
     db.saveAgentSession('acme/app#1', session())
-    db.saveAgentSession(
-      'acme/app#1',
-      session({ agentId: 'bc-456', kind: 'prompt', prompt: 'Tidy the tests', createdAt: '2026-10-21T00:05:00Z' }),
-    )
+    db.saveAgentSession('acme/app#1', session({ agentId: 'bc-456', kind: 'prompt', prompt: 'Tidy the tests', createdAt: '2026-10-21T00:05:00Z' }))
 
     expect(db.snapshot().pullRequests[0]?.agentSessions?.map((item) => item.agentId)).toEqual(['bc-456', 'bc-123'])
     expect(db.snapshot().pullRequests[0]?.agentSessions?.[0]).toMatchObject({ kind: 'prompt', prompt: 'Tidy the tests' })
@@ -209,9 +206,7 @@ describe('agent shortcuts', () => {
 
     expect(agentBlocker(pull(), { kind: 'ci' })).toMatch(/no failing checks/)
     expect(agentBlocker(pull({ checks: [failed('test')] }), { kind: 'ci' })).toBeNull()
-    expect(agentBlocker(pull({ checks: [failed('test')], agentSessions: [session({ kind: 'ci' })] }), { kind: 'ci' })).toMatch(
-      /already investigating/,
-    )
+    expect(agentBlocker(pull({ checks: [failed('test')], agentSessions: [session({ kind: 'ci' })] }), { kind: 'ci' })).toMatch(/already investigating/)
 
     const busy = pull({ agentSessions: [session({ kind: 'prompt', prompt: 'One' })] })
     expect(agentBlocker(busy, { kind: 'prompt', prompt: 'Two' })).toBeNull()
@@ -299,9 +294,7 @@ describe('agent shortcuts', () => {
     expect(custom.prompt).toContain('Additional instructions:\nKeep the public name.\nAdd a test.')
     expect(custom.prompt).toContain('https://github.com/acme/app/pull/1')
     expect(custom.prompt).toContain('Do not create a separate pull request.')
-    expect(sessionNote({ kind: 'thread', thread: thread(), prompt: '  Keep the public name.  ' })).toBe(
-      'src/web/queue.tsx:12-18\n\nKeep the public name.',
-    )
+    expect(sessionNote({ kind: 'thread', thread: thread(), prompt: '  Keep the public name.  ' })).toBe('src/web/queue.tsx:12-18\n\nKeep the public name.')
   })
 
   it('shortens a huge review thread before the agent sees it', () => {

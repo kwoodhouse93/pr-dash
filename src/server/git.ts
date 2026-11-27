@@ -53,10 +53,7 @@ function assertOid(oid: string) {
 }
 
 function git(cwd: string | null, args: string[], token: string | null): Promise<string> {
-  const header =
-    token === null
-      ? []
-      : ['-c', `http.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`]
+  const header = token === null ? [] : ['-c', `http.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`]
   const prefix = cwd ? ['-C', cwd] : []
   const scope = running.getStore()
   return new Promise((resolve, reject) => {
@@ -213,7 +210,8 @@ async function onto(input: {
   const remoteOid = (await git(input.mirror, ['rev-parse', `refs/heads/${input.branch}`], null)).toLowerCase()
   if (remoteOid !== expected) throw new GitError(`${input.branch} moved on the remote.`)
   const kind = await git(input.mirror, ['cat-file', '-t', cutoff], null).catch(() => '')
-  if (kind !== 'commit') throw new GitError(`${input.branch} is not built on the latest commit (${cutoff.slice(0, 7)}) of the branch below it. Restack and push it, then retry.`)
+  if (kind !== 'commit')
+    throw new GitError(`${input.branch} is not built on the latest commit (${cutoff.slice(0, 7)}) of the branch below it. Restack and push it, then retry.`)
   return replay({
     mirror: input.mirror,
     token: input.token,

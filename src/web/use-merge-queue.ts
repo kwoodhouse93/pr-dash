@@ -13,16 +13,17 @@ export function useMergeQueue(onFinished: () => void) {
     let cancel = false
     const tick = () => {
       if (document.visibilityState !== 'visible') return
-      void api.mergeQueue().then((next) => {
-        if (cancel) return
-        const done = new Set(
-          next.history.filter((entry) => entry.status === 'done' || entry.status === 'cancelled').map((entry) => entry.id),
-        )
-        const landed = [...seenQueue.current].some((id) => done.has(id))
-        seenQueue.current = new Set(next.entries.map((entry) => entry.id))
-        setQueue(next)
-        if (landed) finished.current()
-      }).catch(() => undefined)
+      void api
+        .mergeQueue()
+        .then((next) => {
+          if (cancel) return
+          const done = new Set(next.history.filter((entry) => entry.status === 'done' || entry.status === 'cancelled').map((entry) => entry.id))
+          const landed = [...seenQueue.current].some((id) => done.has(id))
+          seenQueue.current = new Set(next.entries.map((entry) => entry.id))
+          setQueue(next)
+          if (landed) finished.current()
+        })
+        .catch(() => undefined)
     }
     tick()
     const timer = window.setInterval(tick, 1000)

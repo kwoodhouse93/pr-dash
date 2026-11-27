@@ -93,9 +93,7 @@ export function reviewBypassBlock(rulesets: Ruleset[]): string | null {
       if (rule.type !== 'pull_request') continue
       const needs = rule.parameters
       const review =
-        (needs?.required_approving_review_count ?? 0) > 0 ||
-        (needs?.required_reviewers?.length ?? 0) > 0 ||
-        needs?.require_code_owner_review === true
+        (needs?.required_approving_review_count ?? 0) > 0 || (needs?.required_reviewers?.length ?? 0) > 0 || needs?.require_code_owner_review === true
       if (!review) continue
       reviewRules += 1
       if (!allowed) return `You are not allowed to bypass ${label}.`

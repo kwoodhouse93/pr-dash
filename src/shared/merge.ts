@@ -146,10 +146,7 @@ export function canMergeSlice(orderedTopToBottom: PullRequest[], key: string): n
   return slice.length
 }
 
-export function sliceParts(
-  orderedTopToBottom: PullRequest[],
-  key: string,
-): { merge: PullRequest[]; restack: PullRequest[] } | null {
+export function sliceParts(orderedTopToBottom: PullRequest[], key: string): { merge: PullRequest[]; restack: PullRequest[] } | null {
   const index = orderedTopToBottom.findIndex((pr) => pr.key === key)
   if (index < 0 || index === orderedTopToBottom.length - 1) return null
   return {

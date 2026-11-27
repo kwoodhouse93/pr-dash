@@ -55,47 +55,39 @@ function CiPanel({ prs, level }: { prs: PullRequest[]; level: CiDisplay }) {
     <>
       <PopHead title={heading} sub={tally || undefined} />
       <PopBody>
-      {[...grouped.entries()].map(([workflow, items]) => (
-        <div key={workflow} className="check-group">
-          <h4>{workflow}</h4>
-          {items.map(({ pr, check }) => {
-            const phase = checkPhase(check)
-            const stale = invalidated(pr, check)
-            const tone = stale ? 'invalidated' : phase === 'fail' ? 'fail' : phase === 'missing' || phase === 'pending' ? 'pending' : 'success'
-            const state = stale
-              ? 'Invalidated'
-              : phase === 'fail'
-                ? 'Failed'
-                : phase === 'missing'
-                  ? 'Not reported'
-                  : phase === 'pending'
-                    ? 'Running'
-                    : null
-            return (
-              <div key={`${pr.id}:${check.name}`} className="check">
-                <i className={tone} />
-                <span>
-                  {prs.length > 1 ? `#${pr.number} ` : ''}
-                  {check.url ? (
-                    <a className="external" href={check.url} target="_blank" rel="noreferrer">
-                      {check.name}
-                    </a>
-                  ) : (
-                    check.name
-                  )}
-                </span>
-                <span className="req">
-                  {state ? <em className={tone}>{state}</em> : null}
-                  {state ? ' · ' : ''}
-                  {check.required ? 'Required' : 'Optional'}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      ))}
-      {checks.length === 0 ? <p>No checks on the latest commit.</p> : null}
-      <CiAgentNotes prs={prs} error={agents.error} />
+        {[...grouped.entries()].map(([workflow, items]) => (
+          <div key={workflow} className="check-group">
+            <h4>{workflow}</h4>
+            {items.map(({ pr, check }) => {
+              const phase = checkPhase(check)
+              const stale = invalidated(pr, check)
+              const tone = stale ? 'invalidated' : phase === 'fail' ? 'fail' : phase === 'missing' || phase === 'pending' ? 'pending' : 'success'
+              const state = stale ? 'Invalidated' : phase === 'fail' ? 'Failed' : phase === 'missing' ? 'Not reported' : phase === 'pending' ? 'Running' : null
+              return (
+                <div key={`${pr.id}:${check.name}`} className="check">
+                  <i className={tone} />
+                  <span>
+                    {prs.length > 1 ? `#${pr.number} ` : ''}
+                    {check.url ? (
+                      <a className="external" href={check.url} target="_blank" rel="noreferrer">
+                        {check.name}
+                      </a>
+                    ) : (
+                      check.name
+                    )}
+                  </span>
+                  <span className="req">
+                    {state ? <em className={tone}>{state}</em> : null}
+                    {state ? ' · ' : ''}
+                    {check.required ? 'Required' : 'Optional'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        ))}
+        {checks.length === 0 ? <p>No checks on the latest commit.</p> : null}
+        <CiAgentNotes prs={prs} error={agents.error} />
       </PopBody>
       <CiFoot prs={prs} agents={agents} />
     </>
@@ -115,7 +107,12 @@ function CiFoot({ prs, agents }: { prs: PullRequest[]; agents: ReturnType<typeof
     setPending(mode)
     setMessage(null)
     try {
-      setMessage(await onRerun(prs.map((pr) => pr.key), mode))
+      setMessage(
+        await onRerun(
+          prs.map((pr) => pr.key),
+          mode,
+        ),
+      )
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Rerun failed')
     } finally {
@@ -144,9 +141,7 @@ function CiFoot({ prs, agents }: { prs: PullRequest[]; agents: ReturnType<typeof
           aria-busy={agents.pending === launchTag(pr.key, request)}
           onClick={() => void agents.launch(pr, request)}
         >
-          {agents.pending === launchTag(pr.key, request)
-            ? `Starting ${name}…`
-            : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with ${name}`}
+          {agents.pending === launchTag(pr.key, request) ? `Starting ${name}…` : `Investigate ${failing.length > 1 ? `#${pr.number} ` : ''}with ${name}`}
         </button>
       ))}
       {message ? <p>{message}</p> : null}

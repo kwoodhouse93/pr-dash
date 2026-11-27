@@ -28,19 +28,7 @@ export const REPO_ICONS: Record<string, string> = {
 }
 
 /** Muted on purpose: the repository is rarely the most important thing on a row. */
-export const REPO_COLORS = [
-  '#c9a06e',
-  '#cdb065',
-  '#8fb07c',
-  '#7fbdb6',
-  '#7fa6c4',
-  '#9aa3d6',
-  '#b79bd0',
-  '#c79bb8',
-  '#c98b95',
-  '#cf8f7a',
-  '#9c968a',
-]
+export const REPO_COLORS = ['#c9a06e', '#cdb065', '#8fb07c', '#7fbdb6', '#7fa6c4', '#9aa3d6', '#b79bd0', '#c79bb8', '#c98b95', '#cf8f7a', '#9c968a']
 
 function hash(text: string): number {
   let value = 2166136261

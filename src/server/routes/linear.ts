@@ -42,7 +42,7 @@ export const linearRoutes: Routes = (app, db) => {
     const token = linearToken()
     const body = await read<{ statusId: string; assigneeId: string | null }>(c)
     const hasStatus = typeof body.statusId === 'string' && body.statusId.length > 0
-    const hasAssignee = Object.prototype.hasOwnProperty.call(body, 'assigneeId')
+    const hasAssignee = Object.hasOwn(body, 'assigneeId')
     if (!hasStatus && !hasAssignee) throw new Refused('statusId or assigneeId is required.')
     if (hasAssignee && body.assigneeId !== null && typeof body.assigneeId !== 'string') {
       throw new Refused('assigneeId must be a user id or null.')

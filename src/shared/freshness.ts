@@ -69,11 +69,7 @@ export type CheckReadPlan = {
   probe: string[]
 }
 
-export function planCheckReads(
-  nodes: { id: string; updatedAt: string }[],
-  previous: Map<string, PullRequest>,
-  force: boolean,
-): CheckReadPlan {
+export function planCheckReads(nodes: { id: string; updatedAt: string }[], previous: Map<string, PullRequest>, force: boolean): CheckReadPlan {
   const fetch: string[] = []
   const probe: string[] = []
   for (const node of nodes) {
@@ -84,12 +80,7 @@ export function planCheckReads(
 }
 
 /** Probe matches that are due for a full reread, oldest first, capped at one batch. */
-export function picksForSweep(
-  matched: { id: string; readAt: string }[],
-  now: number,
-  batch = CHECK_SWEEP_BATCH,
-  maxAge = CHECK_SWEEP_AFTER_MS,
-): Set<string> {
+export function picksForSweep(matched: { id: string; readAt: string }[], now: number, batch = CHECK_SWEEP_BATCH, maxAge = CHECK_SWEEP_AFTER_MS): Set<string> {
   const due = matched
     .map((item) => ({ id: item.id, at: Date.parse(item.readAt) }))
     .filter((item) => !Number.isFinite(item.at) || now - item.at >= maxAge)

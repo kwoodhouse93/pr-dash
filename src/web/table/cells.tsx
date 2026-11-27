@@ -32,13 +32,7 @@ export function OpenLinks({ url, repo, number }: { url: string; repo: string; nu
         <a href={url} target="_blank" rel="noreferrer" title="Open in GitHub" aria-label={`Open #${number} in GitHub`}>
           <Icon name="github" />
         </a>
-        <a
-          href={graphitePrUrl(repo, number)}
-          target="_blank"
-          rel="noreferrer"
-          title="Open in Graphite"
-          aria-label={`Open #${number} in Graphite`}
-        >
+        <a href={graphitePrUrl(repo, number)} target="_blank" rel="noreferrer" title="Open in Graphite" aria-label={`Open #${number} in Graphite`}>
           <Icon name="graphite" />
         </a>
       </span>
@@ -70,13 +64,19 @@ export function Age({ id, readyAt, createdAt }: { id: string; readyAt: string | 
   const heat = ageHeat(readyAt)
   const web = cobwebTier(readyAt)
   const since = readyAt ?? createdAt
-  const heading = !readyAt ? `Draft, opened ${formatAgo(createdAt)}` : readyAt === createdAt ? `Opened ${formatAgo(createdAt)}` : `Ready for review ${formatAgo(readyAt)}`
+  const heading = !readyAt
+    ? `Draft, opened ${formatAgo(createdAt)}`
+    : readyAt === createdAt
+      ? `Opened ${formatAgo(createdAt)}`
+      : `Ready for review ${formatAgo(readyAt)}`
   const label = (
     <>
       <span className="sr">{heading}</span>
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <circle className="track" cx="8" cy="8" r="6" />
-        {readyAt ? <circle className="arc" cx="8" cy="8" r="6" strokeDasharray={RING} strokeDashoffset={RING * (1 - Math.max(0.04, ageFill(readyAt)))} /> : null}
+        {readyAt ? (
+          <circle className="arc" cx="8" cy="8" r="6" strokeDasharray={RING} strokeDashoffset={RING * (1 - Math.max(0.04, ageFill(readyAt)))} />
+        ) : null}
       </svg>
     </>
   )
@@ -86,9 +86,17 @@ export function Age({ id, readyAt, createdAt }: { id: string; readyAt: string | 
       <HoverCard id={id} className={`age-ring${readyAt ? '' : ' draft'}`} label={label}>
         <PopHead title={heading} />
         <PopBody>
-        <p className="age-line">{formatExact(since)}</p>
-        {readyAt && readyAt !== createdAt ? <p>Opened {formatExact(createdAt)}</p> : null}
-        {web ? <p>{web === 3 ? 'Over a month. The spider has moved in.' : web === 2 ? 'Over two weeks, and gathering cobwebs.' : 'Over five days. The first cobweb.'}</p> : null}
+          <p className="age-line">{formatExact(since)}</p>
+          {readyAt && readyAt !== createdAt ? <p>Opened {formatExact(createdAt)}</p> : null}
+          {web ? (
+            <p>
+              {web === 3
+                ? 'Over a month. The spider has moved in.'
+                : web === 2
+                  ? 'Over two weeks, and gathering cobwebs.'
+                  : 'Over five days. The first cobweb.'}
+            </p>
+          ) : null}
         </PopBody>
       </HoverCard>
     </td>
@@ -96,7 +104,12 @@ export function Age({ id, readyAt, createdAt }: { id: string; readyAt: string | 
 }
 
 /** Points along the four threads a web hangs from, out of the cell's top corner. */
-const SPOKES = [[28, 3], [23, 14], [14, 23], [3, 28]] as const
+const SPOKES = [
+  [28, 3],
+  [23, 14],
+  [14, 23],
+  [3, 28],
+] as const
 
 const WEB_RINGS = { 1: [0.5, 0.85], 2: [0.34, 0.6, 0.86], 3: [0.24, 0.44, 0.64, 0.84] } as const
 

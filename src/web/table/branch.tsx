@@ -75,17 +75,7 @@ export function Conflict({ id, prs }: { id: string; prs: PullRequest[] }) {
   )
 }
 
-export function UpToDate({
-  id,
-  targetKey,
-  stackKeys,
-  parents,
-}: {
-  id: string
-  targetKey: string | null
-  stackKeys: string[]
-  parents: Parents
-}) {
+export function UpToDate({ id, targetKey, stackKeys, parents }: { id: string; targetKey: string | null; stackKeys: string[]; parents: Parents }) {
   const { prByKey, onRebase } = useTable()
   const plan = targetKey ? rebasePlan(stackKeys, parents, targetKey, prByKey) : null
   const [pending, setPending] = useState(false)
@@ -175,7 +165,6 @@ function rebaseCopy(target: PullRequest, above: PullRequest[]): string {
   const onto = `the latest commit of ${target.baseRef}`
   if (above.length === 0) return `Rebase #${target.number} onto ${onto}.`
   const names = above.map((pr) => `#${pr.number}`)
-  const list =
-    names.length === 1 ? names[0]! : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
+  const list = names.length === 1 ? names[0]! : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
   return `Rebase #${target.number} onto ${onto}. ${list} ${above.length === 1 ? 'is' : 'are'} restacked with it.`
 }

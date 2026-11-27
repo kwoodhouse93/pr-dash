@@ -27,7 +27,7 @@ await build({
 cpSync(path.join(root, 'dist', 'web'), path.join(out, 'dist', 'web'), { recursive: true })
 
 const sha = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
-writeFileSync(path.join(out, 'version.json'), JSON.stringify({ sha, builtAt: new Date().toISOString() }) + '\n')
+writeFileSync(path.join(out, 'version.json'), `${JSON.stringify({ sha, builtAt: new Date().toISOString() })}\n`)
 
 execFileSync('tar', ['-czf', path.join(root, 'dist', 'payload.tar.gz'), '-C', out, '.'])
 console.log(`payload ${sha.slice(0, 7)} → dist/payload.tar.gz`)
