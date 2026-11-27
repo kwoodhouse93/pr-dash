@@ -24,13 +24,15 @@ export type Flight = {
   to: () => Box | null
   /** The time on the clock to start at, for two pages playing the one flight. Without it, now. */
   at?: number
+  /** Called as the parcel leaves, with how long the flight takes, so the page can sound it. */
+  onTakeoff?: (ms: number) => void
 }
 
 const SIZE = 18
 const FOLD_MS = 300
 const BREATH_MS = 220
-const FLY_MS = 560
-const STEPS = 14
+const FLY_MS = 640
+const STEPS = 24
 
 function until(time: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, time - Date.now())))
@@ -56,7 +58,7 @@ export function shownBox(element: Element | null): Box | null {
  * Plays the flight. Resolves true once the parcel has landed, and false when nothing was played: with
  * reduced motion, or with nowhere to land.
  */
-export async function flyParcel({ layer, from, label, to, at }: Flight): Promise<boolean> {
+export async function flyParcel({ layer, from, label, to, at, onTakeoff }: Flight): Promise<boolean> {
   const parcel = document.createElement('div')
   if (still() || typeof parcel.animate !== 'function') return false
   if (at !== undefined) await until(at)
@@ -117,10 +119,19 @@ export async function flyParcel({ layer, from, label, to, at }: Flight): Promise
     }
     const tx = target.x + target.width / 2 - cx
     const ty = target.y + target.height / 2 - cy
-    // The arc bends up and away from the straight line, more for a longer flight.
-    const lift = Math.min(90, 24 + Math.hypot(tx, ty) * 0.12)
-    const bend = { x: tx * 0.45, y: Math.min(0, ty) - lift }
-    const along = (t: number) => ({ x: 2 * (1 - t) * t * bend.x + t * t * tx, y: 2 * (1 - t) * t * bend.y + t * t * ty })
+    // A swoop: the parcel drops back and away from where it is going, then sweeps round in a wide curve
+    // and comes in from the side. The curve is to the upper side of the straight line. Every length is a
+    // share of the distance, so two pages zoomed apart draw the same curve.
+    const far = Math.hypot(tx, ty) || 1
+    const side = { x: -ty / far, y: tx / far }
+    const up = side.y > 0 ? { x: -side.x, y: -side.y } : side
+    const sweep = far * 0.42
+    const back = { x: -tx * 0.14 - up.x * sweep * 0.45, y: -ty * 0.14 - up.y * sweep * 0.45 }
+    const over = { x: tx * 0.6 + up.x * sweep * 1.25, y: ty * 0.6 + up.y * sweep * 1.25 }
+    const along = (t: number) => {
+      const rest = 1 - t
+      return { x: 3 * rest * rest * t * back.x + 3 * rest * t * t * over.x + t * t * t * tx, y: 3 * rest * rest * t * back.y + 3 * rest * t * t * over.y + t * t * t * ty }
+    }
     const path = Array.from({ length: STEPS + 1 }, (_, step) => step / STEPS)
     const timing = { duration: FLY_MS, easing: 'cubic-bezier(0.45, 0, 0.3, 1)', fill: 'forwards' as const }
     const turn = tx < 0 ? -300 : 300
@@ -137,6 +148,7 @@ export async function flyParcel({ layer, from, label, to, at }: Flight): Promise
         .finished.catch(() => undefined)
         .then(() => dot.remove())
     }
+    onTakeoff?.(FLY_MS)
     await parcel.animate(
       path.map((t) => {
         const point = along(t)

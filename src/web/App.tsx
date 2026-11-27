@@ -6,8 +6,9 @@ import { ICON_FRAMES, iconState, iconSvg } from '../shared/icon.ts'
 import { queueSummary, rowMarks } from '../shared/queue.ts'
 import type { QueueSnapshot } from '../shared/queue.ts'
 import { themeOf } from '../shared/themes.ts'
-import { DEFAULT_FILTERS, type AgentSessionStatus, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
-import { agentsSummary } from '../shared/agents.ts'
+import { DEFAULT_FILTERS, type AgentSession, type AgentSessionStatus, type Filters, type Snapshot, type SortKey } from '../shared/types.ts'
+import { agentsSummary, providerFor, startingSession, withStartingSessions } from '../shared/agents.ts'
+import { pullKeyRepo } from '../shared/repos.ts'
 import { buildOutline, needsAttention, outlineEmpty, prMatches } from '../shared/view.ts'
 import { ActivityPage } from './activity.tsx'
 import { api } from './api.ts'
@@ -18,7 +19,7 @@ import { MenuProvider } from './menus.tsx'
 import { loadPreferences, locationSearch, savePreferences, withLocation, type DashboardPage, type ListPage } from './prefs.ts'
 import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
-import { AgentProvider, useStartingAgents } from './agent-launch.tsx'
+import { AgentProvider } from './agent-launch.tsx'
 import { agentItems, AgentsPage } from './agents.tsx'
 import { SettingsPage } from './settings.tsx'
 import { fold, setSoundsEnabled } from './sounds.ts'
@@ -76,6 +77,8 @@ export function App() {
     }
   })
   const [sync, setSync] = useState<SyncStatus | null>(null)
+  /** Agents asked for that their provider has not made yet. */
+  const [starting, setStarting] = useState<{ key: string; session: AgentSession }[]>([])
   const [holds, setHolds] = useState<Map<string, CheckHold[]>>(() => new Map())
   const [queue, setQueue] = useState<QueueSnapshot | null>(null)
   const applyId = useRef(0)
@@ -449,12 +452,12 @@ export function App() {
   const viewPrefs = prefs.views[page === 'review' ? 'review' : 'mine']
   const watched = useMemo(() => new Set(data?.repos ?? []), [data?.repos])
   const mine = useMemo(
-    () => (data?.pullRequests ?? []).filter((pr) => watched.has(pr.repo)),
-    [data?.pullRequests, watched],
+    () => withStartingSessions((data?.pullRequests ?? []).filter((pr) => watched.has(pr.repo)), starting),
+    [data?.pullRequests, watched, starting],
   )
   const review = useMemo(
-    () => (data?.reviewPullRequests ?? []).filter((pr) => watched.has(pr.repo)),
-    [data?.reviewPullRequests, watched],
+    () => withStartingSessions((data?.reviewPullRequests ?? []).filter((pr) => watched.has(pr.repo)), starting),
+    [data?.reviewPullRequests, watched, starting],
   )
   const agents = useMemo(() => agentItems([...mine, ...review]), [mine, review])
   // A pull request that merged stays listed for a moment, so its row can show the merge before it goes.
@@ -945,10 +948,19 @@ export function App() {
               agentRouting={data?.agents}
               t3Origin={prefs.t3Origin}
               onStartAgent={async (key, request, provider) => {
-                const result = await api.startAgent(key, request, provider)
-                ++applyId.current
-                setData(adopt(result.snapshot))
-                return { url: result.url }
+                // The provider can take a while to make the session, so one stands in for it at once:
+                // the row, the Agents page and the count all have it from the press.
+                const session = startingSession(request, provider ?? providerFor(data?.agents, pullKeyRepo(key)))
+                setStarting((current) => [...current, { key, session }])
+                try {
+                  const result = await api.startAgent(key, request, provider)
+                  ++applyId.current
+                  setData(adopt(result.snapshot))
+                  return { url: result.url }
+                } finally {
+                  // Taken away in the same turn as the list with the real one is put in, so the count never dips.
+                  setStarting((current) => current.filter((item) => item.session !== session))
+                }
               }}
             />
           ) : null}
@@ -1026,9 +1038,7 @@ function RefreshControl({
 }
 
 function AgentsButton({ statuses, pressed, onClick }: { statuses: AgentSessionStatus[]; pressed: boolean; onClick: () => void }) {
-  const summary = agentsSummary(statuses)
-  const { waiting, label } = summary
-  const running = summary.running + useStartingAgents()
+  const { running, waiting, label } = agentsSummary(statuses)
   return (
     <button type="button" className="tool-btn agents-tool" data-state={running > 0 ? 'active' : undefined} aria-pressed={pressed} aria-label={label} title={label} onClick={onClick}>
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

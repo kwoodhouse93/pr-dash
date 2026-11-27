@@ -2,11 +2,14 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { startingAgent, startingTabUrl } from '../src/shared/agents.ts'
-import { AgentProvider, useAgentLaunch, useStartingAgents } from '../src/web/agent-launch.tsx'
+import { isStartingSession, sessionLinks, startingAgent, startingSession, startingTabUrl, withStartingSessions } from '../src/shared/agents.ts'
+import type { AgentSession } from '../src/shared/types.ts'
+import { AgentProvider, useAgentLaunch } from '../src/web/agent-launch.tsx'
 import { flyParcel, markCaught, shownBox } from '../src/web/flight.ts'
 
 vi.mock('../src/web/toasts.tsx', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }))
+const sounds = vi.hoisted(() => ({ whoosh: vi.fn(), landed: vi.fn() }))
+vi.mock('../src/web/sounds.ts', () => sounds)
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -45,6 +48,30 @@ describe('the address of a tab opened for an agent', () => {
   })
 })
 
+describe('a session that stands in for an agent being started', () => {
+  it('is creating, says what was asked, and has nowhere to open', () => {
+    const session = startingSession({ kind: 'prompt', prompt: ' Tidy the imports ' }, 'cursor', new Date('2026-11-27T10:00:00Z'))
+    expect(session).toMatchObject({ provider: 'cursor', kind: 'prompt', prompt: 'Tidy the imports', status: 'creating', createdAt: '2026-11-27T10:00:00.000Z' })
+    expect(isStartingSession(session)).toBe(true)
+    expect(sessionLinks(session)).toEqual({ webUrl: null, appUrl: null })
+    expect(startingSession({ kind: 'ci' }, 't3').agentId).not.toBe(session.agentId)
+  })
+
+  it('is put on its own pull request, ahead of the sessions that one has', () => {
+    const real = { agentId: 'bc-1' } as AgentSession
+    const session = startingSession({ kind: 'ci' }, 't3')
+    const prs = [
+      { key: 'acme/app#1', agentSessions: [real] },
+      { key: 'acme/app#2', agentSessions: [] },
+    ]
+    const shown = withStartingSessions(prs, [{ key: 'acme/app#1', session }])
+    expect(shown[0]!.agentSessions).toEqual([session, real])
+    expect(shown[1]).toBe(prs[1])
+    expect(withStartingSessions(prs, [])).toBe(prs)
+    expect(isStartingSession(real)).toBe(false)
+  })
+})
+
 describe('the flight of a task', () => {
   const from = { x: 300, y: 200, width: 80, height: 24 }
 
@@ -58,15 +85,20 @@ describe('the flight of a task', () => {
   it('folds up where it was started, lands, and leaves nothing behind', async () => {
     const animate = instantAnimations()
     const to = vi.fn(() => ({ x: 20, y: 60, width: 10, height: 10 }))
-    const flying = flyParcel({ layer: document.body, from, label: 'CI failure', to })
+    const takeoff = vi.fn()
+    const flying = flyParcel({ layer: document.body, from, label: 'CI failure', to, onTakeoff: takeoff })
     const parcel = document.body.firstElementChild as HTMLElement
     expect(parcel.textContent).toBe('CI failure')
     expect([parcel.style.left, parcel.style.top, parcel.style.width]).toEqual(['300px', '200px', '80px'])
     expect(await flying).toBe(true)
     expect(to).toHaveBeenCalledTimes(1)
+    expect(takeoff).toHaveBeenCalledTimes(1)
     // The last flight ends at the middle of the target, measured from the middle of the start.
     const frames = animate.mock.calls.at(-1)![0] as { transform: string }[]
     expect(frames.at(-1)!.transform).toContain('translate(-315px, -147px)')
+    // It swoops: on the way it is well off the straight line, to the upper side of it.
+    const [, x, y] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(frames[Math.round(frames.length * 0.6)]!.transform)!.map(Number)
+    expect(y! - (x! * -147) / -315).toBeLessThan(-40)
     expect(document.body.children.length).toBe(0)
   })
 
@@ -107,9 +139,7 @@ describe('starting an agent', () => {
     const { launch } = useAgentLaunch()
     return (
       <>
-        <button type="button" className="tool-btn agents-tool">
-          {useStartingAgents()}
-        </button>
+        <button type="button" className="tool-btn agents-tool" />
         <button type="button" className="start" onClick={() => void launch({ key: 'acme/web#7' }, { kind: 'ci' })}>
           Fix
         </button>
@@ -134,31 +164,19 @@ describe('starting an agent', () => {
     return { button, tool }
   }
 
-  it('flies the task to the agents button, which counts it until the list has it', async () => {
+  it('flies the task to the agents button, with a rush on the way and a note as it lands', async () => {
     instantAnimations()
-    let started!: (result: { url: string | null }) => void
-    const { button, tool } = await show(() => new Promise((resolve) => (started = resolve)))
+    sounds.whoosh.mockClear()
+    sounds.landed.mockClear()
+    const { button, tool } = await show(async () => ({ url: null }))
     await act(async () => {
       button.dispatchEvent(new Event('pointerdown', { bubbles: true }))
       button.click()
     })
-    expect(tool.textContent).toBe('1')
+    expect(sounds.whoosh).toHaveBeenCalledTimes(1)
+    expect(sounds.whoosh.mock.calls[0]![0]).toBeGreaterThan(0)
+    expect(sounds.landed).toHaveBeenCalledTimes(1)
     expect(tool.classList.contains('caught')).toBe(true)
-    await act(async () => started({ url: null }))
-    expect(tool.textContent).toBe('0')
-  })
-
-  it('takes the count back when the agent does not start', async () => {
-    instantAnimations()
-    let failed!: (error: Error) => void
-    const { button, tool } = await show(() => new Promise((_, reject) => (failed = reject)))
-    await act(async () => {
-      button.dispatchEvent(new Event('pointerdown', { bubbles: true }))
-      button.click()
-    })
-    expect(tool.textContent).toBe('1')
-    await act(async () => failed(new Error('T3 Code is not answering.')))
-    expect(tool.textContent).toBe('0')
   })
 
   it('in the desktop app, tells the window where the task was started and flies to where the window lists it', async () => {

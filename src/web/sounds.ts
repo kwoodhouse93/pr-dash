@@ -129,3 +129,43 @@ export function chime(kind: Chime) {
     window.setTimeout(() => press(sound, { volume: VOLUME, playbackRate, sampleIndex: 0 }), at)
   }
 }
+
+let audio: AudioContext | null = null
+
+/**
+ * The rush of a task flying to the agents, for as long as the flight takes. There is no recording of one,
+ * so it is made here: noise through a filter that sweeps up and back, swelling and dying away.
+ */
+export function whoosh(ms: number) {
+  if (!enabled || typeof window.AudioContext !== 'function') return
+  try {
+    audio ??= new window.AudioContext()
+    const length = ms / 1000
+    const start = audio.currentTime
+    const buffer = audio.createBuffer(1, Math.ceil(audio.sampleRate * length), audio.sampleRate)
+    const noise = buffer.getChannelData(0)
+    for (let index = 0; index < noise.length; index++) noise[index] = Math.random() * 2 - 1
+    const source = audio.createBufferSource()
+    source.buffer = buffer
+    const filter = audio.createBiquadFilter()
+    filter.type = 'bandpass'
+    filter.Q.value = 1.1
+    filter.frequency.setValueAtTime(350, start)
+    filter.frequency.exponentialRampToValueAtTime(2400, start + length * 0.55)
+    filter.frequency.exponentialRampToValueAtTime(900, start + length)
+    const gain = audio.createGain()
+    gain.gain.setValueAtTime(0.0001, start)
+    gain.gain.exponentialRampToValueAtTime(VOLUME * 0.5, start + length * 0.5)
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + length)
+    source.connect(filter).connect(gain).connect(audio.destination)
+    source.start(start)
+    source.stop(start + length)
+  } catch {
+    // A page that may not make sound stays quiet.
+  }
+}
+
+/** The note of a task landing where its agent is listed. */
+export function landed() {
+  if (enabled) press('tonal-on', { volume: VOLUME, playbackRate: 1.26, sampleIndex: 0 })
+}

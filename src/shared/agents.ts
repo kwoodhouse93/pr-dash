@@ -120,6 +120,8 @@ export function sessionLinks(
   session: Pick<AgentSession, 'provider' | 'agentId' | 'url'>,
   t3Origin?: string | null,
 ): { webUrl: string | null; appUrl: string | null } {
+  // One that is still being started has nowhere to open yet.
+  if (isStartingSession(session)) return { webUrl: null, appUrl: null }
   if (session.provider === 'cursor') {
     const links = cursorLinks(session.agentId)
     return { webUrl: session.url ?? links.webUrl, appUrl: links.desktopUrl }
@@ -217,6 +219,45 @@ export function sessionNote(request: AgentRequest): string | null {
   const extra = request.prompt?.trim()
   const place = threadPlace(request.thread)
   return extra ? `${place}\n\n${extra}` : place
+}
+
+const STARTING_ID = 'starting:'
+let startingCount = 0
+
+/**
+ * A session to show from the moment an agent is asked for. The provider can take a while to make the real
+ * one: it may fetch the branch and set up a worktree first. This one stands in for it until then.
+ */
+export function startingSession(request: AgentRequest, provider: AgentProviderId, now = new Date()): AgentSession {
+  const at = now.toISOString()
+  return {
+    provider,
+    agentId: `${STARTING_ID}${++startingCount}`,
+    runId: '',
+    kind: request.kind,
+    prompt: sessionNote(request),
+    status: 'creating',
+    result: null,
+    branch: null,
+    environmentId: null,
+    url: null,
+    unreachableSince: null,
+    createdAt: at,
+    updatedAt: at,
+  }
+}
+
+export function isStartingSession(session: Pick<AgentSession, 'agentId'>): boolean {
+  return session.agentId.startsWith(STARTING_ID)
+}
+
+/** These pull requests with the sessions still being started put on the ones they are for, newest first as the rest are. */
+export function withStartingSessions<T extends Pick<PullRequest, 'key' | 'agentSessions'>>(prs: T[], starting: { key: string; session: AgentSession }[]): T[] {
+  if (starting.length === 0) return prs
+  return prs.map((pr) => {
+    const own = starting.filter((item) => item.key === pr.key).map((item) => item.session)
+    return own.length > 0 ? { ...pr, agentSessions: [...own.reverse(), ...(pr.agentSessions ?? [])] } : pr
+  })
 }
 
 const STARTING = 'pr-dash-agent='

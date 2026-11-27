@@ -1,9 +1,10 @@
-import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createContext, useContext, useState, type ReactNode } from 'react'
 import { agentKindLabel, agentWork, DEFAULT_ROUTING, providerFor, providerLabel, sessionLinks, startingTabUrl, t3ThreadUrl, type AgentRequest } from '../shared/agents.ts'
 import { pullKeyRepo } from '../shared/repos.ts'
 import type { AgentProviderId, AgentRouting, AgentSession } from '../shared/types.ts'
 import { paintCursorLoading } from './cursor-loading.ts'
 import { flyParcel, markCaught, shownBox, type Box } from './flight.ts'
+import { landed, whoosh } from './sounds.ts'
 import { toastError, toastSuccess } from './toasts.tsx'
 
 /** `provider` starts this one agent somewhere other than the repository's usual place. */
@@ -58,31 +59,12 @@ if (typeof window !== 'undefined') {
   window.addEventListener('keydown', (event) => notePress(document.activeElement ?? event.target), true)
 }
 
-// Agents asked for whose parcel has landed, but which the list does not have yet. The button that counts
-// agents adds these in, so its count goes up as the parcel arrives and comes back down if the start fails.
-const starting = new Set<symbol>()
-const watchers = new Set<() => void>()
-function setStarting(token: symbol, on: boolean) {
-  if (on) starting.add(token)
-  else starting.delete(token)
-  for (const watcher of watchers) watcher()
-}
-function watchStarting(watcher: () => void) {
-  watchers.add(watcher)
-  return () => void watchers.delete(watcher)
-}
-
-/** How many agents have been asked for and are not in the list yet. */
-export function useStartingAgents(): number {
-  return useSyncExternalStore(watchStarting, () => starting.size)
-}
-
 /** The button in the top bar that counts agents, which is where a task flies to. */
 const AGENTS_BUTTON = '.agents-tool'
 
 /**
  * Shows the task leaving for the agents button. `away` says a tab took the reader elsewhere, so there is
- * nobody to show it to: the button is marked when they come back instead. Resolves once it has been shown.
+ * nobody to show it to: the button is marked when they come back instead.
  */
 async function sendOff(from: Box | null, label: string, away: boolean): Promise<void> {
   const button = () => document.querySelector(AGENTS_BUTTON)
@@ -96,7 +78,9 @@ async function sendOff(from: Box | null, label: string, away: boolean): Promise<
     document.addEventListener('visibilitychange', onBack)
     return
   }
-  if (from && (await flyParcel({ layer: document.body, from, label, to: () => shownBox(button()) }))) markCaught(button())
+  if (!from || !(await flyParcel({ layer: document.body, from, label, to: () => shownBox(button()), onTakeoff: whoosh }))) return
+  landed()
+  markCaught(button())
 }
 
 /**
@@ -109,7 +93,10 @@ function sendOffToWindow(from: Box | null, label: string) {
   const onFlight = (event: Event) => {
     stop()
     const { to, at } = ((event as CustomEvent).detail ?? {}) as { to?: Box | null; at?: number }
-    void flyParcel({ layer: document.body, from, label, to: () => to ?? null, at: typeof at === 'number' ? at : undefined })
+    // The sound is this page's to make. The window's own page only draws.
+    void flyParcel({ layer: document.body, from, label, to: () => to ?? null, at: typeof at === 'number' ? at : undefined, onTakeoff: whoosh }).then((arrived) => {
+      if (arrived) landed()
+    })
   }
   const stop = () => {
     window.clearTimeout(timer)
@@ -150,14 +137,8 @@ export function useAgentLaunch(): AgentLaunch {
     const from = pressed
     const agent = opensTab ? window.open(desktop ? startingTabUrl(pr.key, request, from) : '', '_blank') : null
     // In the desktop app the task flies to the window's own list of agents, which the tab is filed in. Here it flies to the agents button.
-    const token = Symbol()
-    let settled = false
     if (desktop && agent) sendOffToWindow(from, agentKindLabel(request.kind))
-    else {
-      void sendOff(from, agentKindLabel(request.kind), agent !== null).then(() => {
-        if (!settled) setStarting(token, true)
-      })
-    }
+    else void sendOff(from, agentKindLabel(request.kind), agent !== null)
     if (agent && provider === 'cursor') {
       try {
         paintCursorLoading(agent, agentWork(request.kind, provider))
@@ -201,8 +182,6 @@ export function useAgentLaunch(): AgentLaunch {
       }
       return false
     } finally {
-      settled = true
-      setStarting(token, false)
       setPending(null)
     }
   }
