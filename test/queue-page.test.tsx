@@ -47,7 +47,7 @@ function entry(logs: MergeEntry['logs']): MergeEntry {
 }
 
 function snapshot(logs: MergeEntry['logs']): QueueSnapshot {
-  return { entries: [entry(logs)], history: [], watches: [] }
+  return { entries: [entry(logs)], history: [] }
 }
 
 describe('merge queue logs', () => {
@@ -121,7 +121,7 @@ describe('merge queue logs', () => {
 
   it('keeps finished entries to one line until they are opened', async () => {
     const done = { ...entry([]), status: 'done' as const, error: null }
-    await render({ entries: [], history: [done], watches: [] })
+    await render({ entries: [], history: [done] })
 
     expect(document.body.textContent).toContain('took 4m')
     expect(document.querySelector('.queue-rail')).toBeNull()
@@ -142,7 +142,7 @@ describe('merge queue logs', () => {
     await act(async () => {
       root?.render(
         <MergeQueuePage
-          queue={{ entries: [failed], history: [], watches: [] }}
+          queue={{ entries: [failed], history: [] }}
           onCancel={async (id) => {
             removed.push(id)
           }}
@@ -182,7 +182,6 @@ describe('merge queue logs', () => {
         queued('web-2', 'acme/web', 'Web second'),
       ],
       history: [],
-      watches: [],
     })
 
     const sections = [...document.querySelectorAll('.queue-repo-section')]
@@ -193,31 +192,5 @@ describe('merge queue logs', () => {
     const app = sections[0]!
     expect(app.querySelector<HTMLButtonElement>('[aria-label="Move up"]')?.disabled).toBe(true)
     expect(app.querySelector<HTMLButtonElement>('[aria-label="Move down"]')?.disabled).toBe(true)
-  })
-
-  it('lists pull requests set to merge when ready, with what holds them', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
-    await act(async () => {
-      root?.render(
-        <MergeQueuePage
-          queue={{
-            entries: [],
-            history: [],
-            watches: [{ key: 'acme/app#9', scope: 'pr', keys: ['acme/app#9'], detail: 'Needs a review.', createdAt: '2026-10-22T09:00:00.000Z' }],
-          }}
-          pulls={new Map([['acme/app#9', { number: 9, title: 'Add audit log export', url: 'https://github.com/acme/app/pull/9' }]])}
-          onCancel={async () => {}}
-          onRetry={async () => {}}
-          onMove={async () => {}}
-        />,
-      )
-    })
-
-    const row = document.querySelector('.queue-row.watch')
-    expect(row?.textContent).toContain('Add audit log export')
-    expect(row?.textContent).toContain('#9')
-    expect(row?.textContent).toContain('Needs a review.')
   })
 })

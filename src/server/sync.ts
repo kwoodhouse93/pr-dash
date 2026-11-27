@@ -10,7 +10,6 @@ import { rulesFresh } from '../shared/rules.ts'
 import { refreshSessions } from './agent-provider.ts'
 import { agentProviders } from './agents.ts'
 import type { DashboardDb } from './db.ts'
-import { processMergeWatches } from './merge-worker.ts'
 import {
   GraphqlPaused,
   assertGraphql,
@@ -388,7 +387,6 @@ async function refreshMine(db: DashboardDb, token: string, forceRules: boolean):
     warning,
   })
   recordOutcomes(db, outcomes)
-  await processMergeWatches(db)
   return warning
 }
 
@@ -577,7 +575,6 @@ async function readOne(db: DashboardDb, key: string, signal: AbortSignal): Promi
       mineSyncedAt: latest.mineSyncedAt,
       reviewSyncedAt: latest.reviewSyncedAt,
     })
-    await processMergeWatches(db)
     return db.snapshot()
   } catch (error) {
     if (cancelled(error, signal)) throw new SyncCancelled()

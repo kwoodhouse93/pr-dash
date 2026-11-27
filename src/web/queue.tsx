@@ -1,12 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { stepLabel, type MergeEntry, type MergeLog, type MergeStep, type MergeWatch, type QueueSnapshot } from '../shared/queue.ts'
-import { pullKeyRepo } from '../shared/repos.ts'
+import { stepLabel, type MergeEntry, type MergeLog, type MergeStep, type QueueSnapshot } from '../shared/queue.ts'
 import { RepoIcon } from './repo-mark.tsx'
 import { formatClock, formatDuration, formatExact, formatWhen } from './format.ts'
 import { prHref, usePrLinkHost } from './pr-links.tsx'
 import { Fold } from './motion.tsx'
 
-export type QueuePull = { number: number; title: string; url: string }
 
 type CancelFn = (id: string) => Promise<void>
 type RetryFn = (id: string) => Promise<void>
@@ -14,14 +12,11 @@ type MoveFn = (id: string, direction: 'up' | 'down') => Promise<void>
 
 export function MergeQueuePage({
   queue,
-  pulls,
   onCancel,
   onRetry,
   onMove,
 }: {
   queue: QueueSnapshot | null
-  /** Open pull requests by key, used to name the ones set to merge when ready. */
-  pulls?: Map<string, QueuePull>
   onCancel: CancelFn
   onRetry: RetryFn
   onMove: MoveFn
@@ -67,7 +62,7 @@ export function MergeQueuePage({
           {group.active.map((entry) => (
             <NowCard key={entry.id} entry={entry} onCancel={onCancel} />
           ))}
-          {group.next.length > 0 || group.watches.length > 0 ? (
+          {group.next.length > 0 ? (
             <ol className="queue-rows">
               {group.next.map((entry, index) => (
                 <EntryRow
@@ -82,9 +77,6 @@ export function MergeQueuePage({
                     </>
                   }
                 />
-              ))}
-              {group.watches.map((watch) => (
-                <WatchRow key={watch.key} watch={watch} pull={pulls?.get(watch.key)} />
               ))}
             </ol>
           ) : null}
@@ -122,7 +114,7 @@ export function MergeQueuePage({
   )
 }
 
-type RepoGroup = { repo: string; held: MergeEntry[]; active: MergeEntry[]; next: MergeEntry[]; watches: MergeWatch[] }
+type RepoGroup = { repo: string; held: MergeEntry[]; active: MergeEntry[]; next: MergeEntry[] }
 
 /** Each repository runs its own line, so the page reads as one queue per repo, in name order. */
 function groupByRepo(queue: QueueSnapshot): RepoGroup[] {
@@ -130,7 +122,7 @@ function groupByRepo(queue: QueueSnapshot): RepoGroup[] {
   const group = (repo: string) => {
     let found = groups.get(repo)
     if (!found) {
-      found = { repo, held: [], active: [], next: [], watches: [] }
+      found = { repo, held: [], active: [], next: [] }
       groups.set(repo, found)
     }
     return found
@@ -141,7 +133,6 @@ function groupByRepo(queue: QueueSnapshot): RepoGroup[] {
     else if (entry.status === 'active') target.active.push(entry)
     else target.next.push(entry)
   }
-  for (const watch of queue.watches) group(pullKeyRepo(watch.key) ?? watch.key).watches.push(watch)
   return [...groups.values()].sort((a, b) => a.repo.localeCompare(b.repo))
 }
 
@@ -150,7 +141,6 @@ function repoSummary(group: RepoGroup): string {
   if (group.active.length > 0) parts.push('merging')
   if (group.next.length > 0) parts.push(`${group.next.length} waiting`)
   if (group.held.length > 0) parts.push(`${group.held.length} held`)
-  if (group.watches.length > 0) parts.push(`${group.watches.length} when ready`)
   return parts.join(' · ')
 }
 
@@ -236,35 +226,6 @@ function EntryRow({ entry, lead, trail }: { entry: MergeEntry; lead: ReactNode; 
           {entry.logs.length > 0 ? <QueueLogs logs={entry.logs} /> : null}
         </div>
       </Fold>
-    </li>
-  )
-}
-
-function WatchRow({ watch, pull }: { watch: MergeWatch; pull: QueuePull | undefined }) {
-  const host = usePrLinkHost()
-  const reason = watch.detail ?? 'Joins the queue when ready'
-  return (
-    <li>
-      <div className="queue-row watch">
-        <span className="queue-pos" />
-        <span className="queue-row-main">
-          {pull ? (
-            <a className="queue-row-title" href={prHref(pull.url, host)} target="_blank" rel="noreferrer">
-              {pull.title}
-            </a>
-          ) : (
-            <span className="queue-row-title">{watch.key}</span>
-          )}
-          {watch.keys.length > 1 ? (
-            <span className="queue-num">{watch.keys.length} PRs</span>
-          ) : pull ? (
-            <span className="queue-num">#{pull.number}</span>
-          ) : null}
-        </span>
-        <span className="queue-why" title={reason}>
-          {reason}
-        </span>
-      </div>
     </li>
   )
 }

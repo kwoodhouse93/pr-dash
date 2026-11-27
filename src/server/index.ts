@@ -27,7 +27,6 @@ import {
   MergeRejected,
   moveEntry,
   retryEntry,
-  setMergeWhenReady,
   startMergeWorker,
 } from './merge-worker.ts'
 import { isLinearIdentifier } from '../shared/linear.ts'
@@ -309,23 +308,6 @@ app.post('/api/merge-queue', async (c) => {
     if (!key) return c.json({ error: 'A pull request is required.' }, 400)
     if (body.scope === 'downstack') await enqueueDownstack(db, key)
     else await enqueuePull(db, key, body.scope === 'unapproved')
-    return c.json(db.queue.snapshot())
-  } catch (error) {
-    const status = error instanceof MergeRejected ? 409 : 502
-    return c.json({ error: messageOf(error) }, status)
-  }
-})
-
-app.post('/api/merge-when-ready', async (c) => {
-  try {
-    const body = await c.req.json<{ key?: string; scope?: 'pr' | 'downstack'; enabled?: boolean }>()
-    const key = body.key ?? ''
-    if (!key) return c.json({ error: 'A pull request is required.' }, 400)
-    if (body.scope !== 'pr' && body.scope !== 'downstack') {
-      return c.json({ error: 'scope must be pr or downstack.' }, 400)
-    }
-    if (typeof body.enabled !== 'boolean') return c.json({ error: 'enabled must be a boolean.' }, 400)
-    await setMergeWhenReady(db, key, body.scope, body.enabled)
     return c.json(db.queue.snapshot())
   } catch (error) {
     const status = error instanceof MergeRejected ? 409 : 502

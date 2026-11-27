@@ -172,9 +172,7 @@ describe('agents', () => {
             onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}
-            onSetMergeWhenReady={async () => {}}
             queueByKey={new Map()}
-            watchesByKey={new Map()}
             holds={new Map()}
             onRerun={async () => ''}
             onStartAgent={onStartAgent}

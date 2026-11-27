@@ -779,7 +779,6 @@ export function App() {
           {page === 'queue' ? (
             <MergeQueuePage
               queue={queue}
-              pulls={new Map((data?.pullRequests ?? []).map((pr) => [pr.key, pr]))}
               onCancel={(id) => changeQueue(() => api.cancelMerge(id), true)}
               onRetry={(id) => changeQueue(() => api.retryMerge(id))}
               onMove={(id, direction) => changeQueue(() => api.moveMerge(id, direction))}
@@ -839,7 +838,6 @@ export function App() {
               expanded={new Set(prefs.expanded)}
               collapsed={new Set(prefs.collapsed)}
               queueByKey={rowMarks(queue?.entries ?? [])}
-              watchesByKey={new Map((queue?.watches ?? []).map((watch) => [watch.key, watch]))}
               onSort={chooseSort}
               onToggle={(id) => {
                 fold(!prefs.expanded.includes(id))
@@ -904,9 +902,6 @@ export function App() {
                 const snap = await api.markReady(key)
                 ++applyId.current
                 setData(adopt(snap))
-              }}
-              onSetMergeWhenReady={async (key, scope, enabled) => {
-                setQueue(await api.setMergeWhenReady(key, scope, enabled))
               }}
               holds={holds}
               onRerun={async function rerun(keys, mode): Promise<string> {

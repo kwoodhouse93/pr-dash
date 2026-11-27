@@ -62,15 +62,6 @@ export type MergeEntry = {
 export type QueueSnapshot = {
   entries: MergeEntry[]
   history: MergeEntry[]
-  watches: MergeWatch[]
-}
-
-export type MergeWatch = {
-  key: string
-  scope: 'pr' | 'downstack'
-  keys: string[]
-  detail: string | null
-  createdAt: string
 }
 
 export type RowMark = {

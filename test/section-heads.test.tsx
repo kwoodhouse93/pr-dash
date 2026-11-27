@@ -128,9 +128,7 @@ describe('section headings', () => {
             onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}
-            onSetMergeWhenReady={async () => {}}
             queueByKey={new Map()}
-            watchesByKey={new Map()}
             holds={new Map()}
             onRerun={async () => ''}
             onStartAgent={async () => ({ url: 'https://example.test' })}
@@ -155,8 +153,7 @@ describe('section headings', () => {
   }
   const project = () => document.querySelector('tr.project')
   const band = (title: string) => [...document.querySelectorAll('tr.band')].find((row) => row.textContent?.includes(title))
-  const grouping = (row: Element | null | undefined) =>
-    [...(row?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Group by issue')
+  const grouping = (row: Element | null | undefined) => row?.querySelector('button[aria-label="Group by issue"]') ?? undefined
 
   it('folds a section from its name or its arrow, and not from the rest of the row', async () => {
     await render()

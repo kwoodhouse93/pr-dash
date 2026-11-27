@@ -120,7 +120,6 @@ describe('merge action', () => {
     onMerge: (key: string) => Promise<void>,
     options: {
       pr?: Partial<PullRequest>
-      onSetMergeWhenReady?: (key: string, scope: 'pr' | 'downstack', enabled: boolean) => Promise<void>
       onMergeUnapproved?: (key: string) => Promise<void>
     } = {},
   ) {
@@ -150,9 +149,7 @@ describe('merge action', () => {
             onRetry={async () => {}}
             onStackMerge={async () => {}}
             onMarkReady={async () => {}}
-            onSetMergeWhenReady={options.onSetMergeWhenReady ?? (async () => {})}
             queueByKey={new Map()}
-            watchesByKey={new Map()}
             holds={new Map()}
             onRerun={async () => ''}
             onStartAgent={async () => ({ url: 'https://example.test' })}
@@ -191,22 +188,6 @@ describe('merge action', () => {
     expect(queued).toEqual(['acme/app#7'])
     expect(document.body.textContent).toContain('Queuing')
     await act(async () => release())
-  })
-
-  it('offers merge when ready while a pull request is not mergeable', async () => {
-    const changes: [string, string, boolean][] = []
-    await render(async () => {}, {
-      pr: { mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' },
-      onSetMergeWhenReady: async (key, scope, enabled) => {
-        changes.push([key, scope, enabled])
-      },
-    })
-    const toggle = document.querySelector<HTMLInputElement>('label.merge-ready-toggle input')
-    expect(toggle).not.toBeNull()
-    await act(async () => {
-      toggle!.click()
-    })
-    expect(changes).toEqual([['acme/app#7', 'pr', true]])
   })
 
   const unapproved: Partial<PullRequest> = { mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', mergeMark: 'unmet', reviewers: [] }
