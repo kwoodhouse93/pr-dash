@@ -179,7 +179,7 @@ export function AgentSettingsPanel({
   const choosing = environments.length > 0 || (checks === null && (fallback !== null || rows.some((row) => row.environmentId !== null)))
 
   return (
-    <section className="panel agent-settings" id="settings-agents">
+    <section className="panel agent-settings">
       <header className="panel-head">
         <h2>Agents</h2>
         <span className="panel-note">Where an agent runs when you start one from a pull request</span>

@@ -888,40 +888,36 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .menu-item:disabled:hover { background: transparent; }
 .settings {
   display: grid;
-  grid-template-columns: 172px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   gap: 28px;
   align-items: start;
-  max-width: 1000px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 20px 22px 40px;
 }
 .settings-main { display: grid; gap: 16px; min-width: 0; }
-.settings-main > .panel { scroll-margin-top: 20px; }
-/* The rail: a way to each section, with the one in view marked. */
-.settings-rail { position: sticky; top: 20px; display: grid; gap: 2px; min-width: 0; }
+/* The rail: the groups of settings, one on screen at a time, each with a line on what it holds. */
+.settings-rail { position: sticky; top: 20px; display: grid; gap: 3px; min-width: 0; }
 .settings-rail button {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  column-gap: 8px;
+  padding: 8px 12px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--muted);
   text-align: left;
 }
-.settings-rail button > :first-child { flex: 1; min-width: 0; }
 .settings-rail button:hover { background: var(--bg-hover); color: var(--text); }
-.settings-rail button[aria-current] { background: var(--bg-raised); color: var(--text); }
-.rail-count { color: var(--faint); font-size: 13px; font-variant-numeric: tabular-nums; }
+.settings-rail button[aria-pressed="true"] { background: var(--bg-raised); color: var(--text); }
+.rail-holds { grid-column: 1 / -1; color: var(--faint); font-size: 13px; }
+.settings-rail button[aria-pressed="true"] .rail-holds { color: var(--muted); }
+/* Only for something that wants putting right, never for work going on as usual. */
 .rail-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--yellow); }
-.rail-dot[data-tone="running"] { background: var(--amber); }
-.rail-status { margin-top: 10px; padding: 12px 10px 0; border-top: 1px solid var(--line); }
-.rail-status h3 { margin: 0 0 8px; color: var(--faint); font-size: 12px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; }
-.rail-status .meter { margin-top: 0; }
-.rail-status p { margin: 6px 0 0; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 @media (max-width: 860px) {
-  .settings { grid-template-columns: minmax(0, 1fr); gap: 12px; padding-top: 0; }
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 14px; padding-top: 0; }
   .settings-rail {
     top: 0;
     z-index: 2;
@@ -932,9 +928,8 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
     border-bottom: 1px solid var(--line);
     background: var(--bg);
   }
-  .settings-rail button { flex: none; }
-  .settings-main > .panel { scroll-margin-top: 60px; }
-  .rail-status { display: none; }
+  .settings-rail button { flex: none; padding: 6px 10px; }
+  .rail-holds { display: none; }
 }
 .panel { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-child); }
 .panel h2 { margin: 0; font-family: "Source Serif 4", Georgia, serif; font-weight: 500; font-size: 20px; }
@@ -980,16 +975,6 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
   border-top: 1px solid var(--line);
 }
 .panel > .panel-row:first-child { border-top: 0; }
-/* A label over a group of settings inside one panel. */
-.panel h3.panel-sub {
-  padding: 10px 16px 6px;
-  border-top: 1px solid var(--line);
-  color: var(--faint);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.panel-sub + .panel-row { border-top: 0; }
 .panel-row.setting .panel-note { margin-top: 2px; }
 .panel-row.setting { padding: 12px 16px; }
 .panel-row.setting > :first-child { flex: 1; min-width: 0; }
@@ -1106,44 +1091,53 @@ tbody tr:has(.row-menu[aria-expanded="true"]) > td { background: var(--bg-hover)
 .panel .initiative-row input:not([type="checkbox"]):focus { border-color: var(--line-strong); background: var(--bg); }
 .panel .new-initiative { padding: 10px 16px; }
 .panel .new-initiative input:not([type="checkbox"]) { background: var(--bg-raised); border-color: var(--line-strong); border-radius: 8px; padding: 6px 8px; }
-.sync-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); }
-.sync-cols > div + div { border-left: 1px solid var(--line); }
-.sync-cols > div > .stat:first-child { border-top: 0; }
-@media (max-width: 640px) {
-  .sync-cols { grid-template-columns: minmax(0, 1fr); }
-  .sync-cols > div + div { border-left: 0; border-top: 1px solid var(--line); }
+/* The Sync card: what is running on one line that is always there, then facts on one grid of label, value and time. */
+.sync .panel-head { align-items: center; }
+.sync .panel-head h2 { flex: 1; }
+.sync .panel-head .primary, .sync .panel-head .ghost { padding: 5px 12px; }
+.sync .panel-head .primary:disabled, .sync .panel-head .ghost:disabled { cursor: not-allowed; }
+.sync-queued { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.sync-queued svg { width: 12px; height: 12px; }
+.sync-now {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 12px;
+  /* As tall as the line is with its Cancel button, whether or not the button is there. */
+  grid-template-rows: 27px auto;
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--line);
 }
-.stat { padding: 12px 16px; border-top: 1px solid var(--line); }
-.stat h3 {
-  margin: 0 0 6px;
-  color: var(--faint);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.stat p { color: var(--muted); font-size: 14px; }
-.stat .stat-warn { color: var(--yellow); margin-top: 8px; }
-.stat-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
-.stat-line > span:first-child { min-width: 0; }
-.budget + .budget { margin-top: 10px; }
+.sync-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-now .text-btn { margin-right: -8px; }
+.sync-now .meter { grid-column: 1 / -1; margin-top: 0; }
+.panel .sync-facts { display: grid; grid-template-columns: 150px minmax(0, 1fr); margin: 0; }
+.sync-facts dt, .sync-facts dd { margin: 0; padding: 12px 16px; border-top: 1px solid var(--line); }
+.sync-facts dt { padding-right: 0; color: var(--faint); font-size: 12px; line-height: 23px; letter-spacing: 0.06em; text-transform: uppercase; }
+.sync-facts dd { display: grid; gap: 4px; }
+.sync-fact { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.sync-fact > :first-child { flex: 1; min-width: 0; }
+.sync-fact .sync-budget { flex: none; min-width: 112px; font-variant-numeric: tabular-nums; }
+.sync-fact .meter { flex: 1; margin-top: 0; }
+.sync-fact .repo-meta { min-width: 84px; text-align: right; }
+.panel .sync-warn { color: var(--yellow); font-size: 14px; }
 .meter { height: 4px; margin-top: 6px; border-radius: 2px; background: var(--chip); overflow: hidden; }
 .meter i { display: block; height: 100%; border-radius: 2px; background: var(--green); transition: width 0.3s; }
 .meter[data-tone="low"] i { background: var(--yellow); }
 .meter[data-tone="out"] i { background: var(--red); }
 .meter[data-tone="running"] i { background: var(--amber); }
-.how { margin-top: 10px; color: var(--muted); font-size: 14px; }
+.how { padding: 10px 16px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 .how summary { cursor: pointer; list-style: none; }
 .how summary::-webkit-details-marker { display: none; }
 .how summary span { color: var(--accent); }
 .how summary span:hover { text-decoration: underline; }
 .how[open] .how-open, .how:not([open]) .how-close { display: none; }
 .how p { margin-top: 8px; }
-.sync-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.sync-actions .primary, .sync-actions .ghost { padding: 6px 12px; }
-.sync-actions .primary:disabled,
-.sync-actions .ghost:disabled { cursor: not-allowed; }
-.sync-actions .ghost:disabled { opacity: 0.6; }
-.sync-list li + li { margin-top: 4px; }
+@media (max-width: 560px) {
+  .panel .sync-facts { grid-template-columns: minmax(0, 1fr); }
+  .sync-facts dt { padding-bottom: 0; }
+  .sync-facts dd { border-top: 0; padding-top: 4px; }
+}
 .dotted { display: flex; align-items: baseline; gap: 8px; }
 .dotted::before {
   content: "";

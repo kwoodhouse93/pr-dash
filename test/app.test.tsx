@@ -20,6 +20,7 @@ const server = vi.hoisted(() => ({
   mergeQueue: vi.fn(),
   status: vi.fn(),
   activity: vi.fn(),
+  agentChecks: vi.fn(),
 }))
 
 vi.mock('../src/web/api.ts', async (original) => ({
@@ -73,6 +74,8 @@ describe('the dashboard', () => {
     server.mergeQueue.mockResolvedValue({ entries: [], history: [] } satisfies QueueSnapshot)
     server.status.mockResolvedValue(idle)
     server.activity.mockRejectedValue(new Error('not asked for'))
+    // The providers never answer here, so the Settings button has nothing to say.
+    server.agentChecks.mockReturnValue(new Promise(() => {}))
     server.feedback.mockImplementation(async () => ({ snapshot: snapshot({ mineSyncedAt: new Date().toISOString() }), pending: 0, paused: false }))
   })
 

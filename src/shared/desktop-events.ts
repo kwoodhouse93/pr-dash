@@ -11,8 +11,11 @@ export const DESKTOP_PAGES: readonly DesktopPage[] = ['list', 'agents', 'queue',
 export type DesktopEvents = {
   /** Show this page. */
   'pr-dash:page': DesktopPage
-  /** Pairing with T3 Code moved on in a tab: it paired with `origin`, it failed, or the user asked not to be offered it again. */
-  'pr-dash:t3': { origin?: string; prompt?: false; failed?: true }
+  /**
+   * Pairing with T3 Code moved on in a tab: it paired with `origin`, it failed, the user asked not to be
+   * offered it again, or with `show` asked to see where it is set up.
+   */
+  'pr-dash:t3': { origin?: string; prompt?: false; failed?: true; show?: true }
   /**
    * The sign-in to T3 Code that Settings started has ended in a tab, approved or not, so Settings should look again.
    * `unanswered` is an approval the dashboard's server never took, which leaves PR Dash signed out with nothing to show why.

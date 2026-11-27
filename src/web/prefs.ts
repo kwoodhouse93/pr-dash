@@ -2,6 +2,7 @@ import { DEFAULT_FILTERS, DEFAULT_SORT, isListName, type CiLevel, type Filters, 
 import { DEFAULT_THEME, themeOf, type ThemeId } from '../shared/themes.ts'
 import { animationsOf, type Animations } from './animations.ts'
 import type { PrLinkHost } from './pr-links.tsx'
+import { SETTINGS_TABS, type SettingsTab } from './settings.tsx'
 
 /** Where the preferences are kept in this browser. index.html reads the theme from it before the page draws. */
 export const PREFERENCES_KEY = 'pr-dash.preferences.v1'
@@ -21,6 +22,8 @@ export type Preferences = {
   expanded: string[]
   collapsed: string[]
   page: DashboardPage
+  /** The group of Settings last on screen. */
+  settingsTab: SettingsTab
   prLinks: PrLinkHost
   /** The colour theme. */
   theme: ThemeId
@@ -52,6 +55,7 @@ export function loadPreferences(): Preferences {
       expanded: Array.isArray(raw.expanded) ? raw.expanded.filter((id) => typeof id === 'string') : [],
       collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter((id) => typeof id === 'string') : [],
       page,
+      settingsTab: SETTINGS_TABS.find((tab) => tab === raw.settingsTab) ?? 'workspace',
       prLinks: raw.prLinks === 'graphite' ? 'graphite' : 'github',
       theme: themeOf(raw.theme).id,
       sounds: raw.sounds !== false,
@@ -79,6 +83,7 @@ function fresh(): Preferences {
     expanded: [],
     collapsed: [],
     page: 'mine',
+    settingsTab: 'workspace',
     prLinks: 'github',
     theme: DEFAULT_THEME,
     sounds: true,

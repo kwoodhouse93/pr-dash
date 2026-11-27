@@ -171,6 +171,8 @@ img.fav, .dot { flex: none; width: 14px; height: 14px; border-radius: 3px; }
 .num { flex: none; color: var(--faint); font-size: 11.5px; font-weight: 400; font-variant-numeric: tabular-nums; }
 .row.active .num { color: var(--muted); }
 .num.bad { color: var(--red); }
+/* Something in Settings wants putting right. */
+.attention { flex: none; width: 7px; height: 7px; margin-right: 3px; border-radius: 50%; background: var(--yellow); }
 .queue-status { flex: none; display: flex; align-items: center; gap: 5px; }
 .queue-status .num.active { color: var(--accent); }
 .queue-status .num.failed { color: var(--red); }

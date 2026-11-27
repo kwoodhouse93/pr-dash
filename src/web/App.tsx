@@ -21,7 +21,7 @@ import { PrLinksProvider } from './pr-links.tsx'
 import { MergeQueuePage } from './queue.tsx'
 import { AgentProvider } from './agent-launch.tsx'
 import { agentItems, AgentsPage } from './agents.tsx'
-import { SettingsPage } from './settings.tsx'
+import { SETTINGS_TABS, SettingsPage, settingsAttention } from './settings.tsx'
 import { fold, setSoundsEnabled } from './sounds.ts'
 import { pressBox, QUEUE_BUTTON, sendOff } from './send-off.ts'
 import { applyAnimations } from './animations.ts'
@@ -172,7 +172,7 @@ export function App() {
   // The desktop app pairs with T3 Code from a tab, and says so here, where the setting is kept.
   useEffect(() => {
     return onDesktopEvent(window, 'pr-dash:t3', (heard) => {
-      const detail = heard as { origin?: unknown; prompt?: unknown; failed?: unknown } | null
+      const detail = heard as { origin?: unknown; prompt?: unknown; failed?: unknown; show?: unknown } | null
       const origin = detail?.origin
       if (typeof origin === 'string') setPrefs((current) => ({ ...current, t3Origin: origin }))
       if (detail?.failed === true) {
@@ -182,6 +182,7 @@ export function App() {
         })
       }
       if (detail?.prompt === false) setPrefs((current) => ({ ...current, t3PairPrompt: false }))
+      if (detail?.show === true) setPrefs((current) => ({ ...current, page: 'settings', settingsTab: 'agents' }))
     })
   }, [])
   const viewPrefs = prefs.views[list]
@@ -233,6 +234,37 @@ export function App() {
   const [activity, setActivity] = useState<Activity | null>(null)
   // Kept here so Settings shows the last answer at once on a return visit, and asks again behind it.
   const [agentChecks, setAgentChecks] = useState<AgentChecks | null>(null)
+  const dashboardLoaded = data != null
+  // Asked once the dashboard has loaded, so the Settings button can say a provider wants a look before Settings is opened.
+  // Settings asks again each time its Agents group is shown.
+  useEffect(() => {
+    if (!dashboardLoaded) return
+    let stale = false
+    api
+      .agentChecks()
+      .then((next) => {
+        if (!stale) setAgentChecks((current) => current ?? next)
+      })
+      .catch(() => {})
+    return () => {
+      stale = true
+    }
+  }, [dashboardLoaded])
+  const wants = settingsAttention({
+    repos: data?.repos ?? [],
+    agentRouting: data?.agents,
+    agentChecks,
+    t3Origin: prefs.t3Origin,
+    t3PairPrompt: prefs.t3PairPrompt,
+    status: sync,
+  })
+  // The first group with something to put right, which is where the Settings button goes, and what it is.
+  const wantedTab = SETTINGS_TABS.find((tab) => wants[tab]) ?? null
+  const settingsWants = wantedTab ? (wants[wantedTab] ?? null) : null
+  // The desktop app's sidebar reads this off the page to mark its own Settings link.
+  useEffect(() => {
+    document.documentElement.dataset.settingsAttention = settingsWants ?? ''
+  }, [settingsWants])
   const activitySeen = useRef<Activity | null>(null)
   const loaded = data != null
   const onActivity = page === 'activity'
@@ -449,10 +481,11 @@ export function App() {
                   className="tool-btn"
                   aria-pressed={page === 'settings'}
                   aria-label="Settings"
-                  title="Settings"
-                  onClick={() => setPrefs((current) => ({ ...current, page: 'settings' }))}
+                  title={settingsWants ? `Settings · ${settingsWants}` : 'Settings'}
+                  onClick={() => setPrefs((current) => ({ ...current, page: 'settings', settingsTab: wantedTab ?? current.settingsTab }))}
                 >
                   <Icon name="settings" />
+                  {settingsWants ? <span className="pip waiting" /> : null}
                 </button>
               </div>
             </header>
@@ -480,6 +513,8 @@ export function App() {
             >
               {page === 'settings' ? (
                 <SettingsPage
+                  tab={prefs.settingsTab}
+                  onTab={(settingsTab) => setPrefs((current) => ({ ...current, settingsTab }))}
                   status={sync}
                   repos={data?.repos ?? []}
                   mineSyncedAt={data?.mineSyncedAt ?? null}
@@ -536,7 +571,6 @@ export function App() {
                   agentRouting={data?.agents}
                   agentChecks={agentChecks}
                   onAgentChecks={setAgentChecks}
-                  initiativeCount={initiatives.length}
                   t3Origin={prefs.t3Origin}
                   onT3Origin={(t3Origin) => setPrefs((current) => ({ ...current, t3Origin }))}
                   t3PairPrompt={prefs.t3PairPrompt}

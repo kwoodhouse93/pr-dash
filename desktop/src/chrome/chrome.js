@@ -343,6 +343,8 @@ function render() {
     $('queue-status').hidden = !queued
     $('queue-status').replaceChildren(...(queued ? queueStatus(state.queue) : []))
     $('settings-link').className = classes('row', onDashboard && state.dashboard === 'settings' && 'active')
+    $('settings-link').title = state.settingsAttention || ''
+    $('settings-attention').hidden = !state.settingsAttention
     $('agents-section').hidden = !anyAgents
     $('agents-note').textContent = agentNote()
     $('agents-clear').hidden = state.unread === 0

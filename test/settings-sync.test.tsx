@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SyncStatus } from '../src/web/api.ts'
-import { SettingsPage } from '../src/web/settings.tsx'
+import { SettingsPage, type SettingsTab } from '../src/web/settings.tsx'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -50,7 +50,7 @@ describe('settings sync queue', () => {
     vi.unstubAllGlobals()
   })
 
-  async function render(sync: SyncStatus | null, repos = ['acme/app']) {
+  async function render(sync: SyncStatus | null, repos = ['acme/app'], tab: SettingsTab = 'workspace') {
     const container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -60,6 +60,7 @@ describe('settings sync queue', () => {
     await act(async () => {
       root?.render(
         <SettingsPage
+          tab={tab}
           status={sync}
           repos={repos}
           mineSyncedAt={null}
@@ -88,8 +89,10 @@ describe('settings sync queue', () => {
     return [...document.querySelectorAll('button')].find((item) => item.textContent === name) as HTMLButtonElement | undefined
   }
 
-  it('queues a full sync while another sync is running and disables a kind that is already waiting', async () => {
-    const view = await render(
+  const renderSync = (sync: SyncStatus | null, repos?: string[]) => render(sync, repos, 'sync')
+
+  it('queues a sync while another is running, and takes one that is waiting back out', async () => {
+    const view = await renderSync(
       status({
         running: true,
         message: 'Fetching your pull requests',
@@ -98,17 +101,16 @@ describe('settings sync queue', () => {
       }),
     )
 
-    expect(button('Full sync queued')?.disabled).toBe(true)
-    expect(button('Queue ruleset sync')?.disabled).toBe(false)
-    button('Queue ruleset sync')?.click()
+    button('Sync rulesets')?.click()
     expect(view.queued).toEqual(['rules'])
-    expect(document.body.textContent).toContain('List refresh')
-    expect(document.body.textContent).toContain('Fetching your pull requests')
-    expect(document.body.textContent).toContain('Up next · Full sync')
+    expect(document.querySelector('.sync-what')?.textContent).toBe('List refresh · Fetching your pull requests')
+    // The sync that is waiting shows on its own button, which takes it back out of the queue.
+    button('Full sync queued')?.click()
+    expect(view.cancelled).toEqual(['sync-2'])
   })
 
   it('shows recent full and ruleset syncs and cancels the running one', async () => {
-    const view = await render(
+    const view = await renderSync(
       status({
         running: true,
         message: 'Reading rulesets',
@@ -132,11 +134,31 @@ describe('settings sync queue', () => {
   })
 
   it('leaves both syncs available when nothing is queued', async () => {
-    await render(status(), [])
+    await renderSync(status(), [])
     expect(button('Full sync')?.disabled).toBe(true)
     expect(button('Sync rulesets')?.disabled).toBe(true)
-    expect(document.body.textContent).toContain('Nothing running.')
+    expect(document.querySelector('.sync-what')?.textContent).toBe('Idle. Lists refresh about every minute.')
     expect(document.body.textContent).toContain('No full or ruleset syncs yet.')
+  })
+
+  it('shows one group at a time, and marks a group only when something in it wants putting right', async () => {
+    await render(status({ running: true, activity: { id: 'sync-1', kind: 'list' } }))
+    const tabs = () => [...document.querySelectorAll('.settings-rail button')]
+    // Without the agents there is no such group.
+    expect(tabs().map((tab) => [tab.querySelector('.rail-name')?.textContent, tab.getAttribute('aria-pressed')])).toEqual([
+      ['Workspace', 'true'],
+      ['Appearance', 'false'],
+      ['Sync', 'false'],
+    ])
+    expect([...document.querySelectorAll('.panel h2')].map((heading) => heading.textContent)).toEqual(['Repositories', 'Pull requests'])
+    // A sync that is running is the dashboard at work, so it marks nothing.
+    expect(document.querySelector('.rail-dot')).toBeNull()
+    act(() => root?.unmount())
+    const base = status()
+    await renderSync({ ...base, graphql: { ...base.graphql, paused: true, message: 'Paused until 17:14' } })
+    expect([...document.querySelectorAll('.panel h2')].map((heading) => heading.textContent)).toEqual(['Sync'])
+    expect(tabs()[2]?.querySelector('.rail-dot')?.getAttribute('aria-label')).toBe('List refreshes are paused')
+    expect(document.querySelector('.sync-warn')?.textContent).toBe('Paused until 17:14')
   })
 
   it('lists the repositories that sync with the age of their rules, and asks before removing one', async () => {

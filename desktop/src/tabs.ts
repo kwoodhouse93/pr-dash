@@ -177,6 +177,8 @@ export class Tabs {
   private readonly visited: number[] = []
   private fetching = false
   private queue: QueueSummary | null = null
+  /** What in Settings wants putting right, as the dashboard page puts it. Empty when nothing does. */
+  private settingsAttention = ''
   private fetchingQueue = false
   // The shell's own page draws the icon, since it is the one page that is always there.
   private readonly dockIcon = new DockIcon((svg) => this.chrome.webContents.executeJavaScript(`(${RASTERIZE})(${JSON.stringify(svg)})`) as Promise<string>)
@@ -485,7 +487,11 @@ export class Tabs {
   private async readPrefs() {
     const contents = this.dash
     if (contents.isDestroyed() || contents.isLoading()) return
-    const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
+    // The page also says, on its root element, what in Settings wants putting right, if anything.
+    const [raw, attention] = (await contents.executeJavaScript(
+      `[localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)}), document.documentElement.dataset.settingsAttention ?? '']`,
+    )) as [unknown, unknown]
+    this.settingsAttention = typeof attention === 'string' ? attention : ''
     if (typeof raw !== 'string') return
     const { views, sort, theme, animations, t3Origin, t3PairPrompt } = JSON.parse(raw) as {
       views?: Record<string, { flat?: unknown } | undefined>
@@ -648,7 +654,10 @@ export class Tabs {
   private async pairingAction(tab: Tab, action: T3PromptAction) {
     const contents = this.awake(tab).webContents
     const update = (change: Parameters<typeof t3PromptUpdate>[0]) => contents.executeJavaScript(t3PromptUpdate(change)).catch(() => undefined)
-    if (action === 'settings') return this.showDashboard('settings')
+    if (action === 'settings') {
+      this.showDashboard('settings')
+      return this.tellDashboard({ show: true })
+    }
     if (action === 'never') {
       this.prefs = { ...this.prefs, t3PairPrompt: false }
       this.tellDashboard({ prompt: false })
@@ -1186,6 +1195,7 @@ export class Tabs {
       width: this.sidebar.width,
       dashboard: dashboardPage(this.dashboard.url),
       queue: this.queue,
+      settingsAttention: this.settingsAttention,
       grouping: GROUPINGS.find((item) => item.value === this.sidebar.grouping)!.label,
       earlierOpen: this.sidebar.earlierOpen,
       activeId: this.activeId,
