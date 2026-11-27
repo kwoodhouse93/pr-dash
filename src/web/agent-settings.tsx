@@ -175,8 +175,10 @@ export function AgentSettingsPanel({
   const environments = checks?.t3.environments ?? []
   const remote = startsRemotely(rows, routing)
   const unconnected = checks !== null && remote && !checks.t3.connectedUntil
+  // Why T3 Code could not say what it is linked to. What was chosen stays on show, since nothing says it is gone.
+  const unlisted = checks?.t3.environmentsProblem ?? null
   // Before T3 Code has said what it is linked to, an environment already chosen somewhere shows there are some.
-  const choosing = environments.length > 0 || (checks === null && (fallback !== null || rows.some((row) => row.environmentId !== null)))
+  const choosing = environments.length > 0 || ((checks === null || unlisted !== null) && (fallback !== null || rows.some((row) => row.environmentId !== null)))
 
   return (
     <section className="panel agent-settings">
@@ -226,8 +228,9 @@ export function AgentSettingsPanel({
             ) : null}
             {id === 't3' && (choosing || fallback) ? (
               <T3Environments
-                t3={{ connectedUntil: checks?.t3.connectedUntil ?? null, environments, defaultEnvironmentId: fallback }}
+                t3={{ connectedUntil: checks?.t3.connectedUntil ?? null, environments, environmentsProblem: unlisted, defaultEnvironmentId: fallback }}
                 unknown={checks === null}
+                unlisted={unlisted}
                 running={running}
                 needed={remote}
                 busy={busy}
@@ -261,6 +264,7 @@ export function AgentSettingsPanel({
                 environments={environments}
                 choosing={choosing}
                 unknown={checks === null}
+                unlisted={unlisted !== null}
                 fallback={fallback}
                 busy={busy}
                 onSave={(agent) => save(() => api.setRepoAgent(row.repo, agent))}
@@ -282,6 +286,7 @@ type Pairing = 'paired' | 'stale' | 'unpaired'
 function T3Environments({
   t3,
   unknown,
+  unlisted,
   running,
   needed,
   busy,
@@ -292,6 +297,8 @@ function T3Environments({
   t3: T3Setup
   /** T3 Code has not answered yet, so what it is linked to and whether PR Dash is signed in are not known. */
   unknown: boolean
+  /** Why T3 Code could not say what it is linked to, or null. */
+  unlisted: string | null
   running: string | null
   /** Some repository's threads start on another environment, so being signed out is flagged. */
   needed: boolean
@@ -363,10 +370,13 @@ function T3Environments({
             </option>
           ))}
           {t3.defaultEnvironmentId && !chosen ? (
-            <option value={t3.defaultEnvironmentId}>{unknown ? 'Checking…' : 'An environment that is no longer linked'}</option>
+            <option value={t3.defaultEnvironmentId}>
+              {unknown ? 'Checking…' : unlisted ? 'The environment chosen before' : 'An environment that is no longer linked'}
+            </option>
           ) : null}
         </select>
       </div>
+      {unlisted ? <p className="agent-provider-line agent-problem">T3 Code could not say what it is linked to: {unlisted}</p> : null}
       {chosen && !chosen.reachable && chosen.detail ? <p className="agent-provider-line agent-problem">{chosen.detail}</p> : null}
       {/* Threads on this machine need no sign-in, so it is only spoken of once it exists or something needs it. */}
       {connected || needed ? (
@@ -552,6 +562,7 @@ function RepoRow({
   environments,
   choosing,
   unknown,
+  unlisted,
   fallback,
   busy,
   onSave,
@@ -565,6 +576,8 @@ function RepoRow({
   choosing: boolean
   /** T3 Code has not said yet what it is linked to. */
   unknown: boolean
+  /** T3 Code could not say what it is linked to, so an environment that is not listed may still be linked. */
+  unlisted: boolean
   /** Where threads start when this repository does not say. Null is this machine. */
   fallback: string | null
   busy: boolean
@@ -631,7 +644,7 @@ function RepoRow({
             </option>
           ))}
           {row.environmentId && row.environmentId !== LOCAL_ENVIRONMENT && !environments.some((item) => item.id === row.environmentId) ? (
-            <option value={row.environmentId}>{unknown ? 'Checking…' : 'No longer linked'}</option>
+            <option value={row.environmentId}>{unknown ? 'Checking…' : unlisted ? 'Chosen before' : 'No longer linked'}</option>
           ) : null}
         </select>
       ) : null}
@@ -650,7 +663,7 @@ function RepoRow({
               data-missing=""
               title="Shown once PR Dash is connected to T3 Code and that environment has a project for this repository."
             >
-              No project found on {environment?.label ?? 'that environment'}
+              {unlisted ? 'Could not check' : `No project found on ${environment?.label ?? 'that environment'}`}
             </span>
           )}
           <span className="agent-folder-actions" />

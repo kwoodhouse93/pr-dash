@@ -86,6 +86,8 @@ export type AgentChecks = {
     connectedUntil: string | null
     /** The environments the T3 Code on this machine is linked to. */
     environments: T3Environment[]
+    /** Why T3 Code could not say what it is linked to, or null. While set, `environments` is empty and says nothing about the links. */
+    environmentsProblem: string | null
   }
   /** What T3 Code said about each repository, for the environment and folder it had then. */
   repos: Record<

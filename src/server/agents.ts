@@ -78,10 +78,18 @@ async function readyOtherThan(id: AgentProviderId): Promise<AgentProviderId | nu
 export async function agentChecks(db: DashboardDb): Promise<AgentChecks> {
   const agents = db.repoAgents()
   const fallback = db.defaultEnvironment()
-  const [projects, environments] = await Promise.all([
+  const [projects, links] = await Promise.all([
     t3ProjectsByRepo().catch(() => new Map<string, T3Project>()),
-    t3Environments().catch((): T3Environment[] => []),
+    // A failure is kept apart from an empty list: not being able to ask does not mean nothing is linked.
+    t3Environments().then(
+      (environments) => ({ environments, problem: null }),
+      (error): { environments: T3Environment[]; problem: string | null } => ({
+        environments: [],
+        problem: error instanceof Error ? error.message : String(error),
+      }),
+    ),
   ])
+  const { environments } = links
   const connectedUntil = t3ConnectedUntil()
   // The projects of each environment a repository runs in. One that cannot be asked reads as having none.
   const inUse = new Set(db.watchedRepos().flatMap((repo) => environmentFor(fallback, agents.get(repo)?.environmentId ?? null) ?? []))
@@ -128,5 +136,5 @@ export async function agentChecks(db: DashboardDb): Promise<AgentChecks> {
       }),
     ),
   ])
-  return { t3Origin: t3Origin(), providers, t3: { connectedUntil, environments }, repos: Object.fromEntries(repos) }
+  return { t3Origin: t3Origin(), providers, t3: { connectedUntil, environments, environmentsProblem: links.problem }, repos: Object.fromEntries(repos) }
 }

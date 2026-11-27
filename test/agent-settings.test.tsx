@@ -50,7 +50,7 @@ function checks(patch: Partial<AgentChecks> = {}): AgentChecks {
       { id: 'cursor', health: { state: 'unconfigured', detail: 'Set CURSOR_API_KEY on the server to start Cursor agents.' } },
       { id: 't3', health: { state: 'ready', detail: 't3 v0.1.10' } },
     ],
-    t3: { connectedUntil: null, environments: [] },
+    t3: { connectedUntil: null, environments: [], environmentsProblem: null },
     repos: {
       'acme/app': { environmentId: null, project: null, checkout: null, checkoutProblem: null },
       'acme/web': { environmentId: null, project: null, checkout: '~/code/web', checkoutProblem: 'T3 Code has no project for ~/code/web.' },
@@ -208,7 +208,7 @@ describe('agent settings and launch', () => {
   })
 
   it('picks where threads start, for every repository and for one', async () => {
-    vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox] } }))
+    vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox], environmentsProblem: null } }))
     vi.mocked(api.setDefaultEnvironment).mockResolvedValue({} as Snapshot)
     vi.mocked(api.setRepoAgent).mockResolvedValue({} as Snapshot)
     await render(<Panel />)
@@ -231,7 +231,7 @@ describe('agent settings and launch', () => {
   it('shows the project a repository has on another environment, and no folder to set', async () => {
     vi.mocked(api.agentChecks).mockResolvedValue(
       checks({
-        t3: { connectedUntil: null, environments: [devbox] },
+        t3: { connectedUntil: null, environments: [devbox], environmentsProblem: null },
         repos: {
           'acme/api': { environmentId: 'env-1', project: { title: 'api', folder: '/data/code/api' }, checkout: null, checkoutProblem: null },
           'acme/web': { environmentId: 'env-1', project: null, checkout: '~/code/web', checkoutProblem: null },
@@ -256,9 +256,24 @@ describe('agent settings and launch', () => {
     expect(document.querySelector('.agent-connection[data-state="unconnected"][data-flagged]')?.textContent).toBe('Threads on other machines: not connected')
   })
 
+  it('keeps what was chosen on show, and says why, when T3 Code cannot say what it is linked to', async () => {
+    vi.mocked(api.agentChecks).mockResolvedValue(
+      checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [], environmentsProblem: 'T3 Code did not answer in time.' } }),
+    )
+    await render(<Panel routing={routing({ defaultEnvironmentId: 'env-1', environments: { 'acme/api': 'local' } })} />)
+    const fallback = document.querySelector<HTMLSelectElement>('[aria-label="Where T3 Code threads start"]')
+    // Not being able to ask is not the same as the link being gone.
+    expect(fallback?.selectedOptions[0]?.textContent).toBe('The environment chosen before')
+    expect(fallback?.disabled).toBe(false)
+    expect(document.body.textContent).toContain('T3 Code could not say what it is linked to: T3 Code did not answer in time.')
+    expect(document.body.textContent).not.toMatch(/no longer linked/i)
+    // Each repository still says where it runs, and can be moved.
+    expect(document.querySelectorAll('.agent-repo [aria-label^="Where T3 Code threads start"]').length).toBe(2)
+  })
+
   it('speaks of its sign-in to T3 Code only once a thread somewhere else needs it', async () => {
     // Everything runs on this machine, which needs no sign-in, so being without one is not mentioned.
-    vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: null, environments: [devbox] } }))
+    vi.mocked(api.agentChecks).mockResolvedValue(checks({ t3: { connectedUntil: null, environments: [devbox], environmentsProblem: null } }))
     await render(<Panel />)
     expect(document.querySelector('[aria-label="Where T3 Code threads start"]')).not.toBeNull()
     expect(document.querySelector('.agent-connection')).toBeNull()
@@ -266,8 +281,8 @@ describe('agent settings and launch', () => {
   })
 
   const onDevbox = () => routing({ defaultEnvironmentId: 'env-1' })
-  const signedOut = () => checks({ t3: { connectedUntil: null, environments: [devbox] } })
-  const signedIn = () => checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox] } })
+  const signedOut = () => checks({ t3: { connectedUntil: null, environments: [devbox], environmentsProblem: null } })
+  const signedIn = () => checks({ t3: { connectedUntil: '2026-12-27T10:00:00Z', environments: [devbox], environmentsProblem: null } })
 
   it('in a browser, opens the approval page, puts the pairing code on the clipboard and says so', async () => {
     vi.mocked(api.agentChecks).mockResolvedValue(signedOut())

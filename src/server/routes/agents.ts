@@ -78,7 +78,9 @@ export const agentRoutes: Routes = (app, db, { loopbackOnly, address }) => {
 
 /** The id, once T3 Code says it is linked to that environment. */
 async function linkedEnvironment(id: unknown): Promise<string> {
-  const linked = await t3Environments().catch(() => [])
+  const linked = await t3Environments().catch((error) => {
+    throw new Refused(`T3 Code could not say what it is linked to: ${messageOf(error)}`, 503)
+  })
   if (typeof id !== 'string' || !linked.some((environment) => environment.id === id)) throw new Refused('Pick an environment T3 Code is linked to.')
   return id
 }

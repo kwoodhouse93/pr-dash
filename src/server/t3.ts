@@ -8,7 +8,7 @@ import { environmentName, sessionNote, type AgentHealth, type T3Environment } fr
 import type { AgentSession, AgentSessionStatus } from '../shared/types.ts'
 import { AgentUnavailable, newSession, type AgentProvider, type AgentStart } from './agent-provider.ts'
 import { T3_HOME, t3Origin } from './t3-home.ts'
-import { T3ToolError, t3Tool } from './t3-mcp.ts'
+import { T3ToolError, t3ConnectedUntil, t3Tool } from './t3-mcp.ts'
 
 /** What `t3 thread show --json` prints, as far as this reads it. */
 export type T3Thread = {
@@ -166,12 +166,11 @@ function t3Status(thread: NonNullable<T3Thread['thread']>): AgentSessionStatus {
   }
 }
 
-/** Each environment the T3 Code on this machine is linked to, and whether it answers now. */
-export async function t3Environments(): Promise<T3Environment[]> {
-  const listed = parseJson<unknown>(await t3(['environment', 'list', '--json'], { timeoutMs: 20_000 }))
-  if (!Array.isArray(listed)) return []
-  return listed.flatMap((item) => {
-    const link = item as { environmentId?: unknown; label?: unknown; urls?: unknown; status?: unknown; lastError?: unknown }
+type Link = { environmentId?: unknown; label?: unknown; urls?: unknown; status?: unknown; lastError?: unknown }
+
+function linked(items: unknown[]): T3Environment[] {
+  return items.flatMap((item) => {
+    const link = item as Link
     if (typeof link.environmentId !== 'string') return []
     const reachable = link.status === 'reachable'
     const said = typeof link.lastError === 'string' && link.lastError ? link.lastError : typeof link.status === 'string' ? link.status : null
@@ -185,6 +184,21 @@ export async function t3Environments(): Promise<T3Environment[]> {
       },
     ]
   })
+}
+
+/**
+ * Each environment the T3 Code on this machine is linked to, and whether it answers now. Throws when T3 Code
+ * cannot be asked: an empty list means it is linked to none, which is not the same thing.
+ */
+export async function t3Environments(): Promise<T3Environment[]> {
+  // Signed in, PR Dash asks T3 Code's server, as it does to start a thread there. The command is the way without a sign-in.
+  if (t3ConnectedUntil()) {
+    const asked = await t3Tool<{ links?: unknown }>('t3_environment_links', {}, 20_000).catch(() => null)
+    if (Array.isArray(asked?.links)) return linked(asked.links)
+  }
+  const listed = parseJson<unknown>(await t3(['environment', 'list', '--json'], { timeoutMs: 20_000 }))
+  if (!Array.isArray(listed)) throw new Error('T3 Code listed its environments in a form PR Dash cannot read.')
+  return linked(listed)
 }
 
 function hostOf(url: unknown): string | null {
