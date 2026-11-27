@@ -136,20 +136,60 @@ describe('refreshing sessions', () => {
     expect(saved[0]).toMatchObject({ status: 'finished', unreachableSince: null })
   })
 
-  it('leaves finished sessions alone, and a session alone when its read fails for another reason', async () => {
+  it('leaves a session alone when its read fails for another reason', async () => {
     const saved: AgentSession[] = []
     const broken = provider('t3', async () => {
       throw new Error('unreadable')
     })
-    await refreshSessions(
-      { t3: broken, cursor: broken },
-      [
-        { prKey: 'acme/app#1', session: session({ status: 'finished' }) },
-        { prKey: 'acme/app#2', session: session({ status: 'running' }) },
-      ],
-      (_key, next) => saved.push(next),
-    )
+    await refreshSessions({ t3: broken, cursor: broken }, [{ prKey: 'acme/app#2', session: session({ status: 'running' }) }], (_key, next) => saved.push(next))
     expect(saved).toHaveLength(0)
+  })
+
+  describe('a session that ended', () => {
+    const at = Date.parse('2026-11-21T10:00:00Z')
+    const ended = session({ status: 'finished', result: 'Done.' })
+
+    it('is picked up again when its thread is continued', async () => {
+      const saved: AgentSession[] = []
+      const continued = provider('t3', async (current) => ({ ...current, status: 'running', runId: 'run-2', updatedAt: '2026-11-21T10:00:00Z' }))
+      await refreshSessions({ t3: continued, cursor: continued }, [{ prKey: 'acme/app#1', session: ended }], (_key, next) => saved.push(next), at)
+      expect(saved).toHaveLength(1)
+      expect(saved[0]).toMatchObject({ status: 'running', runId: 'run-2', result: 'Done.' })
+    })
+
+    it('is not saved when nothing changed, so it keeps the time it last changed', async () => {
+      const saved: AgentSession[] = []
+      const still = provider('t3', async (current) => ({ ...current, updatedAt: '2026-11-21T10:00:00Z' }))
+      await refreshSessions({ t3: still, cursor: still }, [{ prKey: 'acme/app#1', session: ended }], (_key, next) => saved.push(next), at)
+      expect(saved).toHaveLength(0)
+    })
+
+    it('is not read once it is a week old, or once its thread is gone', async () => {
+      let reads = 0
+      const counting = provider('t3', async (current) => {
+        reads += 1
+        return current
+      })
+      await refreshSessions(
+        { t3: counting, cursor: counting },
+        [
+          { prKey: 'acme/app#1', session: session({ status: 'finished', updatedAt: '2026-11-14T09:00:00Z' }) },
+          { prKey: 'acme/app#2', session: session({ status: 'expired' }) },
+        ],
+        () => undefined,
+        at,
+      )
+      expect(reads).toBe(0)
+    })
+
+    it('is not marked out of date when its provider does not answer', async () => {
+      const saved: AgentSession[] = []
+      const down = provider('t3', async () => {
+        throw new AgentUnavailable('unreachable', 'down')
+      })
+      await refreshSessions({ t3: down, cursor: down }, [{ prKey: 'acme/app#1', session: ended }], (_key, next) => saved.push(next), at)
+      expect(saved).toHaveLength(0)
+    })
   })
 })
 

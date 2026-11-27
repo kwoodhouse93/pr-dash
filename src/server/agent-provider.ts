@@ -60,27 +60,49 @@ export function newSession(
   }
 }
 
+/** How long after a session last changed its thread may still be continued and seen here. */
+const CONTINUED_MS = 7 * 24 * 60 * 60 * 1000
+
 /**
  * Reads every active session again. A provider that does not answer leaves the
  * session as it was and marks when it stopped answering, so a session is never
  * called failed because its provider was out of reach.
+ *
+ * A session that ended is read too while it is recent, because its thread can be
+ * continued from the provider's own app. It is saved only when the read differs,
+ * so `updatedAt` stays the time it last changed and it ages out of these reads.
  */
 export async function refreshSessions(
   providers: Record<AgentProviderId, AgentProvider>,
   sessions: { prKey: string; session: AgentSession }[],
   save: (prKey: string, session: AgentSession) => void,
+  now = Date.now(),
 ): Promise<void> {
-  const active = sessions.filter((item) => sessionActive(item.session.status))
+  const due = sessions.filter(({ session }) => sessionActive(session.status) || (session.status !== 'expired' && now - Date.parse(session.updatedAt) < CONTINUED_MS))
   await Promise.all(
-    active.map(async ({ prKey, session }) => {
+    due.map(async ({ prKey, session }) => {
+      const ended = !sessionActive(session.status)
       try {
-        save(prKey, { ...(await providers[session.provider].read(session)), unreachableSince: null })
+        const next = await providers[session.provider].read(session)
+        if (ended && same(session, next)) return
+        save(prKey, { ...next, unreachableSince: null })
       } catch (error) {
-        if (error instanceof AgentUnavailable && !session.unreachableSince) {
+        // What an ended session last said still stands when its provider is out of reach.
+        if (!ended && error instanceof AgentUnavailable && !session.unreachableSince) {
           save(prKey, { ...session, unreachableSince: new Date().toISOString() })
         }
         // Anything else keeps the last status. The next refresh tries again.
       }
     }),
+  )
+}
+
+function same(before: AgentSession, after: AgentSession): boolean {
+  return (
+    before.status === after.status &&
+    before.runId === after.runId &&
+    before.result === after.result &&
+    before.branch === after.branch &&
+    before.url === after.url
   )
 }
