@@ -256,7 +256,13 @@ export class Tabs {
     session.webRequest.onBeforeRequest(
       { urls: [`${apiOrigin}/*`, 'https://linear.app/*', 'http://127.0.0.1/linear/*', 'http://localhost/linear/*'] },
       (details, done) => {
-        if (details.url.startsWith(`${apiOrigin}/`)) return done({ cancel: details.webContentsId !== this.dash.id })
+        if (details.url.startsWith(`${apiOrigin}/`)) {
+          // Only the dashboard's own page may reach its server, which acts with the user's GitHub token.
+          // The one way in for a tab is the page T3 Code sends it to with the answer to a sign-in: that page
+          // is outside the API, and does nothing without the secret the sign-in was started with.
+          const answer = details.resourceType === 'mainFrame' && details.method === 'GET' && connectAnswer(details.url, dashboardUrl) !== null
+          return done({ cancel: details.webContentsId !== this.dash.id && !answer })
+        }
         if (!details.url.startsWith('https://linear.app/')) return done({ cancel: true })
         const stay = details.resourceType === 'mainFrame' && details.method === 'GET' ? linearStayUrl(details.url) : null
         done(stay ? { redirectURL: stay } : {})
