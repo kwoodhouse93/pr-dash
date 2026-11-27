@@ -36,11 +36,16 @@ const PAGE_MIN = 320
 const ZOOM_LIMIT = 4
 const SNAPSHOT_INTERVAL_MS = 30_000
 const QUEUE_INTERVAL_MS = 2_000
+const REST_AFTER_MS = 30 * 60_000
+const REST_CHECK_MS = 60_000
 const PREFERENCES_KEY = 'pr-dash.preferences.v1'
 
 type Tab = {
   id: number
-  view: WebContentsView
+  /** The tab's page, or null while it is put away: every page is a process of its own, so only tabs in use keep one. */
+  view: WebContentsView | null
+  /** When the tab was last looked at, or was opened if it has not been. */
+  usedAt: number
   pinned: boolean
   title: string
   favicon: string | null
@@ -59,8 +64,18 @@ type Tab = {
   landedAt: number | null
 }
 
-/** `parents` holds, for each address, the index of the tab it was opened from, and `origins` the pull request it came from. */
-export type SavedTabs = { urls: string[]; active: number; parents?: (number | null)[]; origins?: (string | null)[] }
+/**
+ * `parents` holds, for each address, the index of the tab it was opened from, and `origins` the pull request it came from.
+ * `titles` and `favicons` are what each tab showed last, which name it until its page is loaded again.
+ */
+export type SavedTabs = {
+  urls: string[]
+  active: number
+  parents?: (number | null)[]
+  origins?: (string | null)[]
+  titles?: (string | null)[]
+  favicons?: (string | null)[]
+}
 
 export type SidebarState = { open: boolean; width: number; grouping: Grouping; collapsed: string[]; earlierOpen: boolean; linearByProject: boolean }
 
@@ -101,7 +116,7 @@ function isWebUrl(url: string): boolean {
 
 /** Where a tab is now, or where it is headed while its first page loads, as an address to hand on. */
 function linkOf(tab: Tab): string {
-  return shareUrl(tab.view.webContents.getURL() || tab.url)
+  return shareUrl(tab.view?.webContents.getURL() || tab.url)
 }
 
 // One window: the tab strip on top, the active tab's page below. The first
@@ -206,7 +221,7 @@ export class Tabs {
     session.webRequest.onBeforeRequest(
       { urls: [`${apiOrigin}/*`, 'https://linear.app/*', 'http://127.0.0.1/linear/*', 'http://localhost/linear/*'] },
       (details, done) => {
-        if (details.url.startsWith(`${apiOrigin}/`)) return done({ cancel: details.webContentsId !== dashboard.view.webContents.id })
+        if (details.url.startsWith(`${apiOrigin}/`)) return done({ cancel: details.webContentsId !== this.dash.id })
         if (!details.url.startsWith('https://linear.app/')) return done({ cancel: true })
         const stay = details.resourceType === 'mainFrame' && details.method === 'GET' ? linearStayUrl(details.url) : null
         done(stay ? { redirectURL: stay } : {})
@@ -224,9 +239,11 @@ export class Tabs {
     const poll = setInterval(() => void this.refresh(), SNAPSHOT_INTERVAL_MS)
     // The queue moves on its own while a merge runs, so it is read more often than the snapshot.
     const queuePoll = setInterval(() => void this.refreshQueue(), QUEUE_INTERVAL_MS)
+    const rest = setInterval(() => this.rest(), REST_CHECK_MS)
     win.on('closed', () => {
       clearInterval(poll)
       clearInterval(queuePoll)
+      clearInterval(rest)
     })
     void this.refresh()
     void this.refreshQueue()
@@ -255,7 +272,7 @@ export class Tabs {
 
   /** Zooms the strip and sidebar when they have the keyboard, and the page otherwise. Null goes back to actual size. */
   zoom(step: number | null) {
-    const target = this.chrome.webContents.isFocused() ? this.chrome.webContents : this.active.view.webContents
+    const target = this.chrome.webContents.isFocused() ? this.chrome.webContents : this.page
     target.setZoomLevel(step === null ? 0 : Math.max(-ZOOM_LIMIT, Math.min(ZOOM_LIMIT, target.getZoomLevel() + step)))
     this.layout()
   }
@@ -264,7 +281,7 @@ export class Tabs {
   // It keeps its own scroll position for each, so this only asks it to switch.
   private showDashboard(page: DashboardPage) {
     this.activate(this.dashboard.id)
-    const contents = this.dashboard.view.webContents
+    const contents = this.dash
     if (page === 'list' && dashboardPage(this.dashboard.url) === 'list') return
     void contents.executeJavaScript(raiseInPage('pr-dash:page', page)).catch(() => undefined)
   }
@@ -304,7 +321,7 @@ export class Tabs {
     this.overlay = on
     this.layout()
     if (on) this.chrome.webContents.focus()
-    else this.active.view.webContents.focus()
+    else this.page.focus()
   }
 
   // A task flies from where it was started on the dashboard to where its agent is listed in the strip's
@@ -313,9 +330,9 @@ export class Tabs {
   // and the strip can be zoomed apart, so a place is turned from one's units to the other's here.
   private sendOff(opened: Tab, starting: StartingAgent) {
     if (!starting.from || this.activeId !== this.dashboard.id) return
-    const page = this.dashboard.view.webContents.getZoomFactor()
+    const page = this.dash.getZoomFactor()
     const own = this.chrome.webContents.getZoomFactor()
-    const bounds = this.dashboard.view.getBounds()
+    const bounds = this.awake(this.dashboard).getBounds()
     const box = starting.from
     this.chrome.webContents.send('flight', {
       key: `starting:${opened.id}`,
@@ -333,9 +350,9 @@ export class Tabs {
       at = read.at
       const box = read.to
       if (box && [box.x, box.y, box.width, box.height].every((part) => typeof part === 'number' && Number.isFinite(part))) {
-        const page = this.dashboard.view.webContents.getZoomFactor()
+        const page = this.dash.getZoomFactor()
         const own = this.chrome.webContents.getZoomFactor()
-        const bounds = this.dashboard.view.getBounds()
+        const bounds = this.awake(this.dashboard).getBounds()
         const [x, y, width, height] = [box.x, box.y, box.width, box.height] as number[]
         to = { x: (x! * own - bounds.x) / page, y: (y! * own - bounds.y) / page, width: (width! * own) / page, height: (height! * own) / page }
       }
@@ -343,7 +360,7 @@ export class Tabs {
       return
     }
     if (typeof at !== 'number' || !Number.isFinite(at)) return
-    void this.dashboard.view.webContents.executeJavaScript(raiseInPage('pr-dash:flight', { to, at })).catch(() => undefined)
+    void this.dash.executeJavaScript(raiseInPage('pr-dash:flight', { to, at })).catch(() => undefined)
   }
 
   private model(): SidebarModel {
@@ -433,7 +450,7 @@ export class Tabs {
 
   // How the dashboard groups its lists lives in the dashboard page's own storage.
   private async readPrefs() {
-    const contents = this.dashboard.view.webContents
+    const contents = this.dash
     if (contents.isDestroyed() || contents.isLoading()) return
     const raw: unknown = await contents.executeJavaScript(`localStorage.getItem(${JSON.stringify(PREFERENCES_KEY)})`)
     if (typeof raw !== 'string') return
@@ -461,13 +478,13 @@ export class Tabs {
     if (theme.id === this.theme.id) return
     this.theme = theme
     this.win.setBackgroundColor(theme.bg)
-    for (const tab of this.tabs) tab.view.setBackgroundColor(theme.bg)
+    for (const tab of this.tabs) tab.view?.setBackgroundColor(theme.bg)
     this.onChange()
   }
 
   /** Tells the dashboard page, which keeps these settings, about a change made from a tab. */
   private tellDashboard(detail: DesktopEvents['pr-dash:t3']) {
-    void this.dashboard.view.webContents.executeJavaScript(raiseInPage('pr-dash:t3', detail)).catch(() => undefined)
+    void this.dash.executeJavaScript(raiseInPage('pr-dash:t3', detail)).catch(() => undefined)
   }
 
   /**
@@ -490,7 +507,7 @@ export class Tabs {
 
   /** Lays the note about pairing over T3 Code's hand-off page, unless this app is paired or the user said not to ask. */
   private offerPairing(tab: Tab) {
-    const contents = tab.view.webContents
+    const contents = this.awake(tab).webContents
     if (!isT3Handoff(contents.getURL()) || this.prefs.t3Origin || this.prefs.t3PairPrompt === false) return
     void contents
       .insertCSS(T3_PROMPT_CSS)
@@ -499,7 +516,7 @@ export class Tabs {
   }
 
   private async pairingAction(tab: Tab, action: T3PromptAction) {
-    const contents = tab.view.webContents
+    const contents = this.awake(tab).webContents
     const update = (change: Parameters<typeof t3PromptUpdate>[0]) => contents.executeJavaScript(t3PromptUpdate(change)).catch(() => undefined)
     if (action === 'settings') return this.showDashboard('settings')
     if (action === 'never') {
@@ -511,7 +528,7 @@ export class Tabs {
     await update({ busy: true })
     try {
       // The dashboard page asks its own server, which only makes a pairing link for a page of its own.
-      const made = (await this.dashboard.view.webContents.executeJavaScript(
+      const made = (await this.dash.executeJavaScript(
         `fetch('/api/agents/t3/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(async (res) => ({ ok: res.ok, body: await res.json().catch(() => ({})) }))`,
       )) as { ok: boolean; body: { pairUrl?: unknown; origin?: unknown; error?: unknown } }
       const { pairUrl, origin } = made.body
@@ -589,6 +606,16 @@ export class Tabs {
     return this.tabs[0]!
   }
 
+  /** The dashboard's page, which is never put away. */
+  private get dash(): WebContents {
+    return this.awake(this.dashboard).webContents
+  }
+
+  /** The page being looked at. */
+  private get page(): WebContents {
+    return this.awake(this.active).webContents
+  }
+
   open(url: string, options: { background?: boolean; after?: Tab; reuse?: boolean } = {}) {
     if (isAppLink(url)) return void shell.openExternal(url)
     if (!isWebUrl(url)) return
@@ -596,7 +623,10 @@ export class Tabs {
     const existing = options.reuse ? this.showing(url) : null
     if (existing) {
       // A link to a place inside the pull request still has to land there.
-      if (existing.url !== url && prRef(url)?.bare === false) void existing.view.webContents.loadURL(url).catch(() => undefined)
+      if (existing.url !== url && prRef(url)?.bare === false) {
+        if (existing.view) void existing.view.webContents.loadURL(url).catch(() => undefined)
+        else existing.url = existing.placedUrl = url
+      }
       if (!options.background) this.activate(existing.id)
       return
     }
@@ -627,28 +657,37 @@ export class Tabs {
 
   restore(saved: SavedTabs | null) {
     if (!saved) return
-    const made = saved.urls.map((url) => (isWebUrl(url) ? this.create(url, {}) : null))
+    // Only the tab that was showing loads now. The others load when they are chosen.
+    const made = saved.urls.map((url) => (isWebUrl(url) ? this.create(url, { asleep: true }) : null))
     for (const [index, tab] of made.entries()) {
+      if (!tab) continue
       const parent = saved.parents?.[index]
-      if (tab && typeof parent === 'number') tab.parent = made[parent]?.id ?? null
+      if (typeof parent === 'number') tab.parent = made[parent]?.id ?? null
       const origin = saved.origins?.[index]
-      if (tab && typeof origin === 'string') tab.origin = origin
+      if (typeof origin === 'string') tab.origin = origin
+      const title = saved.titles?.[index]
+      if (typeof title === 'string' && title) tab.title = title
+      const favicon = saved.favicons?.[index]
+      if (typeof favicon === 'string') tab.favicon = favicon
     }
     const target = this.tabs[saved.active]
     if (target) this.activate(target.id)
   }
 
   snapshot(): SavedTabs {
-    const kept = this.tabs.filter((tab) => !tab.pinned && isWebUrl(tab.view.webContents.getURL()))
+    const address = (tab: Tab) => (tab.view ? tab.view.webContents.getURL() : tab.url)
+    const kept = this.tabs.filter((tab) => !tab.pinned && isWebUrl(address(tab)))
     const parents = kept.map((tab) => {
       const index = kept.findIndex((other) => other.id === tab.parent)
       return index < 0 ? null : index
     })
     return {
-      urls: kept.map((tab) => shareUrl(tab.view.webContents.getURL())),
+      urls: kept.map((tab) => shareUrl(address(tab))),
       active: this.tabs.indexOf(this.active),
       parents,
       origins: kept.map((tab) => tab.origin),
+      titles: kept.map((tab) => tab.title),
+      favicons: kept.map((tab) => tab.favicon),
     }
   }
 
@@ -675,21 +714,21 @@ export class Tabs {
   }
 
   back() {
-    const history = this.active.view.webContents.navigationHistory
+    const history = this.page.navigationHistory
     if (history.canGoBack()) history.goBack()
   }
 
   forward() {
-    const history = this.active.view.webContents.navigationHistory
+    const history = this.page.navigationHistory
     if (history.canGoForward()) history.goForward()
   }
 
   reload() {
-    this.active.view.webContents.reload()
+    this.page.reload()
   }
 
   reloadDashboard() {
-    this.dashboard.view.webContents.reload()
+    this.dash.reload()
   }
 
   openExternal() {
@@ -713,7 +752,7 @@ export class Tabs {
   }
 
   toggleDevTools() {
-    this.active.view.webContents.toggleDevTools()
+    this.page.toggleDevTools()
   }
 
   setUpdateReady(ready: boolean) {
@@ -721,19 +760,20 @@ export class Tabs {
     this.publish()
   }
 
-  private create(url: string, options: { pinned?: boolean; after?: Tab; adopt?: WebContents; parent?: number | null; starting?: StartingAgent | null }): Tab {
-    const view = new WebContentsView(options.adopt ? { webContents: options.adopt } : { webPreferences: { session: this.session } })
-    view.setBackgroundColor(this.theme.bg)
-    view.setVisible(false)
+  private create(
+    url: string,
+    options: { pinned?: boolean; after?: Tab; adopt?: WebContents; parent?: number | null; starting?: StartingAgent | null; asleep?: boolean },
+  ): Tab {
     const from = options.parent == null ? null : this.tabs.find((tab) => tab.id === options.parent)
     const origin = prRef(url)?.key ?? (from ? (prRef(from.url)?.key ?? from.origin) : null)
     const tab: Tab = {
       id: this.nextId++,
-      view,
+      view: null,
+      usedAt: Date.now(),
       pinned: options.pinned ?? false,
       title: options.pinned ? 'Pull requests' : url,
       favicon: null,
-      loading: !options.adopt,
+      loading: false,
       url,
       placedUrl: url,
       settled: false,
@@ -744,14 +784,57 @@ export class Tabs {
     }
     const at = options.after ? this.tabs.indexOf(options.after) + 1 : this.tabs.length
     this.tabs.splice(at, 0, tab)
-    this.win.contentView.addChildView(view)
-    this.wire(tab)
-    if (!options.adopt) void view.webContents.loadURL(url).catch(() => undefined)
+    if (!options.asleep) this.awake(tab, options.adopt)
     return tab
   }
 
-  private wire(tab: Tab) {
-    const contents = tab.view.webContents
+  /**
+   * The tab's page. A tab that has none is given one first: the contents Electron made
+   * for it when a page opened it, or its own, loading the address the tab was last on.
+   */
+  private awake(tab: Tab, adopt?: WebContents): WebContentsView {
+    if (tab.view) return tab.view
+    const view = new WebContentsView(adopt ? { webContents: adopt } : { webPreferences: { session: this.session } })
+    view.setBackgroundColor(this.theme.bg)
+    view.setVisible(false)
+    tab.view = view
+    tab.usedAt = Date.now()
+    this.win.contentView.addChildView(view)
+    this.wire(tab, view)
+    if (!adopt) {
+      tab.loading = true
+      void view.webContents.loadURL(tab.url).catch(() => undefined)
+    }
+    return view
+  }
+
+  /** Drops a tab's page and the process behind it. The tab keeps its place, name and address, and loads again when chosen. */
+  private sleep(tab: Tab) {
+    const view = tab.view
+    if (!view) return
+    tab.view = null
+    tab.loading = false
+    this.win.contentView.removeChildView(view)
+    view.webContents.close()
+  }
+
+  // Puts away tabs nobody has looked at for a while. A page that is still loading, starting
+  // an agent, playing sound or being inspected is in use though it is out of sight.
+  private rest() {
+    const now = Date.now()
+    let rested = false
+    for (const tab of this.tabs) {
+      const contents = tab.view?.webContents
+      if (!contents || tab.pinned || tab.id === this.activeId || now - tab.usedAt < REST_AFTER_MS) continue
+      if (tab.loading || tab.starting || !isWebUrl(tab.url) || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) continue
+      this.sleep(tab)
+      rested = true
+    }
+    if (rested) this.publish()
+  }
+
+  private wire(tab: Tab, view: WebContentsView) {
+    const contents = view.webContents
     contents.setWindowOpenHandler(({ url, disposition }) => {
       // The dashboard pairing with T3 Code. There is nothing to look at, so no tab is opened for it.
       if (tab.pinned && isT3PairLink(url)) {
@@ -839,12 +922,14 @@ export class Tabs {
     }
     contents.on('did-navigate', navigated)
     contents.on('did-navigate-in-page', navigated)
-    contents.on('context-menu', (_event, params) => this.contextMenu(tab, params))
-    contents.once('destroyed', () => this.forget(tab.id))
+    contents.on('context-menu', (_event, params) => this.contextMenu(tab, contents, params))
+    // A page put away is destroyed too, and its tab stays.
+    contents.once('destroyed', () => {
+      if (tab.view === view) this.forget(tab.id)
+    })
   }
 
-  private contextMenu(tab: Tab, params: Electron.ContextMenuParams) {
-    const contents = tab.view.webContents
+  private contextMenu(tab: Tab, contents: WebContents, params: Electron.ContextMenuParams) {
     const items: MenuItemConstructorOptions[] = []
     if (isWebUrl(params.linkURL)) {
       items.push(
@@ -874,14 +959,16 @@ export class Tabs {
     const previous = this.active
     if (previous.id !== id) {
       previous.placedUrl = previous.url
+      previous.usedAt = Date.now()
       this.held = []
     }
     this.visited.splice(0, this.visited.length, ...this.visited.filter((item) => item !== id), id)
     this.activeId = id
     this.noteSeen()
-    for (const tab of this.tabs) tab.view.setVisible(tab.id === id)
+    this.awake(this.active)
+    for (const tab of this.tabs) tab.view?.setVisible(tab.id === id)
     this.layout()
-    this.active.view.webContents.focus()
+    this.page.focus()
     this.changed()
   }
 
@@ -889,11 +976,11 @@ export class Tabs {
     const index = this.tabs.findIndex((tab) => tab.id === id)
     const tab = this.tabs[index]
     if (!tab || tab.pinned) return
-    const contents = tab.view.webContents
-    const url = contents.getURL()
+    const contents = tab.view?.webContents
+    const url = contents ? contents.getURL() : tab.url
     if (isWebUrl(url)) this.closed.push(shareUrl(url))
     this.forget(id)
-    contents.close()
+    contents?.close()
   }
 
   /**
@@ -905,11 +992,11 @@ export class Tabs {
     const tab = this.tabs[index]
     if (!tab || tab.pinned) return
     // The window is going, and its pages with it. The tabs are kept as they were saved.
-    if (this.win.isDestroyed() || this.dashboard.view.webContents?.isDestroyed() !== false) return
+    if (this.win.isDestroyed() || this.dashboard.view?.webContents?.isDestroyed() !== false) return
     this.tabs.splice(index, 1)
     for (const other of this.tabs) if (other.parent === id) other.parent = null
     this.visited.splice(0, this.visited.length, ...this.visited.filter((item) => item !== id))
-    this.win.contentView.removeChildView(tab.view)
+    if (tab.view) this.win.contentView.removeChildView(tab.view)
     // Closing a tab goes back to the one looked at before it.
     if (this.activeId === id) this.activate(this.visited.at(-1) ?? (this.tabs[index] ?? this.tabs[index - 1])!.id)
     else this.changed()
@@ -922,9 +1009,10 @@ export class Tabs {
     const left = this.sidebar.open ? Math.round(Math.min(this.sidebar.width * zoom, Math.max(0, width - PAGE_MIN))) : 0
     const top = Math.round(Math.min(STRIP_HEIGHT * zoom, height))
     this.chrome.setBounds({ x: 0, y: 0, width, height })
-    this.active.view.setBounds({ x: left, y: top, width: Math.max(0, width - left), height: Math.max(0, height - top) })
+    const view = this.awake(this.active)
+    view.setBounds({ x: left, y: top, width: Math.max(0, width - left), height: Math.max(0, height - top) })
     // Adding a view that is already there moves it to the front.
-    this.win.contentView.addChildView(this.overlay ? this.chrome : this.active.view)
+    this.win.contentView.addChildView(this.overlay ? this.chrome : view)
   }
 
   private changed() {
@@ -935,7 +1023,7 @@ export class Tabs {
   private publish() {
     if (this.chrome.webContents.isDestroyed()) return
     if (!this.chrome.webContents.isLoading()) this.dockIcon.show(iconState(this.data, this.queue))
-    const contents = this.active.view.webContents
+    const contents = this.page
     const model = this.model()
     this.chrome.webContents.send('state', {
       tabs: model.strip,
